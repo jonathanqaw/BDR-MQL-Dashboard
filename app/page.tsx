@@ -114,7 +114,7 @@ const HISTORICAL_DETAILS: Record<string,Partial<LeadDetail>> = {
   'tradera@historical':           { prospectName:'Emma Carlsson', title:'QA Lead', sourceChannel:'#leads-bot', outreachChannel:'Email', meetingDate:'2026-01-22', sqlDq:'No', multithreading:'Yes' },
   'vidmob@historical':            { prospectName:'Ben Holm', title:'Senior Director of Engineering', sourceChannel:'leads-platform waitlist', outreachChannel:'Email', meetingDate:'2026-01-15', sqlDq:'Yes', sqlDate:'2026-01-27', ae:'Jordan Van Itallie', multithreading:'No', notes:'Moving forward to second meeting 1.27.26' },
   'circlemedical@historical':     { prospectName:'Florian Denu', title:'Senior Software Developer', sourceChannel:'leads-platform waitlist', outreachChannel:'Call', meetingDate:'2026-01-22', sqlDq:'No', multithreading:'Yes', notes:'Declined after checking out webpage' },
-  'nagarro@historical':           { prospectName:'Nishant Thareja', title:'Lead Automation Engineer', sourceChannel:'#leads-bot', outreachChannel:'Call', meetingDate:'2026-02-06', sqlDq:'No', ae:'Scott Wilson' },
+  'nagarro@historical':           { prospectName:'Nishant Thareja', title:'Lead Automation Engineer', sourceChannel:'#leads-bot', outreachChannel:'Call', meetingDate:'2026-02-06', sqlDq:'No', ae:'Ben Barrett' },
   'bloomcoaching@historical':     { prospectName:'Thomas Stevens', title:'Mid Frontend Software Engineer', sourceChannel:'#leads-bot', outreachChannel:'Call', meetingDate:'2026-01-23', sqlDq:'Yes', sqlDate:'2026-01-23', ae:'Stephen Stabile', multithreading:'Yes' },
   'f1arcade@historical':          { prospectName:'Gavin Williams', title:'CTO', sourceChannel:'#growth-wins', outreachChannel:'Email', meetingDate:'2026-01-22', sqlDq:'Yes', sqlDate:'2026-01-22', ae:'Veronika Fischer', multithreading:'No' },
   'pods@historical':              { prospectName:'Randy Withrow', title:'Director Enterprise Applications', sourceChannel:'QA Wolf inbox', outreachChannel:'Email', meetingDate:'2026-01-27', sqlDq:'Yes', sqlDate:'2026-01-29', ae:'Charlie Pie', multithreading:'No', sqo:'Yes', sqoDate:'2026-02-05', acv:'96000', notes:'Received RFP & moving to scope + sample tests' },
@@ -278,14 +278,15 @@ function DetailPanel({lead,detail,onSave,onClose}:{lead:AppLead;detail:LeadDetai
   )
 }
 
-// ─── Simple SVG chart primitives ──────────────────────────────────────────────
-function PieChart({data}:{data:{label:string;value:number;color:string}[]}) {
+// ─── Interactive chart primitives ────────────────────────────────────────────
+function PieChart({data,onSliceClick}:{data:{label:string;value:number;color:string}[];onSliceClick?:(label:string)=>void}) {
+  const [hovered,setHovered]=useState<number|null>(null)
   const total=data.reduce((s,d)=>s+d.value,0)
   if (total===0) return <div style={{textAlign:'center',color:C.text3,fontSize:12,padding:'40px 0'}}>No data for this period</div>
   let angle=-Math.PI/2
-  const slices=data.filter(d=>d.value>0).map(d=>{
+  const slices=data.filter(d=>d.value>0).map((d,i)=>{
     const pct=d.value/total; const start=angle; angle+=pct*2*Math.PI
-    return {...d,pct,start,end:angle}
+    return {...d,pct,start,end:angle,i}
   })
   const arc=(cx:number,cy:number,r:number,start:number,end:number)=>{
     if (end-start>=2*Math.PI-0.001) return `M${cx},${cy-r} A${r},${r},0,1,1,${cx-0.001},${cy-r} Z`
@@ -294,17 +295,41 @@ function PieChart({data}:{data:{label:string;value:number;color:string}[]}) {
     const large=end-start>Math.PI?1:0
     return `M${cx},${cy} L${x1},${y1} A${r},${r},0,${large},1,${x2},${y2} Z`
   }
+  const hov=hovered!==null?slices[hovered]:null
   return (
     <div style={{display:'flex',alignItems:'center',gap:28,flexWrap:'wrap'}}>
-      <svg width={160} height={160} viewBox="0 0 160 160">
-        {slices.map((s,i)=><path key={i} d={arc(80,80,72,s.start,s.end)} fill={s.color} stroke={C.surface} strokeWidth={2}/>)}
-        <circle cx={80} cy={80} r={36} fill={C.surface}/>
-        <text x={80} y={76} textAnchor="middle" fill={C.text} fontSize={22} fontWeight={800}>{total}</text>
-        <text x={80} y={93} textAnchor="middle" fill={C.text3} fontSize={10}>total</text>
+      <svg width={170} height={170} viewBox="0 0 170 170" style={{overflow:'visible'}}>
+        {slices.map((s,i)=>{
+          const isHov=hovered===i
+          const scale=isHov?1.05:1
+          const mid=(s.start+s.end)/2
+          const tx=isHov?Math.cos(mid)*5:0
+          const ty=isHov?Math.sin(mid)*5:0
+          return (
+            <g key={i} transform={`translate(${tx},${ty}) scale(${scale})`} style={{transformOrigin:`85px 85px`,cursor:onSliceClick?'pointer':'default',transition:'transform 0.15s'}}
+               onMouseEnter={()=>setHovered(i)} onMouseLeave={()=>setHovered(null)}
+               onClick={()=>onSliceClick&&onSliceClick(s.label)}>
+              <path d={arc(85,85,76,s.start,s.end)} fill={s.color} stroke={C.surface} strokeWidth={2} opacity={hovered!==null&&!isHov?0.65:1}/>
+            </g>
+          )
+        })}
+        <circle cx={85} cy={85} r={38} fill={C.surface} style={{pointerEvents:'none'}}/>
+        {hov?(
+          <>
+            <text x={85} y={80} textAnchor="middle" fill={hov.color} fontSize={20} fontWeight={800} style={{pointerEvents:'none'}}>{hov.value}</text>
+            <text x={85} y={95} textAnchor="middle" fill={C.text3} fontSize={9} style={{pointerEvents:'none'}}>{hov.label}</text>
+          </>
+        ):(
+          <>
+            <text x={85} y={80} textAnchor="middle" fill={C.text} fontSize={22} fontWeight={800} style={{pointerEvents:'none'}}>{total}</text>
+            <text x={85} y={95} textAnchor="middle" fill={C.text3} fontSize={10} style={{pointerEvents:'none'}}>total</text>
+          </>
+        )}
       </svg>
       <div style={{display:'flex',flexDirection:'column',gap:8}}>
         {slices.map((s,i)=>(
-          <div key={i} style={{display:'flex',alignItems:'center',gap:8}}>
+          <div key={i} onClick={()=>onSliceClick&&onSliceClick(s.label)} onMouseEnter={()=>setHovered(i)} onMouseLeave={()=>setHovered(null)}
+               style={{display:'flex',alignItems:'center',gap:8,cursor:onSliceClick?'pointer':'default',padding:'3px 6px',borderRadius:6,background:hovered===i?'rgba(255,255,255,0.05)':'transparent',transition:'background 0.1s'}}>
             <span style={{width:10,height:10,borderRadius:'50%',background:s.color,flexShrink:0}}/>
             <span style={{fontSize:12,color:C.text2,minWidth:80}}>{s.label}</span>
             <span style={{fontSize:13,fontWeight:700,color:s.color}}>{s.value}</span>
@@ -317,29 +342,36 @@ function PieChart({data}:{data:{label:string;value:number;color:string}[]}) {
 }
 
 function BarChart({bars,title}:{bars:{label:string;values:{status:Status;count:number}[];total:number}[];title:string}) {
+  const [hovered,setHovered]=useState<number|null>(null)
   const maxTotal=Math.max(...bars.map(b=>b.total),1)
   const statuses:Status[]=['new','contacted','booked','nurture','lost','dq']
   return (
     <div>
       <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:14}}>{title}</div>
-      <div style={{display:'flex',alignItems:'flex-end',gap:8,height:140}}>
-        {bars.map((b,i)=>(
-          <div key={i} style={{display:'flex',flexDirection:'column',alignItems:'center',gap:4,flex:1}}>
-            <span style={{fontSize:10,color:C.text3,fontWeight:600}}>{b.total||''}</span>
-            <div style={{width:'100%',display:'flex',flexDirection:'column',justifyContent:'flex-end',height:120,borderRadius:4,overflow:'hidden',background:C.surface3}}>
-              {statuses.map(s=>{
-                const v=b.values.find(x=>x.status===s)?.count||0
-                if (!v) return null
-                const h=Math.round((v/maxTotal)*120)
-                return <div key={s} style={{width:'100%',height:h,background:STATUS_CONFIG[s].color,flexShrink:0}}/>
-              })}
+      <div style={{display:'flex',alignItems:'flex-end',gap:6,height:160}}>
+        {bars.map((b,i)=>{
+          const isHov=hovered===i
+          return (
+            <div key={i} onMouseEnter={()=>setHovered(i)} onMouseLeave={()=>setHovered(null)}
+                 style={{display:'flex',flexDirection:'column',alignItems:'center',gap:4,flex:1,cursor:'default',transition:'opacity 0.15s',opacity:hovered!==null&&!isHov?0.5:1}}>
+              <span style={{fontSize:10,color:isHov?C.text:C.text3,fontWeight:isHov?700:600,transition:'color 0.1s'}}>{b.total||''}</span>
+              <div style={{width:'100%',display:'flex',flexDirection:'column',justifyContent:'flex-end',height:130,borderRadius:4,overflow:'hidden',background:C.surface3,boxShadow:isHov?`0 0 0 1px rgba(255,255,255,0.15)`:undefined,transition:'box-shadow 0.15s'}}>
+                {statuses.map(s=>{
+                  const v=b.values.find(x=>x.status===s)?.count||0
+                  if (!v) return null
+                  const h=Math.round((v/maxTotal)*130)
+                  return (
+                    <div key={s} title={`${STATUS_CONFIG[s].label}: ${v}`}
+                         style={{width:'100%',height:h,background:STATUS_CONFIG[s].color,flexShrink:0,transition:'height 0.2s'}}/>
+                  )
+                })}
+              </div>
+              <span style={{fontSize:9,color:C.text3,whiteSpace:'nowrap',transform:'rotate(-35deg)',transformOrigin:'top center',marginTop:4,display:'block',height:24}}>{b.label}</span>
             </div>
-            <span style={{fontSize:10,color:C.text3,whiteSpace:'nowrap'}}>{b.label}</span>
-          </div>
-        ))}
+          )
+        })}
       </div>
-      {/* Legend */}
-      <div style={{display:'flex',gap:12,marginTop:12,flexWrap:'wrap'}}>
+      <div style={{display:'flex',gap:12,marginTop:20,flexWrap:'wrap'}}>
         {statuses.map(s=>(
           <div key={s} style={{display:'flex',alignItems:'center',gap:4}}>
             <span style={{width:8,height:8,borderRadius:2,background:STATUS_CONFIG[s].color,flexShrink:0}}/>
@@ -413,25 +445,28 @@ export default function Dashboard() {
   const [copied,     setCopied]     = useState<string|null>(null)
   const [expanded,   setExpanded]   = useState<string|null>(null)
   const [chartPeriod,setChartPeriod]= useState<'week'|'month'>('week')
+  const [chartFrom,  setChartFrom]  = useState('')
+  const [chartTo,    setChartTo]    = useState('')
   const [showCreate, setShowCreate] = useState(false)
   const [manualLeads,setManualLeads]= useState<AppLead[]>([])
 
   const getManualLeads=():AppLead[]=>{ try { return JSON.parse(localStorage.getItem('mql-manual')||'[]') } catch { return [] } }
   const saveManualLeads=(leads:AppLead[])=>{ localStorage.setItem('mql-manual',JSON.stringify(leads)) }
 
-  // Seed historical statuses & details into localStorage on first load
+  // Version-based reseed — bump DATA_VERSION whenever historical data changes to force a refresh
+  const DATA_VERSION='v4'
   useEffect(()=>{
-    const st=getSt(); const dt=getDetails(); let stDirty=false; let dtDirty=false
+    const seeded=localStorage.getItem('mql-seeded-version')
+    const st=getSt(); const dt=getDetails()
+    // Always reseed if version mismatch — overwrites stale data
+    const forceReseed=seeded!==DATA_VERSION
     HISTORICAL_LEADS.forEach(l=>{
-      if (!st[l.email]) { st[l.email]=HISTORICAL_STATUSES[l.email]||'new'; stDirty=true }
-      if (!dt[l.email]) {
-        const hd=HISTORICAL_DETAILS[l.email]||{}
-        dt[l.email]={...EMPTY_DETAIL,...hd}
-        dtDirty=true
-      }
+      if (forceReseed||!st[l.email]) st[l.email]=HISTORICAL_STATUSES[l.email]||'new'
+      if (forceReseed||!dt[l.email]) dt[l.email]={...EMPTY_DETAIL,...(HISTORICAL_DETAILS[l.email]||{})}
     })
-    if (stDirty) localStorage.setItem('mql-st',JSON.stringify(st))
-    if (dtDirty) localStorage.setItem('mql-dt',JSON.stringify(dt))
+    localStorage.setItem('mql-st',JSON.stringify(st))
+    localStorage.setItem('mql-dt',JSON.stringify(dt))
+    if (forceReseed) localStorage.setItem('mql-seeded-version',DATA_VERSION)
     setManualLeads(getManualLeads())
   },[])
 
@@ -506,12 +541,14 @@ export default function Dashboard() {
     .map(s=>({label:STATUS_CONFIG[s].label,value:allLeads.filter(l=>(statuses[l.email]||'new')===s).length,color:STATUS_CONFIG[s].color}))
     .filter(d=>d.value>0)
 
-  // Bar: group leads by week or month, stacked by status
+  // Bar: group leads by week or month, stacked by status, with optional date range filter
   const buildBars=(groupBy:'week'|'month')=>{
     const groups=new Map<string,{label:string;date:Date;byStatus:Record<Status,number>}>()
     allLeads.forEach(l=>{
       if (!l.receivedAt) return
       const d=new Date(l.receivedAt)
+      if (chartFrom && d < new Date(chartFrom)) return
+      if (chartTo   && d > new Date(chartTo+'T23:59:59')) return
       const key=groupBy==='week'?getWeekLabel(d):getMonthLabel(d)
       if (!groups.has(key)) groups.set(key,{label:key,date:d,byStatus:{new:0,contacted:0,booked:0,nurture:0,lost:0,dq:0,na:0}})
       const s=statuses[l.email]||'new'
@@ -519,7 +556,7 @@ export default function Dashboard() {
     })
     return Array.from(groups.values())
       .sort((a,b)=>a.date.getTime()-b.date.getTime())
-      .slice(-12)
+      .slice(-24)
       .map(g=>({
         label:g.label,
         total:Object.values(g.byStatus).reduce((s,v)=>s+v,0),
@@ -795,27 +832,40 @@ export default function Dashboard() {
           <div style={{display:'grid',gridTemplateColumns:'1fr 2fr',gap:16,marginBottom:24}}>
             {/* Pie */}
             <div style={card}>
-              <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:16}}>Status breakdown · all time</div>
-              <PieChart data={pieData}/>
+              <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:16}}>Status breakdown · all time · click a slice to filter</div>
+              <PieChart data={pieData} onSliceClick={(label)=>{
+                const s=(Object.keys(STATUS_CONFIG) as Status[]).find(k=>STATUS_CONFIG[k].label===label)
+                if (s) { setView('pipeline'); setStFilter(s); setPeriod('all') }
+              }}/>
             </div>
 
             {/* Bar */}
             <div style={card}>
-              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:16}}>
+              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12,flexWrap:'wrap',gap:8}}>
                 <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em'}}>Leads over time</div>
-                <div style={{display:'flex',gap:5}}>
+                <div style={{display:'flex',gap:5,alignItems:'center',flexWrap:'wrap'}}>
                   {(['week','month'] as const).map(p=>(
                     <button key={p} onClick={()=>setChartPeriod(p)} style={filterPill(chartPeriod===p)}>{{week:'Week over week',month:'Month over month'}[p]}</button>
                   ))}
                 </div>
               </div>
+              {/* Date range filter */}
+              <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:14,flexWrap:'wrap'}}>
+                <span style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em'}}>From</span>
+                <input type="date" value={chartFrom} onChange={e=>setChartFrom(e.target.value)} style={{fontSize:11,padding:'4px 8px',border:`1px solid ${C.border2}`,borderRadius:6,background:C.surface3,color:C.text2,outline:'none'}}/>
+                <span style={{fontSize:11,color:C.text3}}>→</span>
+                <input type="date" value={chartTo} onChange={e=>setChartTo(e.target.value)} style={{fontSize:11,padding:'4px 8px',border:`1px solid ${C.border2}`,borderRadius:6,background:C.surface3,color:C.text2,outline:'none'}}/>
+                {(chartFrom||chartTo)&&<button onClick={()=>{setChartFrom('');setChartTo('')}} style={{fontSize:10,fontWeight:600,color:C.text3,background:'none',border:'none',cursor:'pointer',padding:'2px 6px'}}>✕ Clear</button>}
+              </div>
               <BarChart bars={buildBars(chartPeriod)} title={chartPeriod==='week'?'Weekly lead volume':'Monthly lead volume'}/>
             </div>
           </div>
 
-          {/* DQ / Nurture / Lost breakdown */}
+          {/* DQ / Nurture / Lost breakdown — clickable */}
           <div style={card}>
-            <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:16}}>Leads needing attention</div>
+            <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:16}}>
+              Leads needing attention · <span style={{fontWeight:400,textTransform:'none',letterSpacing:'normal'}}>click to open</span>
+            </div>
             <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12}}>
               {(['nurture','lost','dq'] as Status[]).map(s=>{
                 const leads=allLeads.filter(l=>(statuses[l.email]||'new')===s)
@@ -826,16 +876,32 @@ export default function Dashboard() {
                       <span style={{width:8,height:8,borderRadius:'50%',background:cfg.color}}/>
                       <span style={{fontSize:12,fontWeight:700,color:cfg.color}}>{cfg.label} · {leads.length}</span>
                     </div>
-                    {leads.slice(0,4).map(l=>{
+                    {leads.slice(0,6).map(l=>{
                       const det=details[l.email]
+                      const sfLink=l.sfUrl||det?.sfLink
+                      const displayName=l.account||det?.prospectName||formatDomain(l.domain)
                       return (
-                        <div key={l.email} style={{fontSize:11,color:C.text2,padding:'4px 0',borderBottom:`1px solid ${C.border}`}}>
-                          {l.account||det?.prospectName||l.domain}
-                          {det?.ae&&<span style={{color:C.text3,marginLeft:6}}>· {det.ae}</span>}
+                        <div key={l.email} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'5px 0',borderBottom:`1px solid ${C.border}`,gap:6}}>
+                          <div style={{display:'flex',flexDirection:'column',minWidth:0}}>
+                            <span style={{fontSize:11,color:C.text2,fontWeight:500,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{displayName}</span>
+                            {det?.ae&&<span style={{fontSize:10,color:C.text3}}>{det.ae}</span>}
+                          </div>
+                          <div style={{display:'flex',gap:5,flexShrink:0}}>
+                            {sfLink&&(
+                              <a href={sfLink} target="_blank" rel="noopener noreferrer"
+                                 style={{fontSize:10,fontWeight:600,padding:'2px 7px',borderRadius:999,border:`1px solid ${C.green}`,background:'rgba(0,229,160,0.1)',color:C.green,textDecoration:'none',whiteSpace:'nowrap'}}>
+                                ↗ SF
+                              </a>
+                            )}
+                            <button onClick={()=>{setView('pipeline');setExpanded(l.email);setStFilter(s)}}
+                                    style={{fontSize:10,fontWeight:600,padding:'2px 7px',borderRadius:999,border:`1px solid ${cfg.border}`,background:cfg.dim,color:cfg.color,cursor:'pointer',whiteSpace:'nowrap'}}>
+                              View
+                            </button>
+                          </div>
                         </div>
                       )
                     })}
-                    {leads.length>4&&<div style={{fontSize:10,color:C.text3,marginTop:6}}>+{leads.length-4} more</div>}
+                    {leads.length>6&&<div style={{fontSize:10,color:C.text3,marginTop:6}}>+{leads.length-6} more · <button onClick={()=>{setView('pipeline');setStFilter(s)}} style={{fontSize:10,color:cfg.color,background:'none',border:'none',cursor:'pointer',padding:0}}>view all</button></div>}
                   </div>
                 )
               })}
