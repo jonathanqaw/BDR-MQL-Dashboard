@@ -5,7 +5,7 @@ import React from 'react'
 import type { Lead } from '@/lib/slack'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type Status       = 'new' | 'contacted' | 'booked' | 'nurture' | 'lost' | 'na' | 'dq' | 'inprogress'
+type Status       = 'new' | 'contacted' | 'booked' | 'nurture' | 'lost' | 'na' | 'dq' | 'inprogress' | 'hqmql' | 'lqmql'
 type View         = 'pipeline' | 'analytics'
 type PeriodFilter = 'week' | 'month' | 'quarter' | 'all'
 type WorkedFilter = 'all' | 'worked' | 'untouched'
@@ -145,14 +145,16 @@ const STATUS_CONFIG: Record<Status,{label:string;color:string;dim:string;border:
   contacted:  {label:'Contacted',   color:'#a89cf8',                dim:'rgba(123,110,246,0.18)', border:'rgba(123,110,246,0.4)'},
   inprogress: {label:'In Progress', color:'#60a5fa',                dim:'rgba(96,165,250,0.15)',  border:'rgba(96,165,250,0.35)'},
   booked:     {label:'Booked',      color:'#00e5a0',                dim:'rgba(0,229,160,0.15)',   border:'rgba(0,229,160,0.35)'},
-  nurture:    {label:'Nurture',     color:'#f5a623',                dim:'rgba(245,166,35,0.15)',  border:'rgba(245,166,35,0.35)'},
+  hqmql:      {label:'HQ MQL',      color:'#f5a623',                dim:'rgba(245,166,35,0.18)', border:'rgba(245,166,35,0.45)'},
+  lqmql:      {label:'LQ MQL',      color:'#fb923c',                dim:'rgba(251,146,60,0.15)', border:'rgba(251,146,60,0.4)'},
+  nurture:    {label:'Nurture',     color:'#e879f9',                dim:'rgba(232,121,249,0.15)', border:'rgba(232,121,249,0.35)'},
   lost:       {label:'Lost',        color:'#ff5c5c',                dim:'rgba(255,92,92,0.12)',   border:'rgba(255,92,92,0.35)'},
   dq:         {label:"DQ'd",        color:'#ff5c5c',                dim:'rgba(255,92,92,0.12)',   border:'rgba(255,92,92,0.35)'},
   na:         {label:'N/A',         color:'rgba(255,255,255,0.25)', dim:'rgba(255,255,255,0.06)', border:'rgba(255,255,255,0.1)'},
 }
 const STRIPE: Record<Status,string> = {
   new:'#322e60', contacted:'#7b6ef6', inprogress:'#3b82f6', booked:'#00e5a0',
-  nurture:'#f5a623', lost:'#ff5c5c', dq:'#ff5c5c', na:'#1c1840'
+  hqmql:'#f5a623', lqmql:'#fb923c', nurture:'#e879f9', lost:'#ff5c5c', dq:'#ff5c5c', na:'#1c1840'
 }
 const C = {
   bg:'#13102a', surface:'#1c1840', surface2:'#231f4a', surface3:'#2a2654',
@@ -607,7 +609,7 @@ function BarChart({bars,title,statuses:stMap,details:dets,onViewLead}:{
   const [hovered,setHovered]=useState<number|null>(null)
   const [selected,setSelected]=useState<number|null>(null)
   const maxTotal=Math.max(...bars.map(b=>b.total),1)
-  const stOrder:Status[]=['new','contacted','inprogress','booked','nurture','lost','dq','na']
+  const stOrder:Status[]=['new','contacted','inprogress','booked','hqmql','lqmql','nurture','lost','dq','na']
 
   const selectedBar=selected!==null?bars[selected]:null
 
@@ -730,50 +732,96 @@ function BarChart({bars,title,statuses:stMap,details:dets,onViewLead}:{
   )
 }
 
-// ─── MQL Quality Chart (from Notion manual tracker) ──────────────────────────
+// ─── MQL Quality Chart ────────────────────────────────────────────────────────
+// Historical Notion data covers Mar 21–Apr 1. From Apr 2 onward the chart reads
+// live from pipeline statuses: hqmql=HQ, lqmql=LQ, new/dq/na=DQ (didn't pursue).
 const NOTION_MQL_DATA = [
-  { date:'Mar 21', dq:5,  hq:0, lq:0 },
-  { date:'Mar 22', dq:2,  hq:0, lq:0 },
-  { date:'Mar 23', dq:7,  hq:0, lq:0 },
-  { date:'Mar 24', dq:10, hq:0, lq:0 },
-  { date:'Mar 25', dq:9,  hq:1, lq:2 },
-  { date:'Mar 26', dq:12, hq:1, lq:2 },
-  { date:'Mar 27', dq:10, hq:0, lq:0 },
-  { date:'Mar 28', dq:7,  hq:0, lq:0 },
-  { date:'Mar 29', dq:1,  hq:0, lq:1 },
-  { date:'Mar 30', dq:19, hq:0, lq:0 },
-  { date:'Mar 31', dq:9,  hq:0, lq:1 },
-  { date:'Apr 1',  dq:10, hq:0, lq:0 },
+  { date:'Mar 21', iso:'2026-03-21', dq:5,  hq:0, lq:0 },
+  { date:'Mar 22', iso:'2026-03-22', dq:2,  hq:0, lq:0 },
+  { date:'Mar 23', iso:'2026-03-23', dq:7,  hq:0, lq:0 },
+  { date:'Mar 24', iso:'2026-03-24', dq:10, hq:0, lq:0 },
+  { date:'Mar 25', iso:'2026-03-25', dq:9,  hq:1, lq:2 },
+  { date:'Mar 26', iso:'2026-03-26', dq:12, hq:1, lq:2 },
+  { date:'Mar 27', iso:'2026-03-27', dq:10, hq:0, lq:0 },
+  { date:'Mar 28', iso:'2026-03-28', dq:7,  hq:0, lq:0 },
+  { date:'Mar 29', iso:'2026-03-29', dq:1,  hq:0, lq:1 },
+  { date:'Mar 30', iso:'2026-03-30', dq:19, hq:0, lq:0 },
+  { date:'Mar 31', iso:'2026-03-31', dq:9,  hq:0, lq:1 },
+  { date:'Apr 1',  iso:'2026-04-01', dq:10, hq:0, lq:0 },
 ]
+// Live tracking starts Apr 2 — statuses drive quality classification
+const LIVE_QUALITY_START = '2026-04-02'
 
-function MQLQualityChart() {
+function MQLQualityChart({allLeads,statuses}:{allLeads:AppLead[];statuses:Record<string,Status>}) {
   const [hovered, setHovered] = useState<number|null>(null)
-  const maxTotal = Math.max(...NOTION_MQL_DATA.map(d=>d.dq+d.hq+d.lq), 1)
   const barH = 120
 
-  // Week boundaries for reference lines
-  const week1End = 1  // Mar 21-22 = 2 days (Mon Mar 23 starts week)
-  const week2End = 8  // Mar 23-29
+  // Build live days from Apr 2 onward grouped by receivedAt date
+  const liveDayMap = new Map<string,{dq:number;hq:number;lq:number}>()
+  allLeads.forEach(l=>{
+    if (!l.receivedAt) return
+    const iso = l.receivedAt.slice(0,10)
+    if (iso < LIVE_QUALITY_START) return
+    if (!liveDayMap.has(iso)) liveDayMap.set(iso,{dq:0,hq:0,lq:0})
+    const s = statuses[l.email]||'new'
+    const entry = liveDayMap.get(iso)!
+    if (s==='hqmql') entry.hq++
+    else if (s==='lqmql') entry.lq++
+    else entry.dq++ // new, dq, na, contacted, etc — all count as DQ until tagged
+  })
+
+  // Sort live days and build display entries
+  const liveDays = Array.from(liveDayMap.entries())
+    .sort(([a],[b])=>a.localeCompare(b))
+    .map(([iso,counts])=>{
+      const d = new Date(iso+'T12:00:00')
+      const label = d.toLocaleDateString('en-US',{month:'short',day:'numeric'})
+      return {date:label, iso, ...counts, isLive:true}
+    })
+
+  // Combine: historical Notion data + live days
+  const allDays = [
+    ...NOTION_MQL_DATA.map(d=>({...d, isLive:false})),
+    ...liveDays,
+  ]
+
+  // Compute weekly buckets dynamically
+  const weekBuckets: {label:string; days:typeof allDays}[] = []
+  allDays.forEach(d=>{
+    const dt = new Date(d.iso+'T12:00:00')
+    // Week starts Monday
+    const dow = (dt.getDay()+6)%7
+    const mon = new Date(dt); mon.setDate(dt.getDate()-dow)
+    const key = mon.toLocaleDateString('en-US',{month:'short',day:'numeric'})
+    const existing = weekBuckets.find(w=>w.label===`Wk ${key}`)
+    if (existing) existing.days.push(d)
+    else weekBuckets.push({label:`Wk ${key}`, days:[d]})
+  })
+
+  const maxTotal = Math.max(...allDays.map(d=>d.dq+d.hq+d.lq), 1)
+
+  // Week boundary indices for divider lines
+  const dividers: number[] = []
+  let count = 0
+  weekBuckets.forEach((w,i)=>{ count+=w.days.length; if(i<weekBuckets.length-1) dividers.push(count) })
 
   return (
     <div>
-      <div style={{display:'flex',alignItems:'flex-end',gap:6,height:barH+40,position:'relative'}}>
-        {/* Reference line annotations */}
+      <div style={{display:'flex',alignItems:'flex-end',gap:4,height:barH+40,position:'relative'}}>
+        {/* Week dividers */}
         <div style={{position:'absolute',left:0,right:0,top:0,height:barH,pointerEvents:'none'}}>
-          {/* Week dividers */}
-          {[2, 9].map((idx,i)=>{
-            const pct = (idx / NOTION_MQL_DATA.length) * 100
+          {dividers.map((idx,i)=>{
+            const pct=(idx/allDays.length)*100
+            const label=weekBuckets[i+1]?.label||''
             return (
-              <div key={i} style={{position:'absolute',left:`${pct}%`,top:0,bottom:0,borderLeft:`1px dashed rgba(255,255,255,0.1)`,display:'flex',alignItems:'flex-start'}}>
-                <span style={{fontSize:8,color:C.text3,background:C.bg,padding:'1px 3px',whiteSpace:'nowrap',marginLeft:2}}>
-                  {i===0?'Wk Mar 23':'Wk Mar 30'}
-                </span>
+              <div key={i} style={{position:'absolute',left:`${pct}%`,top:0,bottom:0,borderLeft:`1px dashed rgba(255,255,255,0.1)`}}>
+                <span style={{fontSize:8,color:C.text3,background:C.bg,padding:'1px 3px',whiteSpace:'nowrap',marginLeft:2,display:'block'}}>{label}</span>
               </div>
             )
           })}
         </div>
 
-        {NOTION_MQL_DATA.map((d,i)=>{
+        {allDays.map((d,i)=>{
           const total=d.dq+d.hq+d.lq
           const isHov=hovered===i
           const dqH=Math.round((d.dq/maxTotal)*barH)
@@ -782,53 +830,68 @@ function MQLQualityChart() {
           return (
             <div key={i} onMouseEnter={()=>setHovered(i)} onMouseLeave={()=>setHovered(null)}
                  style={{display:'flex',flexDirection:'column',alignItems:'center',gap:0,flex:1,cursor:'default',transition:'opacity 0.15s',opacity:hovered!==null&&!isHov?0.4:1,position:'relative'}}>
-              {/* Tooltip */}
               {isHov&&(
                 <div style={{position:'absolute',bottom:barH+10,left:'50%',transform:'translateX(-50%)',background:C.surface,border:`1px solid ${C.border2}`,borderRadius:6,padding:'6px 10px',zIndex:10,whiteSpace:'nowrap',boxShadow:'0 4px 12px rgba(0,0,0,0.4)'}}>
-                  <div style={{fontSize:11,fontWeight:700,color:C.text,marginBottom:4}}>{d.date} · {total} total</div>
-                  <div style={{fontSize:10,color:C.red}}>DQ: {d.dq}</div>
-                  {d.hq>0&&<div style={{fontSize:10,color:C.amber}}>HQ: {d.hq}</div>}
-                  {d.lq>0&&<div style={{fontSize:10,color:'#60a5fa'}}>LQ: {d.lq}</div>}
+                  <div style={{fontSize:11,fontWeight:700,color:C.text,marginBottom:4}}>
+                    {d.date} · {total} total
+                    {'isLive' in d&&d.isLive&&<span style={{fontSize:9,color:C.green,marginLeft:6,fontWeight:400}}>● live</span>}
+                  </div>
+                  <div style={{fontSize:10,color:C.red}}>DQ / untagged: {d.dq}</div>
+                  {d.hq>0&&<div style={{fontSize:10,color:C.amber}}>HQ MQL: {d.hq}</div>}
+                  {d.lq>0&&<div style={{fontSize:10,color:'#fb923c'}}>LQ MQL: {d.lq}</div>}
+                  {'isLive' in d&&d.isLive&&d.dq>0&&<div style={{fontSize:9,color:C.text3,marginTop:3}}>Tag leads HQ/LQ MQL in pipeline to refine</div>}
                 </div>
               )}
               <span style={{fontSize:10,color:isHov?C.text:C.text3,fontWeight:isHov?700:400,marginBottom:3}}>{total||''}</span>
-              <div style={{width:'100%',height:barH,display:'flex',flexDirection:'column',justifyContent:'flex-end',borderRadius:4,overflow:'hidden',background:C.surface3,boxShadow:isHov?`0 0 0 1.5px ${C.purple}`:undefined,transition:'box-shadow 0.15s'}}>
-                {/* Stack: DQ bottom, LQ middle, HQ top */}
+              <div style={{width:'100%',height:barH,display:'flex',flexDirection:'column',justifyContent:'flex-end',
+                           borderRadius:4,overflow:'hidden',background:C.surface3,
+                           boxShadow:isHov?`0 0 0 1.5px ${'isLive' in d&&d.isLive?C.green:C.purple}`:undefined,
+                           transition:'box-shadow 0.15s',
+                           outline:'isLive' in d&&d.isLive?`1px solid rgba(0,229,160,0.2)`:'none'}}>
                 {dqH>0&&<div style={{width:'100%',height:dqH,background:C.red,flexShrink:0}}/>}
-                {lqH>0&&<div style={{width:'100%',height:lqH,background:'#60a5fa',flexShrink:0}}/>}
+                {lqH>0&&<div style={{width:'100%',height:lqH,background:'#fb923c',flexShrink:0}}/>}
                 {hqH>0&&<div style={{width:'100%',height:hqH,background:C.amber,flexShrink:0}}/>}
               </div>
-              <span style={{fontSize:8,color:isHov?C.purpleL:C.text3,whiteSpace:'nowrap',transform:'rotate(-35deg)',transformOrigin:'top center',marginTop:4,display:'block',height:22,fontWeight:isHov?700:400}}>{d.date}</span>
+              <span style={{fontSize:8,color:isHov?('isLive' in d&&d.isLive?C.green:C.purpleL):C.text3,
+                            whiteSpace:'nowrap',transform:'rotate(-35deg)',transformOrigin:'top center',
+                            marginTop:4,display:'block',height:22,fontWeight:isHov?700:400}}>{d.date}</span>
             </div>
           )
         })}
       </div>
 
-      {/* Week totals summary */}
-      <div style={{display:'flex',gap:16,marginTop:16,flexWrap:'wrap'}}>
-        {[
-          {label:'Week Mar 21–22', data:NOTION_MQL_DATA.slice(0,2)},
-          {label:'Week Mar 23–29', data:NOTION_MQL_DATA.slice(2,9)},
-          {label:'Week Mar 30–Apr 1', data:NOTION_MQL_DATA.slice(9,12)},
-        ].map(w=>{
-          const dq=w.data.reduce((s,d)=>s+d.dq,0)
-          const hq=w.data.reduce((s,d)=>s+d.hq,0)
-          const lq=w.data.reduce((s,d)=>s+d.lq,0)
+      {/* Weekly summary tiles */}
+      <div style={{display:'flex',gap:10,marginTop:16,flexWrap:'wrap'}}>
+        {weekBuckets.map(w=>{
+          const dq=w.days.reduce((s,d)=>s+d.dq,0)
+          const hq=w.days.reduce((s,d)=>s+d.hq,0)
+          const lq=w.days.reduce((s,d)=>s+d.lq,0)
           const total=dq+hq+lq
+          const hasLive=w.days.some(d=>'isLive' in d&&d.isLive)
           return (
-            <div key={w.label} style={{background:C.surface3,borderRadius:7,padding:'10px 14px',flex:1,minWidth:160}}>
-              <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:6}}>{w.label}</div>
+            <div key={w.label} style={{background:C.surface3,borderRadius:7,padding:'10px 14px',flex:1,minWidth:140,border:`1px solid ${hasLive?'rgba(0,229,160,0.2)':C.border}`}}>
+              <div style={{fontSize:10,fontWeight:700,color:hasLive?C.green:C.text3,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:6}}>
+                {w.label}{hasLive&&<span style={{fontWeight:400,marginLeft:4}}>· live</span>}
+              </div>
               <div style={{fontSize:20,fontWeight:800,color:C.text,letterSpacing:'-0.02em',marginBottom:4}}>{total} <span style={{fontSize:11,color:C.text3,fontWeight:400}}>total</span></div>
-              <div style={{display:'flex',gap:8,fontSize:11}}>
+              <div style={{display:'flex',gap:8,fontSize:11,flexWrap:'wrap'}}>
                 <span style={{color:C.red}}>DQ {dq}</span>
                 {hq>0&&<span style={{color:C.amber}}>HQ {hq}</span>}
-                {lq>0&&<span style={{color:'#60a5fa'}}>LQ {lq}</span>}
+                {lq>0&&<span style={{color:'#fb923c'}}>LQ {lq}</span>}
                 {total>0&&<span style={{color:C.text3}}>{Math.round(((hq+lq)/total)*100)}% qualified</span>}
               </div>
             </div>
           )
         })}
       </div>
+
+      {/* Live tracking callout */}
+      {liveDays.length>0&&(
+        <div style={{marginTop:12,fontSize:11,color:C.text3,display:'flex',alignItems:'center',gap:6}}>
+          <span style={{width:8,height:8,borderRadius:'50%',background:C.green,display:'inline-block',flexShrink:0}}/>
+          Live data from Apr 2 onward. Tag leads <strong style={{color:C.amber}}>HQ MQL</strong> or <strong style={{color:'#fb923c'}}>LQ MQL</strong> in the pipeline status dropdown to classify them. Untagged leads count as DQ.
+        </div>
+      )}
     </div>
   )
 }
@@ -1013,7 +1076,7 @@ export default function Dashboard() {
       if (chartFrom && d < new Date(chartFrom)) return
       if (chartTo   && d > new Date(chartTo+'T23:59:59')) return
       const key=groupBy==='week'?getWeekLabel(d):getMonthLabel(d)
-      if (!groups.has(key)) groups.set(key,{label:key,date:d,byStatus:{new:0,contacted:0,inprogress:0,booked:0,nurture:0,lost:0,dq:0,na:0},leads:[]})
+      if (!groups.has(key)) groups.set(key,{label:key,date:d,byStatus:{new:0,contacted:0,inprogress:0,booked:0,hqmql:0,lqmql:0,nurture:0,lost:0,dq:0,na:0},leads:[]})
       const s=statuses[l.email]||'new'
       groups.get(key)!.byStatus[s]++
       groups.get(key)!.leads.push(l)
@@ -1356,7 +1419,7 @@ export default function Dashboard() {
                 <div style={{fontSize:11,color:C.text3,marginTop:3}}>From your manual Notion tracker · Mar 21 – Apr 1 · <span style={{color:C.amber}}>HQ = squarely ICP</span> · <span style={{color:'#60a5fa'}}>LQ = partial ICP</span> · <span style={{color:C.red}}>DQ = disqualified</span></div>
               </div>
               <div style={{display:'flex',gap:12,alignItems:'center'}}>
-                {[{label:'HQ MQLs',color:C.amber},{label:'LQ MQLs',color:'#60a5fa'},{label:'DQ',color:C.red}].map(l=>(
+                {[{label:'HQ MQL',color:C.amber},{label:'LQ MQL',color:'#fb923c'},{label:'DQ / untagged',color:C.red}].map(l=>(
                   <div key={l.label} style={{display:'flex',alignItems:'center',gap:5}}>
                     <span style={{width:8,height:8,borderRadius:2,background:l.color,flexShrink:0}}/>
                     <span style={{fontSize:10,color:C.text3}}>{l.label}</span>
@@ -1364,7 +1427,7 @@ export default function Dashboard() {
                 ))}
               </div>
             </div>
-            <MQLQualityChart/>
+            <MQLQualityChart allLeads={allLeads} statuses={statuses}/>
           </div>
 
           {/* DQ / Nurture / Lost breakdown — clickable */}
