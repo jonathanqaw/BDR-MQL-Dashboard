@@ -5,7 +5,7 @@ import React from 'react'
 import type { Lead } from '@/lib/slack'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type Status       = 'new' | 'contacted' | 'booked' | 'nurture' | 'lost' | 'na' | 'dq' | 'inprogress'
+type Status       = 'new' | 'contacted' | 'booked' | 'nurture' | 'lost' | 'na' | 'dq' | 'inprogress' | 'hqmql' | 'lqmql'
 type View         = 'pipeline' | 'analytics'
 type PeriodFilter = 'week' | 'month' | 'quarter' | 'all'
 type WorkedFilter = 'all' | 'worked' | 'untouched'
@@ -16,7 +16,6 @@ interface LeadDetail {
   connectedDate: string; meetingDate: string; nextStep: string; nextStepStatus: string
   sqlDq: string; sqlDate: string; ae: string; multithreading: string
   sqo: string; sqoDate: string; acv: string; notes: string; sfLink: string
-  mqlQuality: string  // '' | 'hq' | 'lq' | 'dq'
 }
 interface AppLead extends Lead {
   isHistorical?: boolean
@@ -27,8 +26,7 @@ interface AppLead extends Lead {
 const EMPTY_DETAIL: LeadDetail = {
   prospectName:'', title:'', sourceChannel:'', outreachChannel:'',
   connectedDate:'', meetingDate:'', nextStep:'', nextStepStatus:'',
-  sqlDq:'', sqlDate:'', ae:'', multithreading:'', sqo:'', sqoDate:'', acv:'', notes:'', sfLink:'',
-  mqlQuality:''
+  sqlDq:'', sqlDate:'', ae:'', multithreading:'', sqo:'', sqoDate:'', acv:'', notes:'', sfLink:''
 }
 
 // ─── Historical records from spreadsheet ─────────────────────────────────────
@@ -141,50 +139,14 @@ const HISTORICAL_DETAILS: Record<string,Partial<LeadDetail>> = {
   'productleague@historical':     { prospectName:'Ingmar van Oostrum', title:'QA Manager & Operations Lead', sourceChannel:'#growth-wins', outreachChannel:'Email', meetingDate:'2026-04-07', ae:'Jordan Van Itallie', multithreading:'Yes', nextStepStatus:'Waiting for AE' },
 }
 
-// ─── SF links baked in from Slack — permanent fallback so they survive cache clears ──
-const LIVE_SF_LINKS: Record<string,string> = {
-  'naoufel.razouane@symdrik.com':       'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WKSYn2AP/view',
-  'hassan@raspire.com':                  'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WIr6i2AD/view',
-  'tori@portfolioxpressway.com':         'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WIPtb2AH/view',
-  'mahmut.cemrek@hesap.com':             'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WINer2AH/view',
-  'cleo@futureholidays.co':              'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WI1862AD/view',
-  'petersons@reninc.com':                'https://qawolf1.lightning.force.com/lightning/r/Contact/003PA00000ZIU9yYAH/view',
-  'bhollenbeck@guardiandd.com':          'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WCFYk2AP/view',
-  'aleksa.jankovic@freetrade.io':        'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WGQs92AH/view',
-  'chad@blueyard.com':                   'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WHPE52AP/view',
-  'oladapo.olasunkanmi@machineslikeme.com': 'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WHORh2AP/view',
-  'javeria@erlystage.com':               'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WHA702AH/view',
-  'ethan@piastech.com':                  'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WH58v2AD/view',
-  'abdullah@connexease.com':             'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WG9Uj2AL/view',
-  'arun.kumar1@forcepoint.com':          'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WFbuV2AT/view',
-  'support@nursenest.ca':                'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WFbRS2A1/view',
-  'csd@reach52.com':                     'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WFONm2AP/view',
-  'bharden@northcapital.com':            'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WFMDu2AP/view',
-  'jochen@norento.com':                  'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WDW4U2AX/view',
-  'ernest.lam@dvcorporate.com':          'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WDCSL2A5/view',
-  'diana.lang.ext@bureauveritas.com':    'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WHCdR2AX/view',
-}
-
-// ─── Prospect names recovered from chilinbot DMs ─────────────────────────────
-const LIVE_PROSPECT_NAMES: Record<string,string> = {
-  'naoufel.razouane@symdrik.com':           'Naoufel Razouane',
-  'hassan@raspire.com':                      'Hassan Mostafa',
-  'cleo@futureholidays.co':                  'Cleo Hissatugu',
-  'chad@blueyard.com':                       'Chad Fowler',
-  'oladapo.olasunkanmi@machineslikeme.com':  'Oladapo Olasunkanmi',
-  'javeria@erlystage.com':                   'Javeria Nasir',
-  'bhollenbeck@guardiandd.com':              'Brett Hollenbeck',
-  'aleksa.jankovic@freetrade.io':            'Aleksa Jankovic',
-  'abdullah@connexease.com':                 'Abdullah Külcü',
-  'bharden@northcapital.com':                'Benjamin Harden',
-  'alice.porcu@check24.de':                  'Alice Porcu',
-  'jochen@norento.com':                      'Jochen Norento',
-}
+// ─── Status config ────────────────────────────────────────────────────────────
 const STATUS_CONFIG: Record<Status,{label:string;color:string;dim:string;border:string}> = {
   new:        {label:'New',         color:'rgba(255,255,255,0.38)', dim:'#2a2654',               border:'rgba(255,255,255,0.13)'},
   contacted:  {label:'Contacted',   color:'#a89cf8',                dim:'rgba(123,110,246,0.18)', border:'rgba(123,110,246,0.4)'},
   inprogress: {label:'In Progress', color:'#60a5fa',                dim:'rgba(96,165,250,0.15)',  border:'rgba(96,165,250,0.35)'},
   booked:     {label:'Booked',      color:'#00e5a0',                dim:'rgba(0,229,160,0.15)',   border:'rgba(0,229,160,0.35)'},
+  hqmql:      {label:'HQ MQL',      color:'#f5a623',                dim:'rgba(245,166,35,0.18)', border:'rgba(245,166,35,0.45)'},
+  lqmql:      {label:'LQ MQL',      color:'#fb923c',                dim:'rgba(251,146,60,0.15)', border:'rgba(251,146,60,0.4)'},
   nurture:    {label:'Nurture',     color:'#e879f9',                dim:'rgba(232,121,249,0.15)', border:'rgba(232,121,249,0.35)'},
   lost:       {label:'Lost',        color:'#ff5c5c',                dim:'rgba(255,92,92,0.12)',   border:'rgba(255,92,92,0.35)'},
   dq:         {label:"DQ'd",        color:'#ff5c5c',                dim:'rgba(255,92,92,0.12)',   border:'rgba(255,92,92,0.35)'},
@@ -192,7 +154,7 @@ const STATUS_CONFIG: Record<Status,{label:string;color:string;dim:string;border:
 }
 const STRIPE: Record<Status,string> = {
   new:'#322e60', contacted:'#7b6ef6', inprogress:'#3b82f6', booked:'#00e5a0',
-  nurture:'#e879f9', lost:'#ff5c5c', dq:'#ff5c5c', na:'#1c1840'
+  hqmql:'#f5a623', lqmql:'#fb923c', nurture:'#e879f9', lost:'#ff5c5c', dq:'#ff5c5c', na:'#1c1840'
 }
 const C = {
   bg:'#13102a', surface:'#1c1840', surface2:'#231f4a', surface3:'#2a2654',
@@ -220,25 +182,12 @@ const saveNameOverride = (email:string,name:string)=> { const s=getNameOverrides
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function getResponseDot(receivedAt:string|null,status:Status):{color:string;label:string}|null {
-  if (!receivedAt) return null
-  // Only show on leads that haven't been touched yet (status is still new)
-  if (status!=='new') return null
+  if (!receivedAt||status!=='new') return null
   const mins=(Date.now()-new Date(receivedAt).getTime())/60000
-  // Only show within 48 hours
-  if (mins>60*48) return null
-
-  // Format: Xm / Xh Xm / Xd Xh
-  const formatAge=(m:number)=>{
-    if (m<60) return `${Math.round(m)}m ago`
-    const h=Math.floor(m/60); const rm=Math.round(m%60)
-    if (h<24) return rm>0?`${h}h ${rm}m ago`:`${h}h ago`
-    const d=Math.floor(h/24); const rh=h%24
-    return rh>0?`${d}d ${rh}h ago`:`${d}d ago`
-  }
-
-  if (mins<=20) return {color:C.green,label:formatAge(mins)}
-  if (mins<=60) return {color:C.amber,label:formatAge(mins)}
-  return {color:C.red,label:formatAge(mins)}
+  if (new Date(receivedAt).toDateString()!==new Date().toDateString()) return null
+  if (mins<=20) return {color:C.green,label:`${Math.round(mins)}m ago`}
+  if (mins<=59) return {color:C.amber,label:`${Math.round(mins)}m ago`}
+  return {color:C.red,label:`${Math.round(mins)}m ago`}
 }
 // Convert email domain to readable company name: product-league.com → Product League
 function formatDomain(domain:string):string {
@@ -563,38 +512,6 @@ function DetailPanel({lead,detail,onSave,onClose}:{lead:AppLead;detail:LeadDetai
             <Field label="Multithreading"><Sel value={d.multithreading} onChange={setVal('multithreading')} opts={MT_OPTIONS}/></Field>
           </div>
 
-          {/* MQL Quality — feeds the Analytics quality chart */}
-          <div style={{marginBottom:14,padding:'12px 14px',background:C.surface3,borderRadius:8,border:`1px solid ${C.border2}`}} onClick={stopProp} onMouseDown={stopProp}>
-            <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:10}}>
-              MQL Quality · <span style={{fontWeight:400,textTransform:'none',letterSpacing:'normal',color:C.text3}}>feeds the quality chart in Analytics</span>
-            </div>
-            <div style={{display:'flex',gap:8}}>
-              {[
-                {val:'hq', label:'HQ MQL', desc:'Squarely ICP', color:'#f5a623', dim:'rgba(245,166,35,0.18)', border:'rgba(245,166,35,0.45)'},
-                {val:'lq', label:'LQ MQL', desc:'Partial ICP', color:'#fb923c', dim:'rgba(251,146,60,0.15)', border:'rgba(251,146,60,0.4)'},
-                {val:'dq', label:'DQ',     desc:'Not ICP',    color:C.red,     dim:'rgba(255,92,92,0.12)',  border:'rgba(255,92,92,0.35)'},
-              ].map(opt=>{
-                const active = d.mqlQuality===opt.val
-                return (
-                  <button
-                    key={opt.val}
-                    onMouseDown={stopProp}
-                    onClick={e=>{e.stopPropagation(); setVal('mqlQuality')(active?'':opt.val)}}
-                    style={{
-                      flex:1, padding:'9px 12px', borderRadius:7, cursor:'pointer',
-                      border:`1px solid ${active?opt.border:C.border2}`,
-                      background:active?opt.dim:'transparent',
-                      transition:'all 0.15s', textAlign:'left' as const,
-                    }}
-                  >
-                    <div style={{fontSize:12,fontWeight:700,color:active?opt.color:C.text2,marginBottom:2}}>{opt.label}</div>
-                    <div style={{fontSize:10,color:active?opt.color:C.text3}}>{opt.desc}</div>
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-
           <div style={{display:'grid',gridTemplateColumns:'160px 260px 1fr',gap:12}}>
             <Field label="ACV ($)"><Inp value={d.acv} onChange={setVal('acv')} placeholder="e.g. 72000"/></Field>
             <Field label="Salesforce Link"><Inp value={d.sfLink} onChange={setVal('sfLink')} placeholder="https://qawolf1.lightning.force.com/…"/></Field>
@@ -692,7 +609,7 @@ function BarChart({bars,title,statuses:stMap,details:dets,onViewLead}:{
   const [hovered,setHovered]=useState<number|null>(null)
   const [selected,setSelected]=useState<number|null>(null)
   const maxTotal=Math.max(...bars.map(b=>b.total),1)
-  const stOrder:Status[]=['new','contacted','inprogress','booked','nurture','lost','dq','na']
+  const stOrder:Status[]=['new','contacted','inprogress','booked','hqmql','lqmql','nurture','lost','dq','na']
 
   const selectedBar=selected!==null?bars[selected]:null
 
@@ -835,166 +752,144 @@ const NOTION_MQL_DATA = [
 // Live tracking starts Apr 2 — statuses drive quality classification
 const LIVE_QUALITY_START = '2026-04-02'
 
-function MQLQualityChart({allLeads,statuses,details}:{allLeads:AppLead[];statuses:Record<string,Status>;details:Record<string,LeadDetail>}) {
-  const [hovered,  setHovered]  = useState<number|null>(null)
-  const [groupBy,  setGroupBy]  = useState<'day'|'week'>('week')
-  const [fromDate, setFromDate] = useState('')
-  const [toDate,   setToDate]   = useState('')
+function MQLQualityChart({allLeads,statuses}:{allLeads:AppLead[];statuses:Record<string,Status>}) {
+  const [hovered, setHovered] = useState<number|null>(null)
   const barH = 120
 
-  // Build live data from Apr 2 onward keyed by ISO date
+  // Build live days from Apr 2 onward grouped by receivedAt date
   const liveDayMap = new Map<string,{dq:number;hq:number;lq:number}>()
   allLeads.forEach(l=>{
     if (!l.receivedAt) return
     const iso = l.receivedAt.slice(0,10)
     if (iso < LIVE_QUALITY_START) return
     if (!liveDayMap.has(iso)) liveDayMap.set(iso,{dq:0,hq:0,lq:0})
-    const quality = details[l.email]?.mqlQuality||''
+    const s = statuses[l.email]||'new'
     const entry = liveDayMap.get(iso)!
-    if (quality==='hq') entry.hq++
-    else if (quality==='lq') entry.lq++
-    else entry.dq++
+    if (s==='hqmql') entry.hq++
+    else if (s==='lqmql') entry.lq++
+    else entry.dq++ // new, dq, na, contacted, etc — all count as DQ until tagged
   })
 
+  // Sort live days and build display entries
   const liveDays = Array.from(liveDayMap.entries())
     .sort(([a],[b])=>a.localeCompare(b))
-    .map(([iso,counts])=>({
-      date: new Date(iso+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'}),
-      iso, ...counts, isLive:true
-    }))
+    .map(([iso,counts])=>{
+      const d = new Date(iso+'T12:00:00')
+      const label = d.toLocaleDateString('en-US',{month:'short',day:'numeric'})
+      return {date:label, iso, ...counts, isLive:true}
+    })
 
-  // All individual days (historical + live), filtered by date range
-  const allDaysRaw = [
-    ...NOTION_MQL_DATA.map(d=>({...d,isLive:false})),
+  // Combine: historical Notion data + live days
+  const allDays = [
+    ...NOTION_MQL_DATA.map(d=>({...d, isLive:false})),
     ...liveDays,
-  ].filter(d=>{
-    if (fromDate && d.iso < fromDate) return false
-    if (toDate   && d.iso > toDate)   return false
-    return true
+  ]
+
+  // Compute weekly buckets dynamically
+  const weekBuckets: {label:string; days:typeof allDays}[] = []
+  allDays.forEach(d=>{
+    const dt = new Date(d.iso+'T12:00:00')
+    // Week starts Monday
+    const dow = (dt.getDay()+6)%7
+    const mon = new Date(dt); mon.setDate(dt.getDate()-dow)
+    const key = mon.toLocaleDateString('en-US',{month:'short',day:'numeric'})
+    const existing = weekBuckets.find(w=>w.label===`Wk ${key}`)
+    if (existing) existing.days.push(d)
+    else weekBuckets.push({label:`Wk ${key}`, days:[d]})
   })
 
-  // Group into bars — either per-day or per-week
-  type Bar = {label:string; dq:number; hq:number; lq:number; isLive:boolean; isoStart:string}
-  let bars: Bar[]
+  const maxTotal = Math.max(...allDays.map(d=>d.dq+d.hq+d.lq), 1)
 
-  if (groupBy==='day') {
-    bars = allDaysRaw.map(d=>({
-      label:d.date, dq:d.dq, hq:d.hq, lq:d.lq,
-      isLive:d.isLive, isoStart:d.iso
-    }))
-  } else {
-    // Group by Monday-anchored week
-    const weekMap = new Map<string,Bar>()
-    allDaysRaw.forEach(d=>{
-      const dt  = new Date(d.iso+'T12:00:00')
-      const dow = (dt.getDay()+6)%7
-      const mon = new Date(dt); mon.setDate(dt.getDate()-dow)
-      const key = mon.toISOString().slice(0,10)
-      if (!weekMap.has(key)) {
-        const label = mon.toLocaleDateString('en-US',{month:'short',day:'numeric'})
-        weekMap.set(key,{label:`Wk ${label}`,dq:0,hq:0,lq:0,isLive:false,isoStart:key})
-      }
-      const bar = weekMap.get(key)!
-      bar.dq += d.dq; bar.hq += d.hq; bar.lq += d.lq
-      if (d.isLive) bar.isLive = true
-    })
-    bars = Array.from(weekMap.entries()).sort(([a],[b])=>a.localeCompare(b)).map(([,b])=>b)
-  }
-
-  const maxTotal = Math.max(...bars.map(b=>b.dq+b.hq+b.lq), 1)
+  // Week boundary indices for divider lines
+  const dividers: number[] = []
+  let count = 0
+  weekBuckets.forEach((w,i)=>{ count+=w.days.length; if(i<weekBuckets.length-1) dividers.push(count) })
 
   return (
     <div>
-      {/* Controls */}
-      <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:14,flexWrap:'wrap'}}>
-        <div style={{display:'flex',gap:4}}>
-          {(['week','day'] as const).map(g=>(
-            <button key={g} onClick={()=>setGroupBy(g)}
-                    style={{fontSize:11,fontWeight:600,padding:'4px 10px',borderRadius:6,cursor:'pointer',border:`1px solid ${groupBy===g?C.purple:C.border2}`,background:groupBy===g?'rgba(123,110,246,0.18)':'transparent',color:groupBy===g?C.purpleL:C.text3}}>
-              {g==='week'?'Weekly':'Daily'}
-            </button>
-          ))}
+      <div style={{display:'flex',alignItems:'flex-end',gap:4,height:barH+40,position:'relative'}}>
+        {/* Week dividers */}
+        <div style={{position:'absolute',left:0,right:0,top:0,height:barH,pointerEvents:'none'}}>
+          {dividers.map((idx,i)=>{
+            const pct=(idx/allDays.length)*100
+            const label=weekBuckets[i+1]?.label||''
+            return (
+              <div key={i} style={{position:'absolute',left:`${pct}%`,top:0,bottom:0,borderLeft:`1px dashed rgba(255,255,255,0.1)`}}>
+                <span style={{fontSize:8,color:C.text3,background:C.bg,padding:'1px 3px',whiteSpace:'nowrap',marginLeft:2,display:'block'}}>{label}</span>
+              </div>
+            )
+          })}
         </div>
-        <span style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em'}}>From</span>
-        <input type="date" value={fromDate} onChange={e=>setFromDate(e.target.value)}
-               style={{fontSize:11,padding:'4px 8px',border:`1px solid ${C.border2}`,borderRadius:6,background:C.surface3,color:C.text2,outline:'none',colorScheme:'dark'}}/>
-        <span style={{fontSize:11,color:C.text3}}>→</span>
-        <input type="date" value={toDate} onChange={e=>setToDate(e.target.value)}
-               style={{fontSize:11,padding:'4px 8px',border:`1px solid ${C.border2}`,borderRadius:6,background:C.surface3,color:C.text2,outline:'none',colorScheme:'dark'}}/>
-        {(fromDate||toDate)&&(
-          <button onClick={()=>{setFromDate('');setToDate('')}}
-                  style={{fontSize:10,fontWeight:600,color:C.text3,background:'none',border:'none',cursor:'pointer',padding:'2px 6px'}}>✕ Clear</button>
-        )}
-        <span style={{fontSize:10,color:C.text3,marginLeft:'auto'}}>{bars.length} {groupBy==='week'?'weeks':'days'} shown</span>
-      </div>
 
-      {/* Bars */}
-      <div style={{display:'flex',alignItems:'flex-end',gap:groupBy==='week'?8:4,height:barH+40,position:'relative',overflowX:'hidden'}}>
-        {bars.length===0&&(
-          <div style={{fontSize:12,color:C.text3,padding:'40px 0'}}>No data for selected range</div>
-        )}
-        {bars.map((b,i)=>{
-          const total=b.dq+b.hq+b.lq
+        {allDays.map((d,i)=>{
+          const total=d.dq+d.hq+d.lq
           const isHov=hovered===i
-          const dqH=Math.round((b.dq/maxTotal)*barH)
-          const hqH=Math.round((b.hq/maxTotal)*barH)
-          const lqH=Math.round((b.lq/maxTotal)*barH)
+          const dqH=Math.round((d.dq/maxTotal)*barH)
+          const hqH=Math.round((d.hq/maxTotal)*barH)
+          const lqH=Math.round((d.lq/maxTotal)*barH)
           return (
             <div key={i} onMouseEnter={()=>setHovered(i)} onMouseLeave={()=>setHovered(null)}
-                 style={{display:'flex',flexDirection:'column',alignItems:'center',flex:1,minWidth:groupBy==='week'?32:16,cursor:'default',transition:'opacity 0.15s',opacity:hovered!==null&&!isHov?0.4:1,position:'relative'}}>
+                 style={{display:'flex',flexDirection:'column',alignItems:'center',gap:0,flex:1,cursor:'default',transition:'opacity 0.15s',opacity:hovered!==null&&!isHov?0.4:1,position:'relative'}}>
               {isHov&&(
                 <div style={{position:'absolute',bottom:barH+10,left:'50%',transform:'translateX(-50%)',background:C.surface,border:`1px solid ${C.border2}`,borderRadius:6,padding:'6px 10px',zIndex:10,whiteSpace:'nowrap',boxShadow:'0 4px 12px rgba(0,0,0,0.4)'}}>
                   <div style={{fontSize:11,fontWeight:700,color:C.text,marginBottom:4}}>
-                    {b.label} · {total} total
-                    {b.isLive&&<span style={{fontSize:9,color:C.green,marginLeft:6,fontWeight:400}}>● live</span>}
+                    {d.date} · {total} total
+                    {'isLive' in d&&d.isLive&&<span style={{fontSize:9,color:C.green,marginLeft:6,fontWeight:400}}>● live</span>}
                   </div>
-                  <div style={{fontSize:10,color:C.red}}>DQ / untagged: {b.dq}</div>
-                  {b.hq>0&&<div style={{fontSize:10,color:C.amber}}>HQ MQL: {b.hq}</div>}
-                  {b.lq>0&&<div style={{fontSize:10,color:'#fb923c'}}>LQ MQL: {b.lq}</div>}
-                  {total>0&&<div style={{fontSize:10,color:C.text3,marginTop:2}}>{Math.round(((b.hq+b.lq)/total)*100)}% qualified</div>}
+                  <div style={{fontSize:10,color:C.red}}>DQ / untagged: {d.dq}</div>
+                  {d.hq>0&&<div style={{fontSize:10,color:C.amber}}>HQ MQL: {d.hq}</div>}
+                  {d.lq>0&&<div style={{fontSize:10,color:'#fb923c'}}>LQ MQL: {d.lq}</div>}
+                  {'isLive' in d&&d.isLive&&d.dq>0&&<div style={{fontSize:9,color:C.text3,marginTop:3}}>Tag leads HQ/LQ MQL in pipeline to refine</div>}
                 </div>
               )}
-              <span style={{fontSize:10,color:isHov?C.text:C.text3,fontWeight:isHov?700:400,marginBottom:2}}>{total||''}</span>
+              <span style={{fontSize:10,color:isHov?C.text:C.text3,fontWeight:isHov?700:400,marginBottom:3}}>{total||''}</span>
               <div style={{width:'100%',height:barH,display:'flex',flexDirection:'column',justifyContent:'flex-end',
                            borderRadius:4,overflow:'hidden',background:C.surface3,
-                           boxShadow:isHov?`0 0 0 1.5px ${b.isLive?C.green:C.purple}`:undefined,
-                           outline:b.isLive?`1px solid rgba(0,229,160,0.15)`:'none',transition:'box-shadow 0.15s'}}>
+                           boxShadow:isHov?`0 0 0 1.5px ${'isLive' in d&&d.isLive?C.green:C.purple}`:undefined,
+                           transition:'box-shadow 0.15s',
+                           outline:'isLive' in d&&d.isLive?`1px solid rgba(0,229,160,0.2)`:'none'}}>
                 {dqH>0&&<div style={{width:'100%',height:dqH,background:C.red,flexShrink:0}}/>}
                 {lqH>0&&<div style={{width:'100%',height:lqH,background:'#fb923c',flexShrink:0}}/>}
                 {hqH>0&&<div style={{width:'100%',height:hqH,background:C.amber,flexShrink:0}}/>}
               </div>
-              <span style={{fontSize:groupBy==='week'?9:7,color:isHov?(b.isLive?C.green:C.purpleL):C.text3,
+              <span style={{fontSize:8,color:isHov?('isLive' in d&&d.isLive?C.green:C.purpleL):C.text3,
                             whiteSpace:'nowrap',transform:'rotate(-35deg)',transformOrigin:'top center',
-                            marginTop:4,display:'block',height:22,fontWeight:isHov?700:400}}>{b.label}</span>
+                            marginTop:4,display:'block',height:22,fontWeight:isHov?700:400}}>{d.date}</span>
             </div>
           )
         })}
       </div>
 
-      {/* Summary row */}
-      {bars.length>0&&(
-        <div style={{display:'flex',gap:16,marginTop:8,fontSize:11,flexWrap:'wrap',paddingTop:8,borderTop:`1px solid ${C.border}`}}>
-          {(()=>{
-            const totDq=bars.reduce((s,b)=>s+b.dq,0)
-            const totHq=bars.reduce((s,b)=>s+b.hq,0)
-            const totLq=bars.reduce((s,b)=>s+b.lq,0)
-            const tot=totDq+totHq+totLq
-            return <>
-              <span style={{color:C.text2,fontWeight:600}}>{tot} total{fromDate||toDate?' in range':''}</span>
-              <span style={{color:C.red}}>DQ {totDq}</span>
-              {totHq>0&&<span style={{color:C.amber}}>HQ {totHq}</span>}
-              {totLq>0&&<span style={{color:'#fb923c'}}>LQ {totLq}</span>}
-              {tot>0&&<span style={{color:C.text3}}>{Math.round(((totHq+totLq)/tot)*100)}% qualified</span>}
-            </>
-          })()}
-        </div>
-      )}
+      {/* Weekly summary tiles */}
+      <div style={{display:'flex',gap:10,marginTop:16,flexWrap:'wrap'}}>
+        {weekBuckets.map(w=>{
+          const dq=w.days.reduce((s,d)=>s+d.dq,0)
+          const hq=w.days.reduce((s,d)=>s+d.hq,0)
+          const lq=w.days.reduce((s,d)=>s+d.lq,0)
+          const total=dq+hq+lq
+          const hasLive=w.days.some(d=>'isLive' in d&&d.isLive)
+          return (
+            <div key={w.label} style={{background:C.surface3,borderRadius:7,padding:'10px 14px',flex:1,minWidth:140,border:`1px solid ${hasLive?'rgba(0,229,160,0.2)':C.border}`}}>
+              <div style={{fontSize:10,fontWeight:700,color:hasLive?C.green:C.text3,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:6}}>
+                {w.label}{hasLive&&<span style={{fontWeight:400,marginLeft:4}}>· live</span>}
+              </div>
+              <div style={{fontSize:20,fontWeight:800,color:C.text,letterSpacing:'-0.02em',marginBottom:4}}>{total} <span style={{fontSize:11,color:C.text3,fontWeight:400}}>total</span></div>
+              <div style={{display:'flex',gap:8,fontSize:11,flexWrap:'wrap'}}>
+                <span style={{color:C.red}}>DQ {dq}</span>
+                {hq>0&&<span style={{color:C.amber}}>HQ {hq}</span>}
+                {lq>0&&<span style={{color:'#fb923c'}}>LQ {lq}</span>}
+                {total>0&&<span style={{color:C.text3}}>{Math.round(((hq+lq)/total)*100)}% qualified</span>}
+              </div>
+            </div>
+          )
+        })}
+      </div>
 
-      {/* Live callout */}
+      {/* Live tracking callout */}
       {liveDays.length>0&&(
-        <div style={{marginTop:10,fontSize:11,color:C.text3,display:'flex',alignItems:'center',gap:6}}>
-          <span style={{width:7,height:7,borderRadius:'50%',background:C.green,display:'inline-block',flexShrink:0}}/>
-          Live from Apr 2. Tag leads <strong style={{color:C.amber}}>HQ MQL</strong> or <strong style={{color:'#fb923c'}}>LQ MQL</strong> in the expanded card to classify. Untagged = DQ.
+        <div style={{marginTop:12,fontSize:11,color:C.text3,display:'flex',alignItems:'center',gap:6}}>
+          <span style={{width:8,height:8,borderRadius:'50%',background:C.green,display:'inline-block',flexShrink:0}}/>
+          Live data from Apr 2 onward. Tag leads <strong style={{color:C.amber}}>HQ MQL</strong> or <strong style={{color:'#fb923c'}}>LQ MQL</strong> in the pipeline status dropdown to classify them. Untagged leads count as DQ.
         </div>
       )}
     </div>
@@ -1079,7 +974,7 @@ export default function Dashboard() {
   }
 
   // Version-based reseed — bump DATA_VERSION whenever historical data changes to force a refresh
-  const DATA_VERSION='v6'
+  const DATA_VERSION='v5'
   useEffect(()=>{
     const seeded=localStorage.getItem('mql-seeded-version')
     const st=getSt(); const dt=getDetails()
@@ -1123,17 +1018,11 @@ export default function Dashboard() {
   }
 
   // All leads = historical + manual + live (deduped by email AND domain)
-  // Enrich live leads with baked-in SF links as permanent fallback
   const historicalDomains=new Set(HISTORICAL_LEADS.map(h=>h.domain))
-  const enriched=(leads:AppLead[])=>leads.map(l=>({
-    ...l,
-    sfUrl: l.sfUrl || LIVE_SF_LINKS[l.email] || null,
-    name: l.name || LIVE_PROSPECT_NAMES[l.email] || null,
-  }))
   const allLeads:AppLead[]=[
     ...HISTORICAL_LEADS,
-    ...enriched(manualLeads.filter(l=>!HISTORICAL_LEADS.some(h=>h.email===l.email)&&!historicalDomains.has(l.domain))),
-    ...enriched(liveLeads.filter(l=>!HISTORICAL_LEADS.some(h=>h.email===l.email)&&!manualLeads.some(m=>m.email===l.email)&&!historicalDomains.has(l.domain))),
+    ...manualLeads.filter(l=>!HISTORICAL_LEADS.some(h=>h.email===l.email)&&!historicalDomains.has(l.domain)),
+    ...liveLeads.filter(l=>!HISTORICAL_LEADS.some(h=>h.email===l.email)&&!manualLeads.some(m=>m.email===l.email)&&!historicalDomains.has(l.domain)),
   ]
 
   // ── Pipeline filters ────────────────────────────────────────────────────────
@@ -1187,7 +1076,7 @@ export default function Dashboard() {
       if (chartFrom && d < new Date(chartFrom)) return
       if (chartTo   && d > new Date(chartTo+'T23:59:59')) return
       const key=groupBy==='week'?getWeekLabel(d):getMonthLabel(d)
-      if (!groups.has(key)) groups.set(key,{label:key,date:d,byStatus:{new:0,contacted:0,inprogress:0,booked:0,nurture:0,lost:0,dq:0,na:0},leads:[]})
+      if (!groups.has(key)) groups.set(key,{label:key,date:d,byStatus:{new:0,contacted:0,inprogress:0,booked:0,hqmql:0,lqmql:0,nurture:0,lost:0,dq:0,na:0},leads:[]})
       const s=statuses[l.email]||'new'
       groups.get(key)!.byStatus[s]++
       groups.get(key)!.leads.push(l)
@@ -1205,15 +1094,13 @@ export default function Dashboard() {
 
   // ── Row renderer ─────────────────────────────────────────────────────────────
   const renderRow=(lead:AppLead)=>{
-    // Guard: if localStorage has stale hqmql/lqmql from old version, treat as new
-    const rawStatus=statuses[lead.email]||'new'
-    const s=(rawStatus in STATUS_CONFIG ? rawStatus : 'new') as Status
+    const s=statuses[lead.email]||'new'
     const cfg=STATUS_CONFIG[s]
     const dot=getResponseDot(lead.receivedAt,s)
     const dimmed=s==='dq'||s==='na'||s==='lost'
     const det=details[lead.email]||{...EMPTY_DETAIL,...(HISTORICAL_DETAILS[lead.email]||{})}
     const isOpen=expanded===lead.email
-    const displayName=nameOverrides[lead.email]||(lead.account||(det.prospectName||lead.name||lead.domain&&formatDomain(lead.domain)||lead.email))
+    const displayName=nameOverrides[lead.email]||(lead.account||(det.prospectName?det.prospectName:lead.domain?formatDomain(lead.domain):lead.email))
     const receivedDisplay=lead.receivedAt
       ? new Date(lead.receivedAt).toLocaleString('en-US',{month:'short',day:'numeric',hour:lead.isHistorical?undefined:'numeric',minute:lead.isHistorical?undefined:'2-digit'})
       : lead.date||'—'
@@ -1280,11 +1167,7 @@ export default function Dashboard() {
         {isOpen&&(
           <DetailPanel
             lead={lead}
-            detail={Object.assign(
-              {...EMPTY_DETAIL, prospectName: lead.name||''},
-              HISTORICAL_DETAILS[lead.email]||{},
-              details[lead.email]||{}
-            )}
+            detail={{...EMPTY_DETAIL,...(HISTORICAL_DETAILS[lead.email]||{}),...(details[lead.email]||{})}}
             onSave={d=>updateDetail(lead.email,d)}
             onClose={()=>setExpanded(null)}
           />
@@ -1339,45 +1222,6 @@ export default function Dashboard() {
             {loading?'Refreshing…':'Refresh Leads'}
           </button>
           {fetchedAt&&<div style={{fontSize:10,color:C.text3,textAlign:'center',marginTop:6}}>{new Date(fetchedAt).toLocaleTimeString()}</div>}
-        </div>
-        <div style={{height:1,background:C.border,margin:'4px 0'}}/>
-        {/* ── Export / Import ── */}
-        <div style={{padding:'8px 20px',display:'flex',flexDirection:'column',gap:6}}>
-          <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:2}}>Data Backup</div>
-          <button onClick={()=>{
-            const payload={
-              'mql-st':   localStorage.getItem('mql-st'),
-              'mql-dt':   localStorage.getItem('mql-dt'),
-              'mql-names':localStorage.getItem('mql-names'),
-              'mql-manual':localStorage.getItem('mql-manual'),
-              'mql-ae-opts-v2':localStorage.getItem('mql-ae-opts-v2'),
-              exportedAt: new Date().toISOString(),
-            }
-            const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'})
-            const a=document.createElement('a'); a.href=URL.createObjectURL(blob)
-            a.download=`mql-backup-${new Date().toISOString().slice(0,10)}.json`; a.click()
-          }} style={{fontSize:11,fontWeight:600,padding:'7px 10px',borderRadius:7,border:`1px solid ${C.border2}`,background:'transparent',color:C.text2,cursor:'pointer',textAlign:'left' as const,display:'flex',alignItems:'center',gap:6}}>
-            ↓ Export backup
-          </button>
-          <label style={{fontSize:11,fontWeight:600,padding:'7px 10px',borderRadius:7,border:`1px solid ${C.border2}`,background:'transparent',color:C.text2,cursor:'pointer',display:'flex',alignItems:'center',gap:6}}>
-            ↑ Import backup
-            <input type="file" accept=".json" style={{display:'none'}} onChange={e=>{
-              const file=e.target.files?.[0]; if (!file) return
-              const reader=new FileReader()
-              reader.onload=ev=>{
-                try {
-                  const data=JSON.parse(ev.target?.result as string)
-                  const keys=['mql-st','mql-dt','mql-names','mql-manual','mql-ae-opts-v2'] as const
-                  keys.forEach(k=>{ if(data[k]) localStorage.setItem(k,data[k]) })
-                  setStatuses(getSt()); setDetails(getDetails())
-                  setNameOverrides(getNameOverrides()); setManualLeads(getManualLeads())
-                  alert('Backup restored successfully.')
-                } catch { alert('Invalid backup file.') }
-              }
-              reader.readAsText(file)
-              e.target.value=''
-            }}/>
-          </label>
         </div>
       </aside>
 
@@ -1583,7 +1427,7 @@ export default function Dashboard() {
                 ))}
               </div>
             </div>
-            <MQLQualityChart allLeads={allLeads} statuses={statuses} details={details}/>
+            <MQLQualityChart allLeads={allLeads} statuses={statuses}/>
           </div>
 
           {/* DQ / Nurture / Lost breakdown — clickable */}
