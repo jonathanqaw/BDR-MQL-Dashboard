@@ -1078,20 +1078,19 @@ export default function Dashboard() {
     setNameOverrides(getNameOverrides())
   }
 
-  // Version-based reseed — bump DATA_VERSION whenever historical data changes to force a refresh
+  // Seed historical statuses & details — NEVER overwrite existing user data
   const DATA_VERSION='v5'
   useEffect(()=>{
     const seeded=localStorage.getItem('mql-seeded-version')
     const st=getSt(); const dt=getDetails()
-    // Always reseed if version mismatch — overwrites stale data
-    const forceReseed=seeded!==DATA_VERSION
+    // Only fill in MISSING entries — never overwrite what the user has set
     HISTORICAL_LEADS.forEach(l=>{
-      if (forceReseed||!st[l.email]) st[l.email]=HISTORICAL_STATUSES[l.email]||'new'
-      if (forceReseed||!dt[l.email]) dt[l.email]={...EMPTY_DETAIL,...(HISTORICAL_DETAILS[l.email]||{})}
+      if (!st[l.email]) st[l.email]=HISTORICAL_STATUSES[l.email]||'new'
+      if (!dt[l.email]) dt[l.email]={...EMPTY_DETAIL,...(HISTORICAL_DETAILS[l.email]||{})}
     })
     localStorage.setItem('mql-st',JSON.stringify(st))
     localStorage.setItem('mql-dt',JSON.stringify(dt))
-    if (forceReseed) localStorage.setItem('mql-seeded-version',DATA_VERSION)
+    localStorage.setItem('mql-seeded-version',DATA_VERSION)
     setManualLeads(getManualLeads())
     setNameOverrides(getNameOverrides())
   },[])
