@@ -324,10 +324,18 @@ function DateField({value,onChange}:{value:string;onChange:(v:string)=>void}) {
   )
 }
 
+// ─── DetailPanel sub-components — defined OUTSIDE to prevent remount on render ─
+const Field=({label,children}:{label:string;children:React.ReactNode})=>(
+  <div style={{display:'flex',flexDirection:'column',gap:4}} onClick={e=>e.stopPropagation()}>
+    <span style={labelStyle}>{label}</span>
+    {children}
+  </div>
+)
+
 function DetailPanel({lead,detail,onSave,onClose}:{lead:AppLead;detail:LeadDetail;onSave:(d:LeadDetail)=>void;onClose:()=>void}) {
   const [d,setD]=useState<LeadDetail>(detail)
+  const notesRef=React.useRef<HTMLTextAreaElement>(null)
 
-  // Stop ALL events from bubbling up to the row's onClick
   const stopProp=(e:React.SyntheticEvent)=>e.stopPropagation()
 
   const set=(k:keyof LeadDetail)=>(e:React.ChangeEvent<HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement>)=>{
@@ -336,15 +344,14 @@ function DetailPanel({lead,detail,onSave,onClose}:{lead:AppLead;detail:LeadDetai
   }
   const setVal=(k:keyof LeadDetail)=>(v:string)=>setD(p=>({...p,[k]:v}))
 
-  const handleSave=(e:React.MouseEvent)=>{ e.stopPropagation(); saveDetail(lead.email,d); onSave(d); onClose() }
+  const handleSave=(e:React.MouseEvent)=>{
+    e.stopPropagation()
+    // Flush the uncontrolled textarea value from the ref before saving
+    const finalD={...d, notes: notesRef.current?.value??d.notes}
+    saveDetail(lead.email,finalD); onSave(finalD); onClose()
+  }
   const handleClose=(e:React.MouseEvent)=>{ e.stopPropagation(); onClose() }
 
-  const Field=({label,children}:{label:string;children:React.ReactNode})=>(
-    <div style={{display:'flex',flexDirection:'column',gap:4}} onClick={stopProp}>
-      <span style={labelStyle}>{label}</span>
-      {children}
-    </div>
-  )
   const Sel=({k,opts}:{k:keyof LeadDetail;opts:string[]})=>(
     <select
       value={d[k]}
@@ -417,10 +424,14 @@ function DetailPanel({lead,detail,onSave,onClose}:{lead:AppLead;detail:LeadDetai
           <div style={{display:'grid',gridTemplateColumns:'160px 260px 1fr',gap:12}}>
             <Field label="ACV ($)"><Inp k="acv" placeholder="e.g. 72000"/></Field>
             <Field label="Salesforce Link"><Inp k="sfLink" placeholder="https://qawolf1.lightning.force.com/…"/></Field>
-            <Field label="Notes">
+            {/* Notes — rendered outside Field to avoid inline-component remount on keystroke */}
+            <div style={{display:'flex',flexDirection:'column',gap:4}}>
+              <span style={labelStyle}>Notes</span>
               <textarea
-                value={d.notes}
-                onChange={e=>{e.stopPropagation();setD(p=>({...p,notes:e.target.value}))}}
+                ref={notesRef}
+                defaultValue={d.notes}
+                onBlur={e=>{setD(p=>({...p,notes:e.target.value}))}}
+                onChange={e=>{e.stopPropagation()}}
                 onClick={e=>e.stopPropagation()}
                 onFocus={e=>e.stopPropagation()}
                 onKeyDown={e=>e.stopPropagation()}
@@ -429,7 +440,7 @@ function DetailPanel({lead,detail,onSave,onClose}:{lead:AppLead;detail:LeadDetai
                 placeholder="Any context, next steps, or flags…"
                 style={{...inputStyle,height:60,resize:'vertical'}}
               />
-            </Field>
+            </div>
           </div>
         </div>
       </td>
