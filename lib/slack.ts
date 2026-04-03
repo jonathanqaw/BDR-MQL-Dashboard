@@ -6,6 +6,7 @@ export interface Lead {
   name: string | null
   sfUrl: string | null
   date: string | null
+  receivedAt: string | null  // ISO timestamp of Slack message — used for response time indicator
   source: LeadSource
 }
 
@@ -75,6 +76,7 @@ export async function fetchLeads(): Promise<Lead[]> {
       name: null,
       sfUrl: parseSfUrl(msg.text),
       date: parseDate(msg.text, msg.ts),
+      receivedAt: new Date(parseFloat(msg.ts) * 1000).toISOString(),
       source: 'bdr',
     })
   }
