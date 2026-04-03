@@ -1079,7 +1079,7 @@ export default function Dashboard() {
   }
 
   // Version-based reseed — bump DATA_VERSION whenever historical data changes to force a refresh
-  const DATA_VERSION='v6'
+  const DATA_VERSION='v5'
   useEffect(()=>{
     const seeded=localStorage.getItem('mql-seeded-version')
     const st=getSt(); const dt=getDetails()
