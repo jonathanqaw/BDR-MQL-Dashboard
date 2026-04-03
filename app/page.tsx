@@ -324,7 +324,7 @@ function DateField({value,onChange}:{value:string;onChange:(v:string)=>void}) {
   )
 }
 
-// ─── DetailPanel sub-components — defined OUTSIDE to prevent remount on render ─
+// ─── DetailPanel sub-components — ALL defined OUTSIDE to prevent remount ──────
 const Field=({label,children}:{label:string;children:React.ReactNode})=>(
   <div style={{display:'flex',flexDirection:'column',gap:4}} onClick={e=>e.stopPropagation()}>
     <span style={labelStyle}>{label}</span>
@@ -332,51 +332,46 @@ const Field=({label,children}:{label:string;children:React.ReactNode})=>(
   </div>
 )
 
+const Sel=({value,onChange,opts}:{value:string;onChange:(v:string)=>void;opts:string[]})=>(
+  <select
+    value={value}
+    onChange={e=>{e.stopPropagation();onChange(e.target.value)}}
+    onClick={e=>e.stopPropagation()}
+    onMouseDown={e=>e.stopPropagation()}
+    onKeyDown={e=>e.stopPropagation()}
+    style={selectStyle}
+  >
+    {opts.map(o=><option key={o} value={o}>{o||'— Select —'}</option>)}
+  </select>
+)
+
+const Inp=({value,onChange,placeholder}:{value:string;onChange:(v:string)=>void;placeholder?:string})=>(
+  <input
+    value={value}
+    onChange={e=>{e.stopPropagation();onChange(e.target.value)}}
+    onClick={e=>e.stopPropagation()}
+    onFocus={e=>e.stopPropagation()}
+    onKeyDown={e=>e.stopPropagation()}
+    onKeyUp={e=>e.stopPropagation()}
+    onMouseDown={e=>e.stopPropagation()}
+    placeholder={placeholder||''}
+    style={inputStyle}
+  />
+)
+
 function DetailPanel({lead,detail,onSave,onClose}:{lead:AppLead;detail:LeadDetail;onSave:(d:LeadDetail)=>void;onClose:()=>void}) {
   const [d,setD]=useState<LeadDetail>(detail)
   const notesRef=React.useRef<HTMLTextAreaElement>(null)
 
   const stopProp=(e:React.SyntheticEvent)=>e.stopPropagation()
-
-  const set=(k:keyof LeadDetail)=>(e:React.ChangeEvent<HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement>)=>{
-    e.stopPropagation()
-    setD(p=>({...p,[k]:e.target.value}))
-  }
   const setVal=(k:keyof LeadDetail)=>(v:string)=>setD(p=>({...p,[k]:v}))
 
   const handleSave=(e:React.MouseEvent)=>{
     e.stopPropagation()
-    // Flush the uncontrolled textarea value from the ref before saving
     const finalD={...d, notes: notesRef.current?.value??d.notes}
     saveDetail(lead.email,finalD); onSave(finalD); onClose()
   }
   const handleClose=(e:React.MouseEvent)=>{ e.stopPropagation(); onClose() }
-
-  const Sel=({k,opts}:{k:keyof LeadDetail;opts:string[]})=>(
-    <select
-      value={d[k]}
-      onChange={set(k)}
-      onClick={stopProp}
-      onMouseDown={stopProp}
-      onKeyDown={stopProp}
-      style={selectStyle}
-    >
-      {opts.map(o=><option key={o} value={o}>{o||'— Select —'}</option>)}
-    </select>
-  )
-  const Inp=({k,placeholder}:{k:keyof LeadDetail;placeholder?:string})=>(
-    <input
-      value={d[k]}
-      onChange={set(k)}
-      onClick={stopProp}
-      onFocus={stopProp}
-      onKeyDown={stopProp}
-      onKeyUp={stopProp}
-      onMouseDown={stopProp}
-      placeholder={placeholder||''}
-      style={inputStyle}
-    />
-  )
 
   return (
     <tr onClick={stopProp} onMouseDown={stopProp} onKeyDown={stopProp}>
@@ -397,46 +392,41 @@ function DetailPanel({lead,detail,onSave,onClose}:{lead:AppLead;detail:LeadDetai
           </div>
 
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:12,marginBottom:14}}>
-            <Field label="Prospect Name"><Inp k="prospectName" placeholder="Full name"/></Field>
-            <Field label="Title"><Inp k="title" placeholder="Job title"/></Field>
-            <Field label="AE">
-              <AECombobox value={d.ae} onChange={setVal('ae')}/>
-            </Field>
-            <Field label="Source Channel"><Sel k="sourceChannel" opts={SOURCE_CHANNELS}/></Field>
+            <Field label="Prospect Name"><Inp value={d.prospectName} onChange={setVal('prospectName')} placeholder="Full name"/></Field>
+            <Field label="Title"><Inp value={d.title} onChange={setVal('title')} placeholder="Job title"/></Field>
+            <Field label="AE"><AECombobox value={d.ae} onChange={setVal('ae')}/></Field>
+            <Field label="Source Channel"><Sel value={d.sourceChannel} onChange={setVal('sourceChannel')} opts={SOURCE_CHANNELS}/></Field>
           </div>
 
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:12,marginBottom:14}}>
-            <Field label="Outreach Channel"><Sel k="outreachChannel" opts={OUTREACH_CH}/></Field>
+            <Field label="Outreach Channel"><Sel value={d.outreachChannel} onChange={setVal('outreachChannel')} opts={OUTREACH_CH}/></Field>
             <Field label="Connected Date"><DateField value={d.connectedDate} onChange={setVal('connectedDate')}/></Field>
             <Field label="Meeting Booked Date"><DateField value={d.meetingDate} onChange={setVal('meetingDate')}/></Field>
-            <Field label="Next Step"><Sel k="nextStep" opts={NEXT_STEPS}/></Field>
+            <Field label="Next Step"><Sel value={d.nextStep} onChange={setVal('nextStep')} opts={NEXT_STEPS}/></Field>
           </div>
 
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr 1fr 1fr',gap:12,marginBottom:14}}>
-            <Field label="Next Step Status"><Sel k="nextStepStatus" opts={NEXT_STEP_STATUS}/></Field>
-            <Field label="SQL / DQ"><Sel k="sqlDq" opts={SQL_OPTIONS}/></Field>
+            <Field label="Next Step Status"><Sel value={d.nextStepStatus} onChange={setVal('nextStepStatus')} opts={NEXT_STEP_STATUS}/></Field>
+            <Field label="SQL / DQ"><Sel value={d.sqlDq} onChange={setVal('sqlDq')} opts={SQL_OPTIONS}/></Field>
             <Field label="SQL Date"><DateField value={d.sqlDate} onChange={setVal('sqlDate')}/></Field>
-            <Field label="SQO"><Sel k="sqo" opts={SQO_OPTIONS}/></Field>
+            <Field label="SQO"><Sel value={d.sqo} onChange={setVal('sqo')} opts={SQO_OPTIONS}/></Field>
             <Field label="SQO Date"><DateField value={d.sqoDate} onChange={setVal('sqoDate')}/></Field>
-            <Field label="Multithreading"><Sel k="multithreading" opts={MT_OPTIONS}/></Field>
+            <Field label="Multithreading"><Sel value={d.multithreading} onChange={setVal('multithreading')} opts={MT_OPTIONS}/></Field>
           </div>
 
           <div style={{display:'grid',gridTemplateColumns:'160px 260px 1fr',gap:12}}>
-            <Field label="ACV ($)"><Inp k="acv" placeholder="e.g. 72000"/></Field>
-            <Field label="Salesforce Link"><Inp k="sfLink" placeholder="https://qawolf1.lightning.force.com/…"/></Field>
-            {/* Notes — rendered outside Field to avoid inline-component remount on keystroke */}
+            <Field label="ACV ($)"><Inp value={d.acv} onChange={setVal('acv')} placeholder="e.g. 72000"/></Field>
+            <Field label="Salesforce Link"><Inp value={d.sfLink} onChange={setVal('sfLink')} placeholder="https://qawolf1.lightning.force.com/…"/></Field>
             <div style={{display:'flex',flexDirection:'column',gap:4}}>
               <span style={labelStyle}>Notes</span>
               <textarea
                 ref={notesRef}
                 defaultValue={d.notes}
-                onBlur={e=>{setD(p=>({...p,notes:e.target.value}))}}
-                onChange={e=>{e.stopPropagation()}}
-                onClick={e=>e.stopPropagation()}
-                onFocus={e=>e.stopPropagation()}
-                onKeyDown={e=>e.stopPropagation()}
-                onKeyUp={e=>e.stopPropagation()}
-                onMouseDown={e=>e.stopPropagation()}
+                onClick={stopProp}
+                onFocus={stopProp}
+                onKeyDown={stopProp}
+                onKeyUp={stopProp}
+                onMouseDown={stopProp}
                 placeholder="Any context, next steps, or flags…"
                 style={{...inputStyle,height:60,resize:'vertical'}}
               />
