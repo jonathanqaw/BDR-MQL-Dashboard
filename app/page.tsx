@@ -5,7 +5,7 @@ import React from 'react'
 import type { Lead } from '@/lib/slack'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type Status       = 'new' | 'contacted' | 'booked' | 'nurture' | 'lost' | 'na' | 'dq'
+type Status       = 'new' | 'contacted' | 'booked' | 'nurture' | 'lost' | 'na' | 'dq' | 'inprogress'
 type View         = 'pipeline' | 'analytics'
 type PeriodFilter = 'week' | 'month' | 'quarter' | 'all'
 type WorkedFilter = 'all' | 'worked' | 'untouched'
@@ -69,12 +69,12 @@ const HISTORICAL_LEADS: AppLead[] = [
 // Historical default statuses & details
 const HISTORICAL_STATUSES: Record<string,Status> = {
   'logicmonitor@historical':      'booked',
-  'kenanadvantage@historical':    'contacted',
-  'evoke@historical':             'contacted',
-  'gatewayticketing@historical':  'contacted',
+  'kenanadvantage@historical':    'inprogress',
+  'evoke@historical':             'inprogress',
+  'gatewayticketing@historical':  'inprogress',
   'trackunit@historical':         'booked',
   'harrys@historical':            'booked',
-  'decisionresources@historical': 'contacted',
+  'decisionresources@historical': 'inprogress',
   'everydayhealth@historical':    'booked',
   'tradera@historical':           'dq',
   'vidmob@historical':            'booked',
@@ -90,7 +90,7 @@ const HISTORICAL_STATUSES: Record<string,Status> = {
   'yassir@historical':            'lost',
   'westjet@historical':           'nurture',
   'robbinsresearch@historical':   'lost',
-  'cradle@historical':            'contacted',
+  'cradle@historical':            'inprogress',
   'onephase@historical':          'booked',
   'novemberfive@historical':      'nurture',
   'north@historical':             'booked',
@@ -98,9 +98,9 @@ const HISTORICAL_STATUSES: Record<string,Status> = {
   'nuqleous@historical':          'booked',
   'playtech@historical':          'booked',
   'azets@historical':             'nurture',
-  'jpmorganchase@historical':     'contacted',
-  'pex@historical':               'contacted',
-  'productleague@historical':     'contacted',
+  'jpmorganchase@historical':     'inprogress',
+  'pex@historical':               'inprogress',
+  'productleague@historical':     'inprogress',
 }
 
 const HISTORICAL_DETAILS: Record<string,Partial<LeadDetail>> = {
@@ -141,16 +141,17 @@ const HISTORICAL_DETAILS: Record<string,Partial<LeadDetail>> = {
 
 // ─── Status config ────────────────────────────────────────────────────────────
 const STATUS_CONFIG: Record<Status,{label:string;color:string;dim:string;border:string}> = {
-  new:       {label:'New',       color:'rgba(255,255,255,0.38)', dim:'#2a2654',               border:'rgba(255,255,255,0.13)'},
-  contacted: {label:'Contacted', color:'#a89cf8',                dim:'rgba(123,110,246,0.18)', border:'rgba(123,110,246,0.4)'},
-  booked:    {label:'Booked',    color:'#00e5a0',                dim:'rgba(0,229,160,0.15)',   border:'rgba(0,229,160,0.35)'},
-  nurture:   {label:'Nurture',   color:'#f5a623',                dim:'rgba(245,166,35,0.15)',  border:'rgba(245,166,35,0.35)'},
-  lost:      {label:'Lost',      color:'#ff5c5c',                dim:'rgba(255,92,92,0.12)',   border:'rgba(255,92,92,0.35)'},
-  dq:        {label:"DQ'd",      color:'#ff5c5c',                dim:'rgba(255,92,92,0.12)',   border:'rgba(255,92,92,0.35)'},
-  na:        {label:'N/A',       color:'rgba(255,255,255,0.25)', dim:'rgba(255,255,255,0.06)', border:'rgba(255,255,255,0.1)'},
+  new:        {label:'New',         color:'rgba(255,255,255,0.38)', dim:'#2a2654',               border:'rgba(255,255,255,0.13)'},
+  contacted:  {label:'Contacted',   color:'#a89cf8',                dim:'rgba(123,110,246,0.18)', border:'rgba(123,110,246,0.4)'},
+  inprogress: {label:'In Progress', color:'#60a5fa',                dim:'rgba(96,165,250,0.15)',  border:'rgba(96,165,250,0.35)'},
+  booked:     {label:'Booked',      color:'#00e5a0',                dim:'rgba(0,229,160,0.15)',   border:'rgba(0,229,160,0.35)'},
+  nurture:    {label:'Nurture',     color:'#f5a623',                dim:'rgba(245,166,35,0.15)',  border:'rgba(245,166,35,0.35)'},
+  lost:       {label:'Lost',        color:'#ff5c5c',                dim:'rgba(255,92,92,0.12)',   border:'rgba(255,92,92,0.35)'},
+  dq:         {label:"DQ'd",        color:'#ff5c5c',                dim:'rgba(255,92,92,0.12)',   border:'rgba(255,92,92,0.35)'},
+  na:         {label:'N/A',         color:'rgba(255,255,255,0.25)', dim:'rgba(255,255,255,0.06)', border:'rgba(255,255,255,0.1)'},
 }
 const STRIPE: Record<Status,string> = {
-  new:'#322e60', contacted:'#7b6ef6', booked:'#00e5a0',
+  new:'#322e60', contacted:'#7b6ef6', inprogress:'#3b82f6', booked:'#00e5a0',
   nurture:'#f5a623', lost:'#ff5c5c', dq:'#ff5c5c', na:'#1c1840'
 }
 const C = {
@@ -262,6 +263,9 @@ function AECombobox({value,onChange}:{value:string;onChange:(v:string)=>void}) {
         value={inputVal}
         onChange={e=>{setInputVal(e.target.value);onChange(e.target.value);setOpen(true)}}
         onFocus={()=>setOpen(true)}
+        onMouseDown={e=>e.stopPropagation()}
+        onKeyDown={e=>e.stopPropagation()}
+        onKeyUp={e=>e.stopPropagation()}
         placeholder="Select or type AE name…"
         style={{...inputStyle,paddingRight:28}}
         onClick={e=>e.stopPropagation()}
@@ -294,16 +298,26 @@ function AECombobox({value,onChange}:{value:string;onChange:(v:string)=>void}) {
 // ─── Date input wrapper — prevents calendar icon from disappearing ────────────
 function DateField({value,onChange}:{value:string;onChange:(v:string)=>void}) {
   return (
-    <div style={{position:'relative'}} onClick={e=>e.stopPropagation()}>
+    <div
+      style={{position:'relative'}}
+      onClick={e=>e.stopPropagation()}
+      onMouseDown={e=>e.stopPropagation()}
+      onFocus={e=>e.stopPropagation()}
+      onKeyDown={e=>e.stopPropagation()}
+    >
       <input
         type="date"
         value={value}
         onChange={e=>{e.stopPropagation();onChange(e.target.value)}}
         onClick={e=>e.stopPropagation()}
+        onMouseDown={e=>e.stopPropagation()}
+        onFocus={e=>e.stopPropagation()}
+        onKeyDown={e=>e.stopPropagation()}
         style={{
           ...inputStyle,
           colorScheme:'dark',
-          minWidth:0,
+          minWidth:'100%',
+          WebkitAppearance:'none' as const,
         }}
       />
     </div>
@@ -332,18 +346,35 @@ function DetailPanel({lead,detail,onSave,onClose}:{lead:AppLead;detail:LeadDetai
     </div>
   )
   const Sel=({k,opts}:{k:keyof LeadDetail;opts:string[]})=>(
-    <select value={d[k]} onChange={set(k)} onClick={stopProp} style={selectStyle}>
+    <select
+      value={d[k]}
+      onChange={set(k)}
+      onClick={stopProp}
+      onMouseDown={stopProp}
+      onKeyDown={stopProp}
+      style={selectStyle}
+    >
       {opts.map(o=><option key={o} value={o}>{o||'— Select —'}</option>)}
     </select>
   )
   const Inp=({k,placeholder}:{k:keyof LeadDetail;placeholder?:string})=>(
-    <input value={d[k]} onChange={set(k)} onClick={stopProp} onFocus={stopProp} placeholder={placeholder||''} style={inputStyle}/>
+    <input
+      value={d[k]}
+      onChange={set(k)}
+      onClick={stopProp}
+      onFocus={stopProp}
+      onKeyDown={stopProp}
+      onKeyUp={stopProp}
+      onMouseDown={stopProp}
+      placeholder={placeholder||''}
+      style={inputStyle}
+    />
   )
 
   return (
-    <tr onClick={stopProp}>
-      <td colSpan={6} style={{padding:0}} onClick={stopProp}>
-        <div style={{background:C.surface2,borderBottom:`1px solid ${C.border}`,padding:'20px 24px'}} onClick={stopProp}>
+    <tr onClick={stopProp} onMouseDown={stopProp} onKeyDown={stopProp}>
+      <td colSpan={6} style={{padding:0}} onClick={stopProp} onMouseDown={stopProp}>
+        <div style={{background:C.surface2,borderBottom:`1px solid ${C.border}`,padding:'20px 24px'}} onClick={stopProp} onMouseDown={stopProp}>
           <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:20}}>
             <div>
               <div style={{fontSize:13,fontWeight:700}}>{lead.account||lead.email}</div>
@@ -387,8 +418,17 @@ function DetailPanel({lead,detail,onSave,onClose}:{lead:AppLead;detail:LeadDetai
             <Field label="ACV ($)"><Inp k="acv" placeholder="e.g. 72000"/></Field>
             <Field label="Salesforce Link"><Inp k="sfLink" placeholder="https://qawolf1.lightning.force.com/…"/></Field>
             <Field label="Notes">
-              <textarea value={d.notes} onChange={e=>{e.stopPropagation();setD(p=>({...p,notes:e.target.value}))}} onClick={stopProp} onFocus={stopProp}
-                        placeholder="Any context, next steps, or flags…" style={{...inputStyle,height:60,resize:'vertical'}}/>
+              <textarea
+                value={d.notes}
+                onChange={e=>{e.stopPropagation();setD(p=>({...p,notes:e.target.value}))}}
+                onClick={e=>e.stopPropagation()}
+                onFocus={e=>e.stopPropagation()}
+                onKeyDown={e=>e.stopPropagation()}
+                onKeyUp={e=>e.stopPropagation()}
+                onMouseDown={e=>e.stopPropagation()}
+                placeholder="Any context, next steps, or flags…"
+                style={{...inputStyle,height:60,resize:'vertical'}}
+              />
             </Field>
           </div>
         </div>
@@ -460,43 +500,237 @@ function PieChart({data,onSliceClick}:{data:{label:string;value:number;color:str
   )
 }
 
-function BarChart({bars,title}:{bars:{label:string;values:{status:Status;count:number}[];total:number}[];title:string}) {
+function BarChart({bars,title,statuses:stMap,details:dets,onViewLead}:{
+  bars:{label:string;values:{status:Status;count:number}[];total:number;leads:AppLead[]}[];
+  title:string;
+  statuses:Record<string,Status>;
+  details:Record<string,LeadDetail>;
+  onViewLead:(email:string)=>void;
+}) {
   const [hovered,setHovered]=useState<number|null>(null)
+  const [selected,setSelected]=useState<number|null>(null)
   const maxTotal=Math.max(...bars.map(b=>b.total),1)
-  const statuses:Status[]=['new','contacted','booked','nurture','lost','dq']
+  const stOrder:Status[]=['new','contacted','inprogress','booked','nurture','lost','dq','na']
+
+  const selectedBar=selected!==null?bars[selected]:null
+
   return (
     <div>
-      <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:14}}>{title}</div>
+      <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:14}}>{title} · <span style={{fontWeight:400,textTransform:'none',letterSpacing:'normal',color:C.text3}}>click a bar to see leads</span></div>
       <div style={{display:'flex',alignItems:'flex-end',gap:6,height:160}}>
         {bars.map((b,i)=>{
           const isHov=hovered===i
+          const isSel=selected===i
           return (
-            <div key={i} onMouseEnter={()=>setHovered(i)} onMouseLeave={()=>setHovered(null)}
-                 style={{display:'flex',flexDirection:'column',alignItems:'center',gap:4,flex:1,cursor:'default',transition:'opacity 0.15s',opacity:hovered!==null&&!isHov?0.5:1}}>
-              <span style={{fontSize:10,color:isHov?C.text:C.text3,fontWeight:isHov?700:600,transition:'color 0.1s'}}>{b.total||''}</span>
-              <div style={{width:'100%',display:'flex',flexDirection:'column',justifyContent:'flex-end',height:130,borderRadius:4,overflow:'hidden',background:C.surface3,boxShadow:isHov?`0 0 0 1px rgba(255,255,255,0.15)`:undefined,transition:'box-shadow 0.15s'}}>
-                {statuses.map(s=>{
+            <div key={i}
+                 onMouseEnter={()=>setHovered(i)}
+                 onMouseLeave={()=>setHovered(null)}
+                 onClick={()=>setSelected(p=>p===i?null:i)}
+                 style={{display:'flex',flexDirection:'column',alignItems:'center',gap:4,flex:1,cursor:'pointer',transition:'opacity 0.15s',opacity:selected!==null&&!isSel?0.4:1}}>
+              <span style={{fontSize:10,color:isSel||isHov?C.text:C.text3,fontWeight:isSel||isHov?700:600,transition:'color 0.1s'}}>{b.total||''}</span>
+              <div style={{
+                width:'100%',display:'flex',flexDirection:'column',justifyContent:'flex-end',height:130,
+                borderRadius:4,overflow:'hidden',background:C.surface3,
+                boxShadow:isSel?`0 0 0 2px ${C.purple}`:isHov?`0 0 0 1px rgba(255,255,255,0.2)`:undefined,
+                transition:'box-shadow 0.15s'
+              }}>
+                {stOrder.map(s=>{
                   const v=b.values.find(x=>x.status===s)?.count||0
                   if (!v) return null
                   const h=Math.round((v/maxTotal)*130)
                   return (
                     <div key={s} title={`${STATUS_CONFIG[s].label}: ${v}`}
-                         style={{width:'100%',height:h,background:STATUS_CONFIG[s].color,flexShrink:0,transition:'height 0.2s'}}/>
+                         style={{width:'100%',height:h,background:STATUS_CONFIG[s].color,flexShrink:0}}/>
                   )
                 })}
               </div>
-              <span style={{fontSize:9,color:C.text3,whiteSpace:'nowrap',transform:'rotate(-35deg)',transformOrigin:'top center',marginTop:4,display:'block',height:24}}>{b.label}</span>
+              <span style={{fontSize:9,color:isSel?C.purple:C.text3,whiteSpace:'nowrap',transform:'rotate(-35deg)',transformOrigin:'top center',marginTop:4,display:'block',height:24,fontWeight:isSel?700:400}}>{b.label}</span>
             </div>
           )
         })}
       </div>
+
+      {/* Legend */}
       <div style={{display:'flex',gap:12,marginTop:20,flexWrap:'wrap'}}>
-        {statuses.map(s=>(
+        {stOrder.filter(s=>bars.some(b=>b.values.find(v=>v.status===s&&v.count>0))).map(s=>(
           <div key={s} style={{display:'flex',alignItems:'center',gap:4}}>
             <span style={{width:8,height:8,borderRadius:2,background:STATUS_CONFIG[s].color,flexShrink:0}}/>
             <span style={{fontSize:10,color:C.text3}}>{STATUS_CONFIG[s].label}</span>
           </div>
         ))}
+      </div>
+
+      {/* Drill-down panel */}
+      {selectedBar&&(
+        <div style={{marginTop:16,background:C.surface3,borderRadius:8,border:`1px solid ${C.purple}`,overflow:'hidden'}}>
+          {/* Panel header */}
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 16px',borderBottom:`1px solid ${C.border}`}}>
+            <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+              <span style={{fontSize:13,fontWeight:700}}>{selectedBar.label}</span>
+              <span style={{fontSize:12,color:C.text3}}>· {selectedBar.total} lead{selectedBar.total!==1?'s':''}</span>
+              {/* Status breakdown pills */}
+              <div style={{display:'flex',gap:5,flexWrap:'wrap'}}>
+                {stOrder.filter(s=>(selectedBar.values.find(v=>v.status===s)?.count||0)>0).map(s=>{
+                  const count=selectedBar.values.find(v=>v.status===s)?.count||0
+                  return (
+                    <span key={s} style={{fontSize:10,fontWeight:600,padding:'2px 8px',borderRadius:999,background:STATUS_CONFIG[s].dim,color:STATUS_CONFIG[s].color,border:`1px solid ${STATUS_CONFIG[s].border}`}}>
+                      {STATUS_CONFIG[s].label} {count}
+                    </span>
+                  )
+                })}
+              </div>
+            </div>
+            <button onClick={()=>setSelected(null)} style={{fontSize:11,color:C.text3,background:'none',border:'none',cursor:'pointer',padding:'2px 6px'}}>✕</button>
+          </div>
+
+          {/* Lead list */}
+          <div style={{maxHeight:280,overflowY:'auto'}}>
+            <table style={{width:'100%',borderCollapse:'collapse'}}>
+              <thead>
+                <tr style={{background:C.surface2}}>
+                  {['Account','Domain','SF','Received','AE','Status'].map(h=>(
+                    <th key={h} style={{textAlign:'left',padding:'7px 12px',fontSize:9,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em',whiteSpace:'nowrap'}}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {selectedBar.leads
+                  .sort((a,b)=>(new Date(b.receivedAt||0).getTime())-(new Date(a.receivedAt||0).getTime()))
+                  .map(lead=>{
+                    const s=stMap[lead.email]||'new'
+                    const cfg=STATUS_CONFIG[s]
+                    const det=dets[lead.email]
+                    const displayName=lead.account||det?.prospectName||formatDomain(lead.domain)
+                    const sfLink=lead.sfUrl||det?.sfLink
+                    const received=lead.receivedAt?new Date(lead.receivedAt).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'2-digit'}):lead.date||'—'
+                    return (
+                      <tr key={lead.email} style={{borderBottom:`1px solid ${C.border}`,cursor:'pointer'}} onClick={()=>onViewLead(lead.email)}>
+                        <td style={{padding:'8px 12px'}}>
+                          <div style={{fontSize:12,fontWeight:600,color:C.text}}>{displayName}</div>
+                          {det?.prospectName&&lead.account&&<div style={{fontSize:10,color:C.text3}}>{det.prospectName}</div>}
+                        </td>
+                        <td style={{padding:'8px 12px',fontSize:11,color:C.text3}}>{lead.domain}</td>
+                        <td style={{padding:'8px 12px'}}>
+                          {sfLink
+                            ? <a href={sfLink} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()} style={{fontSize:10,fontWeight:600,padding:'2px 7px',borderRadius:999,border:`1px solid ${C.green}`,background:'rgba(0,229,160,0.1)',color:C.green,textDecoration:'none'}}>↗ SF</a>
+                            : <span style={{fontSize:11,color:C.text3}}>—</span>}
+                        </td>
+                        <td style={{padding:'8px 12px',fontSize:11,color:C.text3,whiteSpace:'nowrap'}}>{received}</td>
+                        <td style={{padding:'8px 12px',fontSize:11,color:C.text3}}>{det?.ae||'—'}</td>
+                        <td style={{padding:'8px 12px'}}>
+                          <span style={{fontSize:10,fontWeight:600,padding:'2px 8px',borderRadius:999,background:cfg.dim,color:cfg.color,border:`1px solid ${cfg.border}`,whiteSpace:'nowrap'}}>{cfg.label}</span>
+                        </td>
+                      </tr>
+                    )
+                  })}
+              </tbody>
+            </table>
+          </div>
+          <div style={{padding:'8px 16px',fontSize:11,color:C.text3,borderTop:`1px solid ${C.border}`}}>Click any row to jump to that lead in Pipeline view</div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── MQL Quality Chart (from Notion manual tracker) ──────────────────────────
+const NOTION_MQL_DATA = [
+  { date:'Mar 21', dq:5,  hq:0, lq:0 },
+  { date:'Mar 22', dq:2,  hq:0, lq:0 },
+  { date:'Mar 23', dq:7,  hq:0, lq:0 },
+  { date:'Mar 24', dq:10, hq:0, lq:0 },
+  { date:'Mar 25', dq:9,  hq:1, lq:2 },
+  { date:'Mar 26', dq:12, hq:1, lq:2 },
+  { date:'Mar 27', dq:10, hq:0, lq:0 },
+  { date:'Mar 28', dq:7,  hq:0, lq:0 },
+  { date:'Mar 29', dq:1,  hq:0, lq:1 },
+  { date:'Mar 30', dq:19, hq:0, lq:0 },
+  { date:'Mar 31', dq:9,  hq:0, lq:1 },
+  { date:'Apr 1',  dq:10, hq:0, lq:0 },
+]
+
+function MQLQualityChart() {
+  const [hovered, setHovered] = useState<number|null>(null)
+  const maxTotal = Math.max(...NOTION_MQL_DATA.map(d=>d.dq+d.hq+d.lq), 1)
+  const barH = 120
+
+  // Week boundaries for reference lines
+  const week1End = 1  // Mar 21-22 = 2 days (Mon Mar 23 starts week)
+  const week2End = 8  // Mar 23-29
+
+  return (
+    <div>
+      <div style={{display:'flex',alignItems:'flex-end',gap:6,height:barH+40,position:'relative'}}>
+        {/* Reference line annotations */}
+        <div style={{position:'absolute',left:0,right:0,top:0,height:barH,pointerEvents:'none'}}>
+          {/* Week dividers */}
+          {[2, 9].map((idx,i)=>{
+            const pct = (idx / NOTION_MQL_DATA.length) * 100
+            return (
+              <div key={i} style={{position:'absolute',left:`${pct}%`,top:0,bottom:0,borderLeft:`1px dashed rgba(255,255,255,0.1)`,display:'flex',alignItems:'flex-start'}}>
+                <span style={{fontSize:8,color:C.text3,background:C.bg,padding:'1px 3px',whiteSpace:'nowrap',marginLeft:2}}>
+                  {i===0?'Wk Mar 23':'Wk Mar 30'}
+                </span>
+              </div>
+            )
+          })}
+        </div>
+
+        {NOTION_MQL_DATA.map((d,i)=>{
+          const total=d.dq+d.hq+d.lq
+          const isHov=hovered===i
+          const dqH=Math.round((d.dq/maxTotal)*barH)
+          const hqH=Math.round((d.hq/maxTotal)*barH)
+          const lqH=Math.round((d.lq/maxTotal)*barH)
+          return (
+            <div key={i} onMouseEnter={()=>setHovered(i)} onMouseLeave={()=>setHovered(null)}
+                 style={{display:'flex',flexDirection:'column',alignItems:'center',gap:0,flex:1,cursor:'default',transition:'opacity 0.15s',opacity:hovered!==null&&!isHov?0.4:1,position:'relative'}}>
+              {/* Tooltip */}
+              {isHov&&(
+                <div style={{position:'absolute',bottom:barH+10,left:'50%',transform:'translateX(-50%)',background:C.surface,border:`1px solid ${C.border2}`,borderRadius:6,padding:'6px 10px',zIndex:10,whiteSpace:'nowrap',boxShadow:'0 4px 12px rgba(0,0,0,0.4)'}}>
+                  <div style={{fontSize:11,fontWeight:700,color:C.text,marginBottom:4}}>{d.date} · {total} total</div>
+                  <div style={{fontSize:10,color:C.red}}>DQ: {d.dq}</div>
+                  {d.hq>0&&<div style={{fontSize:10,color:C.amber}}>HQ: {d.hq}</div>}
+                  {d.lq>0&&<div style={{fontSize:10,color:'#60a5fa'}}>LQ: {d.lq}</div>}
+                </div>
+              )}
+              <span style={{fontSize:10,color:isHov?C.text:C.text3,fontWeight:isHov?700:400,marginBottom:3}}>{total||''}</span>
+              <div style={{width:'100%',height:barH,display:'flex',flexDirection:'column',justifyContent:'flex-end',borderRadius:4,overflow:'hidden',background:C.surface3,boxShadow:isHov?`0 0 0 1.5px ${C.purple}`:undefined,transition:'box-shadow 0.15s'}}>
+                {/* Stack: DQ bottom, LQ middle, HQ top */}
+                {dqH>0&&<div style={{width:'100%',height:dqH,background:C.red,flexShrink:0}}/>}
+                {lqH>0&&<div style={{width:'100%',height:lqH,background:'#60a5fa',flexShrink:0}}/>}
+                {hqH>0&&<div style={{width:'100%',height:hqH,background:C.amber,flexShrink:0}}/>}
+              </div>
+              <span style={{fontSize:8,color:isHov?C.purpleL:C.text3,whiteSpace:'nowrap',transform:'rotate(-35deg)',transformOrigin:'top center',marginTop:4,display:'block',height:22,fontWeight:isHov?700:400}}>{d.date}</span>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Week totals summary */}
+      <div style={{display:'flex',gap:16,marginTop:16,flexWrap:'wrap'}}>
+        {[
+          {label:'Week Mar 21–22', data:NOTION_MQL_DATA.slice(0,2)},
+          {label:'Week Mar 23–29', data:NOTION_MQL_DATA.slice(2,9)},
+          {label:'Week Mar 30–Apr 1', data:NOTION_MQL_DATA.slice(9,12)},
+        ].map(w=>{
+          const dq=w.data.reduce((s,d)=>s+d.dq,0)
+          const hq=w.data.reduce((s,d)=>s+d.hq,0)
+          const lq=w.data.reduce((s,d)=>s+d.lq,0)
+          const total=dq+hq+lq
+          return (
+            <div key={w.label} style={{background:C.surface3,borderRadius:7,padding:'10px 14px',flex:1,minWidth:160}}>
+              <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:6}}>{w.label}</div>
+              <div style={{fontSize:20,fontWeight:800,color:C.text,letterSpacing:'-0.02em',marginBottom:4}}>{total} <span style={{fontSize:11,color:C.text3,fontWeight:400}}>total</span></div>
+              <div style={{display:'flex',gap:8,fontSize:11}}>
+                <span style={{color:C.red}}>DQ {dq}</span>
+                {hq>0&&<span style={{color:C.amber}}>HQ {hq}</span>}
+                {lq>0&&<span style={{color:'#60a5fa'}}>LQ {lq}</span>}
+                {total>0&&<span style={{color:C.text3}}>{Math.round(((hq+lq)/total)*100)}% qualified</span>}
+              </div>
+            </div>
+          )
+        })}
       </div>
     </div>
   )
@@ -574,7 +808,7 @@ export default function Dashboard() {
   const saveManualLeads=(leads:AppLead[])=>{ localStorage.setItem('mql-manual',JSON.stringify(leads)) }
 
   // Version-based reseed — bump DATA_VERSION whenever historical data changes to force a refresh
-  const DATA_VERSION='v4'
+  const DATA_VERSION='v5'
   useEffect(()=>{
     const seeded=localStorage.getItem('mql-seeded-version')
     const st=getSt(); const dt=getDetails()
@@ -667,16 +901,17 @@ export default function Dashboard() {
 
   // Bar: group leads by week or month, stacked by status, with optional date range filter
   const buildBars=(groupBy:'week'|'month')=>{
-    const groups=new Map<string,{label:string;date:Date;byStatus:Record<Status,number>}>()
+    const groups=new Map<string,{label:string;date:Date;byStatus:Record<Status,number>;leads:AppLead[]}>()
     allLeads.forEach(l=>{
       if (!l.receivedAt) return
       const d=new Date(l.receivedAt)
       if (chartFrom && d < new Date(chartFrom)) return
       if (chartTo   && d > new Date(chartTo+'T23:59:59')) return
       const key=groupBy==='week'?getWeekLabel(d):getMonthLabel(d)
-      if (!groups.has(key)) groups.set(key,{label:key,date:d,byStatus:{new:0,contacted:0,booked:0,nurture:0,lost:0,dq:0,na:0}})
+      if (!groups.has(key)) groups.set(key,{label:key,date:d,byStatus:{new:0,contacted:0,inprogress:0,booked:0,nurture:0,lost:0,dq:0,na:0},leads:[]})
       const s=statuses[l.email]||'new'
       groups.get(key)!.byStatus[s]++
+      groups.get(key)!.leads.push(l)
     })
     return Array.from(groups.values())
       .sort((a,b)=>a.date.getTime()-b.date.getTime())
@@ -684,7 +919,8 @@ export default function Dashboard() {
       .map(g=>({
         label:g.label,
         total:Object.values(g.byStatus).reduce((s,v)=>s+v,0),
-        values:(Object.keys(g.byStatus) as Status[]).map(s=>({status:s,count:g.byStatus[s]}))
+        values:(Object.keys(g.byStatus) as Status[]).map(s=>({status:s,count:g.byStatus[s]})),
+        leads:g.leads,
       }))
   }
 
@@ -703,7 +939,16 @@ export default function Dashboard() {
 
     return (
       <>
-        <tr key={lead.email} style={{borderBottom:`1px solid ${C.border}`,cursor:'pointer'}} onClick={()=>setExpanded(p=>p===lead.email?null:lead.email)}>
+        <tr
+          key={lead.email}
+          style={{borderBottom:`1px solid ${C.border}`,cursor:'pointer'}}
+          onClick={e=>{
+            // Only toggle if the click came from the row itself, not a child interactive element
+            const target=e.target as HTMLElement
+            const isInteractive=target.closest('button,select,input,a,textarea,[data-nopropagate]')
+            if (!isInteractive) setExpanded(p=>p===lead.email?null:lead.email)
+          }}
+        >
           <td style={{padding:0,width:4}}><span style={{display:'block',width:4,minHeight:46,background:STRIPE[s]}}/></td>
           <td style={{padding:'10px 14px',opacity:dimmed?0.5:1}}>
             <div style={{display:'flex',alignItems:'center',gap:7,flexWrap:'wrap'}}>
@@ -985,8 +1230,33 @@ export default function Dashboard() {
                 <input type="date" value={chartTo} onChange={e=>setChartTo(e.target.value)} style={{fontSize:11,padding:'4px 8px',border:`1px solid ${C.border2}`,borderRadius:6,background:C.surface3,color:C.text2,outline:'none'}}/>
                 {(chartFrom||chartTo)&&<button onClick={()=>{setChartFrom('');setChartTo('')}} style={{fontSize:10,fontWeight:600,color:C.text3,background:'none',border:'none',cursor:'pointer',padding:'2px 6px'}}>✕ Clear</button>}
               </div>
-              <BarChart bars={buildBars(chartPeriod)} title={chartPeriod==='week'?'Weekly lead volume':'Monthly lead volume'}/>
+              <BarChart
+                bars={buildBars(chartPeriod)}
+                title={chartPeriod==='week'?'Weekly lead volume':'Monthly lead volume'}
+                statuses={statuses}
+                details={details}
+                onViewLead={(email)=>{setView('pipeline');setExpanded(email);setPeriod('all')}}
+              />
             </div>
+          </div>
+
+          {/* MQL Quality chart — from Notion manual tracker (Mar 21 – Apr 1) */}
+          <div style={{...card,marginBottom:24}}>
+            <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:6,flexWrap:'wrap',gap:8}}>
+              <div>
+                <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em'}}>MQL Quality · daily breakdown</div>
+                <div style={{fontSize:11,color:C.text3,marginTop:3}}>From your manual Notion tracker · Mar 21 – Apr 1 · <span style={{color:C.amber}}>HQ = squarely ICP</span> · <span style={{color:'#60a5fa'}}>LQ = partial ICP</span> · <span style={{color:C.red}}>DQ = disqualified</span></div>
+              </div>
+              <div style={{display:'flex',gap:12,alignItems:'center'}}>
+                {[{label:'HQ MQLs',color:C.amber},{label:'LQ MQLs',color:'#60a5fa'},{label:'DQ',color:C.red}].map(l=>(
+                  <div key={l.label} style={{display:'flex',alignItems:'center',gap:5}}>
+                    <span style={{width:8,height:8,borderRadius:2,background:l.color,flexShrink:0}}/>
+                    <span style={{fontSize:10,color:C.text3}}>{l.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <MQLQualityChart/>
           </div>
 
           {/* DQ / Nurture / Lost breakdown — clickable */}
