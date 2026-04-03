@@ -54,7 +54,7 @@ const HISTORICAL_LEADS: AppLead[] = [
   { email:'westjet@historical',              domain:'westjet.com',              account:'WestJet',                  name:'Santhosha Chandrashekharappa', sfUrl:null, date:'2026-02-20', receivedAt:'2026-02-20T00:00:00.000Z', source:'bdr', isHistorical:true },
   { email:'robbinsresearch@historical',      domain:'robbinsresearch.com',      account:'Robbins Research',         name:'Nick Jensen',              sfUrl:null, date:'2026-02-25', receivedAt:'2026-02-25T00:00:00.000Z', source:'bdr', isHistorical:true },
   { email:'cradle@historical',               domain:'cradle.com',               account:'Cradle',                   name:'Melanie Burger',           sfUrl:null, date:'2026-02-25', receivedAt:'2026-02-25T00:00:00.000Z', source:'bdr', isHistorical:true },
-  { email:'onephase@historical',             domain:'onephase.com',             account:'onePhase',                 name:'Louis Velez',              sfUrl:null, date:'2026-03-03', receivedAt:'2026-03-03T00:00:00.000Z', source:'bdr', isHistorical:true },
+  { email:'onephase@historical',             domain:'onephase.com',             account:'onPhase',                  name:'Louis Velez',              sfUrl:null, date:'2026-03-03', receivedAt:'2026-03-03T00:00:00.000Z', source:'bdr', isHistorical:true },
   { email:'novemberfive@historical',         domain:'novemberfive.com',         account:'November Five',            name:'Antonio Marquez',          sfUrl:null, date:'2026-03-05', receivedAt:'2026-03-05T00:00:00.000Z', source:'bdr', isHistorical:true },
   { email:'north@historical',                domain:'north.com',                account:'North',                    name:'Forum Vyas',               sfUrl:null, date:'2026-03-05', receivedAt:'2026-03-05T00:00:00.000Z', source:'bdr', isHistorical:true },
   { email:'enablecomp@historical',           domain:'enablecomp.com',           account:'EnableComp',               name:'Keith Clayton',            sfUrl:null, date:'2026-03-10', receivedAt:'2026-03-10T00:00:00.000Z', source:'bdr', isHistorical:true },
@@ -171,10 +171,12 @@ const SQO_OPTIONS      = ['','Yes','No']
 const MT_OPTIONS       = ['','Yes','No']
 
 // ─── localStorage ─────────────────────────────────────────────────────────────
-const getSt      = (): Record<string,Status>     => { try { return JSON.parse(localStorage.getItem('mql-st')||'{}') } catch { return {} } }
-const getDetails = (): Record<string,LeadDetail> => { try { return JSON.parse(localStorage.getItem('mql-dt')||'{}') } catch { return {} } }
-const saveSt     = (email:string,v:Status)       => { const s=getSt(); s[email]=v; localStorage.setItem('mql-st',JSON.stringify(s)) }
-const saveDetail = (email:string,d:LeadDetail)   => { const s=getDetails(); s[email]=d; localStorage.setItem('mql-dt',JSON.stringify(s)) }
+const getSt        = (): Record<string,Status>     => { try { return JSON.parse(localStorage.getItem('mql-st')||'{}') } catch { return {} } }
+const getDetails   = (): Record<string,LeadDetail> => { try { return JSON.parse(localStorage.getItem('mql-dt')||'{}') } catch { return {} } }
+const saveSt       = (email:string,v:Status)       => { const s=getSt(); s[email]=v; localStorage.setItem('mql-st',JSON.stringify(s)) }
+const saveDetail   = (email:string,d:LeadDetail)   => { const s=getDetails(); s[email]=d; localStorage.setItem('mql-dt',JSON.stringify(s)) }
+const getNameOverrides = (): Record<string,string> => { try { return JSON.parse(localStorage.getItem('mql-names')||'{}') } catch { return {} } }
+const saveNameOverride = (email:string,name:string)=> { const s=getNameOverrides(); if(name.trim()) s[email]=name.trim(); else delete s[email]; localStorage.setItem('mql-names',JSON.stringify(s)) }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function getResponseDot(receivedAt:string|null,status:Status):{color:string;label:string}|null {
@@ -220,69 +222,125 @@ const labelStyle:React.CSSProperties={fontSize:10,fontWeight:700,color:C.text3,t
 // ─── AE names (pre-populated, user can add more) ─────────────────────────────
 const DEFAULT_AES = [
   'Ben Barrett','Charlie Pie','Colin O\'Connor','Devin Steinke',
-  'Jason Minster','Jordan Van Itallie','Kathryn Hajjar','Sally Lopez',
-  'Scott Wilson','Stephen Stabile','Veronika Fischer'
+  'Jason Minster','Jordan Van Itallie','Kathryn Hajjar','Robert Linsmayer',
+  'Sally Lopez','Scott Wilson','Stephen Stabile','Veronika Fischer'
 ]
 
-// ─── AE Combobox — dropdown + free text like Google Sheets ───────────────────
+const AE_STORAGE_KEY = 'mql-ae-opts-v2'
+
+function getStoredAEs(): string[] {
+  try {
+    const stored = JSON.parse(localStorage.getItem(AE_STORAGE_KEY)||'null')
+    if (Array.isArray(stored)) return stored
+    // Migrate from old key
+    const old = JSON.parse(localStorage.getItem('mql-ae-opts')||'null')
+    if (Array.isArray(old)) {
+      // Merge old list with defaults (add Robert if missing)
+      const merged = Array.from(new Set([...DEFAULT_AES,...old])).sort()
+      localStorage.setItem(AE_STORAGE_KEY, JSON.stringify(merged))
+      return merged
+    }
+  } catch {}
+  return DEFAULT_AES
+}
+
+// ─── AE Combobox — dropdown + free text, with add and delete ─────────────────
 function AECombobox({value,onChange}:{value:string;onChange:(v:string)=>void}) {
   const [open,setOpen]=useState(false)
-  const [opts,setOpts]=useState<string[]>(()=>{
-    try { return JSON.parse(localStorage.getItem('mql-ae-opts')||'null')||DEFAULT_AES } catch { return DEFAULT_AES }
-  })
+  const [opts,setOpts]=useState<string[]>(getStoredAEs)
   const [inputVal,setInputVal]=useState(value)
+  const [hoveredIdx,setHoveredIdx]=useState<number|null>(null)
+  const [confirmDelete,setConfirmDelete]=useState<string|null>(null)
   const ref=React.useRef<HTMLDivElement>(null)
 
-  // Sync inputVal when value changes externally
   useEffect(()=>setInputVal(value),[value])
 
-  // Close on outside click
   useEffect(()=>{
-    const handler=(e:MouseEvent)=>{ if (ref.current&&!ref.current.contains(e.target as Node)) setOpen(false) }
+    const handler=(e:MouseEvent)=>{ if (ref.current&&!ref.current.contains(e.target as Node)){setOpen(false);setConfirmDelete(null)} }
     document.addEventListener('mousedown',handler)
     return ()=>document.removeEventListener('mousedown',handler)
   },[])
 
+  const save=(updated:string[])=>{
+    const sorted=updated.slice().sort()
+    setOpts(sorted)
+    localStorage.setItem(AE_STORAGE_KEY,JSON.stringify(sorted))
+  }
+
   const filtered=opts.filter(o=>o.toLowerCase().includes(inputVal.toLowerCase()))
   const showAdd=inputVal.trim()&&!opts.some(o=>o.toLowerCase()===inputVal.trim().toLowerCase())
 
-  const select=(v:string)=>{ onChange(v); setInputVal(v); setOpen(false) }
+  const select=(v:string)=>{ onChange(v); setInputVal(v); setOpen(false); setConfirmDelete(null) }
 
   const addNew=()=>{
     const v=inputVal.trim()
     if (!v) return
-    const updated=[...opts,v].sort()
-    setOpts(updated)
-    localStorage.setItem('mql-ae-opts',JSON.stringify(updated))
+    save([...opts,v])
     select(v)
+  }
+
+  const deleteAE=(name:string,e:React.MouseEvent)=>{
+    e.preventDefault(); e.stopPropagation()
+    if (confirmDelete===name) {
+      // confirmed — remove
+      save(opts.filter(o=>o!==name))
+      if (value===name) onChange('')
+      setConfirmDelete(null)
+    } else {
+      setConfirmDelete(name)
+    }
   }
 
   return (
     <div ref={ref} style={{position:'relative'}} onClick={e=>e.stopPropagation()}>
       <input
         value={inputVal}
-        onChange={e=>{setInputVal(e.target.value);onChange(e.target.value);setOpen(true)}}
+        onChange={e=>{setInputVal(e.target.value);onChange(e.target.value);setOpen(true);setConfirmDelete(null)}}
         onFocus={()=>setOpen(true)}
         onMouseDown={e=>e.stopPropagation()}
-        onKeyDown={e=>e.stopPropagation()}
+        onKeyDown={e=>{e.stopPropagation();if(e.key==='Escape'){setOpen(false);setConfirmDelete(null)}}}
         onKeyUp={e=>e.stopPropagation()}
         placeholder="Select or type AE name…"
         style={{...inputStyle,paddingRight:28}}
         onClick={e=>e.stopPropagation()}
       />
-      <span onClick={e=>{e.stopPropagation();setOpen(p=>!p)}}
+      <span onClick={e=>{e.stopPropagation();setOpen(p=>!p);setConfirmDelete(null)}}
             style={{position:'absolute',right:8,top:'50%',transform:'translateY(-50%)',fontSize:9,color:C.text3,cursor:'pointer',userSelect:'none'}}>▼</span>
       {open&&(
-        <div style={{position:'absolute',top:'100%',left:0,right:0,zIndex:100,background:C.surface,border:`1px solid ${C.border2}`,borderRadius:6,boxShadow:'0 8px 24px rgba(0,0,0,0.4)',maxHeight:180,overflowY:'auto',marginTop:2}}>
+        <div style={{position:'absolute',top:'100%',left:0,right:0,zIndex:100,background:C.surface,border:`1px solid ${C.border2}`,borderRadius:6,boxShadow:'0 8px 24px rgba(0,0,0,0.4)',maxHeight:220,overflowY:'auto',marginTop:2}}>
           {filtered.length===0&&!showAdd&&<div style={{padding:'8px 10px',fontSize:11,color:C.text3}}>No matches</div>}
-          {filtered.map(o=>(
-            <div key={o} onMouseDown={e=>{e.preventDefault();select(o)}}
-                 style={{padding:'7px 10px',fontSize:12,color:C.text2,cursor:'pointer',background:'transparent'}}
-                 onMouseEnter={e=>(e.currentTarget.style.background=C.surface2)}
-                 onMouseLeave={e=>(e.currentTarget.style.background='transparent')}>
-              {o}
-            </div>
-          ))}
+          {filtered.map((o,i)=>{
+            const isConfirming=confirmDelete===o
+            return (
+              <div key={o}
+                   onMouseEnter={()=>setHoveredIdx(i)}
+                   onMouseLeave={()=>setHoveredIdx(null)}
+                   style={{display:'flex',alignItems:'center',padding:'0 6px 0 10px',background:hoveredIdx===i&&!isConfirming?C.surface2:isConfirming?'rgba(255,92,92,0.1)':'transparent',transition:'background 0.1s'}}>
+                {/* Name — click to select */}
+                <div
+                  onMouseDown={e=>{e.preventDefault();if(!isConfirming)select(o);else setConfirmDelete(null)}}
+                  style={{flex:1,padding:'7px 0',fontSize:12,color:isConfirming?C.red:C.text2,cursor:'pointer',fontWeight:isConfirming?600:400}}
+                >
+                  {isConfirming?`Delete "${o}"?`:o}
+                </div>
+                {/* Delete button — always visible on hover or confirming */}
+                {(hoveredIdx===i||isConfirming)&&(
+                  <div style={{display:'flex',gap:4,flexShrink:0,paddingLeft:6}}>
+                    {isConfirming&&(
+                      <button
+                        onMouseDown={e=>{e.preventDefault();setConfirmDelete(null)}}
+                        style={{fontSize:10,fontWeight:600,padding:'2px 7px',borderRadius:4,border:`1px solid ${C.border2}`,background:'transparent',color:C.text3,cursor:'pointer'}}
+                      >Cancel</button>
+                    )}
+                    <button
+                      onMouseDown={e=>deleteAE(o,e)}
+                      style={{fontSize:10,fontWeight:600,padding:'2px 7px',borderRadius:4,border:`1px solid ${isConfirming?C.red:C.border2}`,background:isConfirming?'rgba(255,92,92,0.15)':'transparent',color:isConfirming?C.red:C.text3,cursor:'pointer'}}
+                    >{isConfirming?'Confirm':'✕'}</button>
+                  </div>
+                )}
+              </div>
+            )
+          })}
           {showAdd&&(
             <div onMouseDown={e=>{e.preventDefault();addNew()}}
                  style={{padding:'7px 10px',fontSize:12,color:C.green,cursor:'pointer',borderTop:`1px solid ${C.border}`,display:'flex',alignItems:'center',gap:6}}>
@@ -321,6 +379,44 @@ function DateField({value,onChange}:{value:string;onChange:(v:string)=>void}) {
         }}
       />
     </div>
+  )
+}
+
+// ─── Inline account name editor — click pencil to edit, Enter/blur to save ───
+function AccountNameEditor({name,onSave}:{name:string;onSave:(v:string)=>void}) {
+  const [editing,setEditing]=useState(false)
+  const [val,setVal]=useState(name)
+  const inputRef=React.useRef<HTMLInputElement>(null)
+
+  useEffect(()=>{ if(editing) { setVal(name); setTimeout(()=>inputRef.current?.select(),0) } },[editing])
+
+  const commit=()=>{ const v=val.trim(); if(v&&v!==name) onSave(v); setEditing(false) }
+
+  if (editing) return (
+    <input
+      ref={inputRef}
+      value={val}
+      onChange={e=>{e.stopPropagation();setVal(e.target.value)}}
+      onBlur={commit}
+      onKeyDown={e=>{e.stopPropagation();if(e.key==='Enter')commit();if(e.key==='Escape')setEditing(false)}}
+      onMouseDown={e=>e.stopPropagation()}
+      onClick={e=>e.stopPropagation()}
+      style={{fontWeight:600,fontSize:13,background:'transparent',border:'none',borderBottom:`1px solid ${C.purple}`,outline:'none',color:C.text,padding:'0 2px',width:Math.max(val.length*8,80)+'px'}}
+    />
+  )
+
+  return (
+    <span style={{display:'inline-flex',alignItems:'center',gap:5,cursor:'default'}}>
+      <span style={{fontWeight:600,fontSize:13}}>{name}</span>
+      <button
+        onClick={e=>{e.stopPropagation();setEditing(true)}}
+        onMouseDown={e=>e.stopPropagation()}
+        title="Edit account name"
+        style={{fontSize:10,opacity:0.35,background:'none',border:'none',cursor:'pointer',padding:'1px 3px',color:C.text3,lineHeight:1}}
+        onMouseEnter={e=>(e.currentTarget.style.opacity='1')}
+        onMouseLeave={e=>(e.currentTarget.style.opacity='0.35')}
+      >✎</button>
+    </span>
   )
 }
 
@@ -804,9 +900,15 @@ export default function Dashboard() {
   const [chartTo,    setChartTo]    = useState('')
   const [showCreate, setShowCreate] = useState(false)
   const [manualLeads,setManualLeads]= useState<AppLead[]>([])
+  const [nameOverrides,setNameOverrides]=useState<Record<string,string>>({})
 
   const getManualLeads=():AppLead[]=>{ try { return JSON.parse(localStorage.getItem('mql-manual')||'[]') } catch { return [] } }
   const saveManualLeads=(leads:AppLead[])=>{ localStorage.setItem('mql-manual',JSON.stringify(leads)) }
+
+  const updateNameOverride=(email:string,name:string)=>{
+    saveNameOverride(email,name)
+    setNameOverrides(getNameOverrides())
+  }
 
   // Version-based reseed — bump DATA_VERSION whenever historical data changes to force a refresh
   const DATA_VERSION='v5'
@@ -823,6 +925,7 @@ export default function Dashboard() {
     localStorage.setItem('mql-dt',JSON.stringify(dt))
     if (forceReseed) localStorage.setItem('mql-seeded-version',DATA_VERSION)
     setManualLeads(getManualLeads())
+    setNameOverrides(getNameOverrides())
   },[])
 
   const fetchLeads=useCallback(async()=>{
@@ -851,11 +954,12 @@ export default function Dashboard() {
     setShowCreate(false)
   }
 
-  // All leads = historical + manual + live (deduped by email)
+  // All leads = historical + manual + live (deduped by email AND domain)
+  const historicalDomains=new Set(HISTORICAL_LEADS.map(h=>h.domain))
   const allLeads:AppLead[]=[
     ...HISTORICAL_LEADS,
-    ...manualLeads.filter(l=>!HISTORICAL_LEADS.some(h=>h.email===l.email)),
-    ...liveLeads.filter(l=>!HISTORICAL_LEADS.some(h=>h.email===l.email)&&!manualLeads.some(m=>m.email===l.email)),
+    ...manualLeads.filter(l=>!HISTORICAL_LEADS.some(h=>h.email===l.email)&&!historicalDomains.has(l.domain)),
+    ...liveLeads.filter(l=>!HISTORICAL_LEADS.some(h=>h.email===l.email)&&!manualLeads.some(m=>m.email===l.email)&&!historicalDomains.has(l.domain)),
   ]
 
   // ── Pipeline filters ────────────────────────────────────────────────────────
@@ -933,7 +1037,7 @@ export default function Dashboard() {
     const dimmed=s==='dq'||s==='na'||s==='lost'
     const det=details[lead.email]||{...EMPTY_DETAIL,...(HISTORICAL_DETAILS[lead.email]||{})}
     const isOpen=expanded===lead.email
-    const displayName=lead.account||(det.prospectName?det.prospectName:lead.domain?formatDomain(lead.domain):lead.email)
+    const displayName=nameOverrides[lead.email]||(lead.account||(det.prospectName?det.prospectName:lead.domain?formatDomain(lead.domain):lead.email))
     const receivedDisplay=lead.receivedAt
       ? new Date(lead.receivedAt).toLocaleString('en-US',{month:'short',day:'numeric',hour:lead.isHistorical?undefined:'numeric',minute:lead.isHistorical?undefined:'2-digit'})
       : lead.date||'—'
@@ -953,7 +1057,10 @@ export default function Dashboard() {
           <td style={{padding:0,width:4}}><span style={{display:'block',width:4,minHeight:46,background:STRIPE[s]}}/></td>
           <td style={{padding:'10px 14px',opacity:dimmed?0.5:1}}>
             <div style={{display:'flex',alignItems:'center',gap:7,flexWrap:'wrap'}}>
-              <span style={{fontWeight:600,fontSize:13}}>{displayName}</span>
+              <AccountNameEditor
+                name={displayName}
+                onSave={name=>updateNameOverride(lead.email,name)}
+              />
               {lead.isHistorical&&<span style={{fontSize:10,color:C.text3,background:C.surface3,borderRadius:4,padding:'1px 6px'}}>historical</span>}
               {lead.isManual&&<span style={{fontSize:10,color:C.amber,background:'rgba(245,166,35,0.12)',borderRadius:4,padding:'1px 6px',border:`1px solid rgba(245,166,35,0.3)`}}>manual</span>}
               {det.prospectName&&!lead.isHistorical&&!lead.isManual&&<span style={{fontSize:11,color:C.text3}}>· {det.prospectName}</span>}
