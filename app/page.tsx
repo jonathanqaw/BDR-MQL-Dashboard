@@ -141,7 +141,45 @@ const HISTORICAL_DETAILS: Record<string,Partial<LeadDetail>> = {
   'productleague@historical':     { prospectName:'Ingmar van Oostrum', title:'QA Manager & Operations Lead', sourceChannel:'#growth-wins', outreachChannel:'Email', meetingDate:'2026-04-07', ae:'Jordan Van Itallie', multithreading:'Yes', nextStepStatus:'Waiting for AE' },
 }
 
-// ─── Status config ────────────────────────────────────────────────────────────
+// ─── SF links baked in from Slack — permanent fallback so they survive cache clears ──
+const LIVE_SF_LINKS: Record<string,string> = {
+  'naoufel.razouane@symdrik.com':       'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WKSYn2AP/view',
+  'hassan@raspire.com':                  'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WIr6i2AD/view',
+  'tori@portfolioxpressway.com':         'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WIPtb2AH/view',
+  'mahmut.cemrek@hesap.com':             'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WINer2AH/view',
+  'cleo@futureholidays.co':              'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WI1862AD/view',
+  'petersons@reninc.com':                'https://qawolf1.lightning.force.com/lightning/r/Contact/003PA00000ZIU9yYAH/view',
+  'bhollenbeck@guardiandd.com':          'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WCFYk2AP/view',
+  'aleksa.jankovic@freetrade.io':        'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WGQs92AH/view',
+  'chad@blueyard.com':                   'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WHPE52AP/view',
+  'oladapo.olasunkanmi@machineslikeme.com': 'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WHORh2AP/view',
+  'javeria@erlystage.com':               'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WHA702AH/view',
+  'ethan@piastech.com':                  'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WH58v2AD/view',
+  'abdullah@connexease.com':             'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WG9Uj2AL/view',
+  'arun.kumar1@forcepoint.com':          'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WFbuV2AT/view',
+  'support@nursenest.ca':                'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WFbRS2A1/view',
+  'csd@reach52.com':                     'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WFONm2AP/view',
+  'bharden@northcapital.com':            'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WFMDu2AP/view',
+  'jochen@norento.com':                  'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WDW4U2AX/view',
+  'ernest.lam@dvcorporate.com':          'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WDCSL2A5/view',
+  'diana.lang.ext@bureauveritas.com':    'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WHCdR2AX/view',
+}
+
+// ─── Prospect names recovered from chilinbot DMs ─────────────────────────────
+const LIVE_PROSPECT_NAMES: Record<string,string> = {
+  'naoufel.razouane@symdrik.com':           'Naoufel Razouane',
+  'hassan@raspire.com':                      'Hassan Mostafa',
+  'cleo@futureholidays.co':                  'Cleo Hissatugu',
+  'chad@blueyard.com':                       'Chad Fowler',
+  'oladapo.olasunkanmi@machineslikeme.com':  'Oladapo Olasunkanmi',
+  'javeria@erlystage.com':                   'Javeria Nasir',
+  'bhollenbeck@guardiandd.com':              'Brett Hollenbeck',
+  'aleksa.jankovic@freetrade.io':            'Aleksa Jankovic',
+  'abdullah@connexease.com':                 'Abdullah Külcü',
+  'bharden@northcapital.com':                'Benjamin Harden',
+  'alice.porcu@check24.de':                  'Alice Porcu',
+  'jochen@norento.com':                      'Jochen Norento',
+}
 const STATUS_CONFIG: Record<Status,{label:string;color:string;dim:string;border:string}> = {
   new:        {label:'New',         color:'rgba(255,255,255,0.38)', dim:'#2a2654',               border:'rgba(255,255,255,0.13)'},
   contacted:  {label:'Contacted',   color:'#a89cf8',                dim:'rgba(123,110,246,0.18)', border:'rgba(123,110,246,0.4)'},
@@ -182,12 +220,25 @@ const saveNameOverride = (email:string,name:string)=> { const s=getNameOverrides
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function getResponseDot(receivedAt:string|null,status:Status):{color:string;label:string}|null {
-  if (!receivedAt||status!=='new') return null
+  if (!receivedAt) return null
+  // Only show on leads that haven't been touched yet (status is still new)
+  if (status!=='new') return null
   const mins=(Date.now()-new Date(receivedAt).getTime())/60000
-  if (new Date(receivedAt).toDateString()!==new Date().toDateString()) return null
-  if (mins<=20) return {color:C.green,label:`${Math.round(mins)}m ago`}
-  if (mins<=59) return {color:C.amber,label:`${Math.round(mins)}m ago`}
-  return {color:C.red,label:`${Math.round(mins)}m ago`}
+  // Only show within 48 hours
+  if (mins>60*48) return null
+
+  // Format: Xm / Xh Xm / Xd Xh
+  const formatAge=(m:number)=>{
+    if (m<60) return `${Math.round(m)}m ago`
+    const h=Math.floor(m/60); const rm=Math.round(m%60)
+    if (h<24) return rm>0?`${h}h ${rm}m ago`:`${h}h ago`
+    const d=Math.floor(h/24); const rh=h%24
+    return rh>0?`${d}d ${rh}h ago`:`${d}d ago`
+  }
+
+  if (mins<=20) return {color:C.green,label:formatAge(mins)}
+  if (mins<=60) return {color:C.amber,label:formatAge(mins)}
+  return {color:C.red,label:formatAge(mins)}
 }
 // Convert email domain to readable company name: product-league.com → Product League
 function formatDomain(domain:string):string {
@@ -1028,7 +1079,7 @@ export default function Dashboard() {
   }
 
   // Version-based reseed — bump DATA_VERSION whenever historical data changes to force a refresh
-  const DATA_VERSION='v5'
+  const DATA_VERSION='v6'
   useEffect(()=>{
     const seeded=localStorage.getItem('mql-seeded-version')
     const st=getSt(); const dt=getDetails()
@@ -1072,11 +1123,17 @@ export default function Dashboard() {
   }
 
   // All leads = historical + manual + live (deduped by email AND domain)
+  // Enrich live leads with baked-in SF links as permanent fallback
   const historicalDomains=new Set(HISTORICAL_LEADS.map(h=>h.domain))
+  const enriched=(leads:AppLead[])=>leads.map(l=>({
+    ...l,
+    sfUrl: l.sfUrl || LIVE_SF_LINKS[l.email] || null,
+    name: l.name || LIVE_PROSPECT_NAMES[l.email] || null,
+  }))
   const allLeads:AppLead[]=[
     ...HISTORICAL_LEADS,
-    ...manualLeads.filter(l=>!HISTORICAL_LEADS.some(h=>h.email===l.email)&&!historicalDomains.has(l.domain)),
-    ...liveLeads.filter(l=>!HISTORICAL_LEADS.some(h=>h.email===l.email)&&!manualLeads.some(m=>m.email===l.email)&&!historicalDomains.has(l.domain)),
+    ...enriched(manualLeads.filter(l=>!HISTORICAL_LEADS.some(h=>h.email===l.email)&&!historicalDomains.has(l.domain))),
+    ...enriched(liveLeads.filter(l=>!HISTORICAL_LEADS.some(h=>h.email===l.email)&&!manualLeads.some(m=>m.email===l.email)&&!historicalDomains.has(l.domain))),
   ]
 
   // ── Pipeline filters ────────────────────────────────────────────────────────
@@ -1148,13 +1205,15 @@ export default function Dashboard() {
 
   // ── Row renderer ─────────────────────────────────────────────────────────────
   const renderRow=(lead:AppLead)=>{
-    const s=statuses[lead.email]||'new'
+    // Guard: if localStorage has stale hqmql/lqmql from old version, treat as new
+    const rawStatus=statuses[lead.email]||'new'
+    const s=(rawStatus in STATUS_CONFIG ? rawStatus : 'new') as Status
     const cfg=STATUS_CONFIG[s]
     const dot=getResponseDot(lead.receivedAt,s)
     const dimmed=s==='dq'||s==='na'||s==='lost'
     const det=details[lead.email]||{...EMPTY_DETAIL,...(HISTORICAL_DETAILS[lead.email]||{})}
     const isOpen=expanded===lead.email
-    const displayName=nameOverrides[lead.email]||(lead.account||(det.prospectName?det.prospectName:lead.domain?formatDomain(lead.domain):lead.email))
+    const displayName=nameOverrides[lead.email]||(lead.account||(det.prospectName||lead.name||lead.domain&&formatDomain(lead.domain)||lead.email))
     const receivedDisplay=lead.receivedAt
       ? new Date(lead.receivedAt).toLocaleString('en-US',{month:'short',day:'numeric',hour:lead.isHistorical?undefined:'numeric',minute:lead.isHistorical?undefined:'2-digit'})
       : lead.date||'—'
@@ -1221,7 +1280,11 @@ export default function Dashboard() {
         {isOpen&&(
           <DetailPanel
             lead={lead}
-            detail={{...EMPTY_DETAIL,...(HISTORICAL_DETAILS[lead.email]||{}),...(details[lead.email]||{})}}
+            detail={Object.assign(
+              {...EMPTY_DETAIL, prospectName: lead.name||''},
+              HISTORICAL_DETAILS[lead.email]||{},
+              details[lead.email]||{}
+            )}
             onSave={d=>updateDetail(lead.email,d)}
             onClose={()=>setExpanded(null)}
           />
