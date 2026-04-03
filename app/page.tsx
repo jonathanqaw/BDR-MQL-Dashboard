@@ -14,17 +14,18 @@ interface LeadDetail {
   prospectName: string; title: string; sourceChannel: string; outreachChannel: string
   connectedDate: string; meetingDate: string; nextStep: string; nextStepStatus: string
   sqlDq: string; sqlDate: string; ae: string; multithreading: string
-  sqo: string; sqoDate: string; acv: string; notes: string
+  sqo: string; sqoDate: string; acv: string; notes: string; sfLink: string
 }
 interface AppLead extends Lead {
   isHistorical?: boolean
   account?: string
+  isManual?: boolean
 }
 
 const EMPTY_DETAIL: LeadDetail = {
   prospectName:'', title:'', sourceChannel:'', outreachChannel:'',
   connectedDate:'', meetingDate:'', nextStep:'', nextStepStatus:'',
-  sqlDq:'', sqlDate:'', ae:'', multithreading:'', sqo:'', sqoDate:'', acv:'', notes:''
+  sqlDq:'', sqlDate:'', ae:'', multithreading:'', sqo:'', sqoDate:'', acv:'', notes:'', sfLink:''
 }
 
 // ─── Historical records from spreadsheet ─────────────────────────────────────
@@ -257,8 +258,9 @@ function DetailPanel({lead,detail,onSave,onClose}:{lead:AppLead;detail:LeadDetai
             <Field label="SQO Date"><DateInp k="sqoDate"/></Field>
             <Field label="Multithreading"><Sel k="multithreading" opts={MT_OPTIONS}/></Field>
           </div>
-          <div style={{display:'grid',gridTemplateColumns:'160px 1fr',gap:12}}>
+          <div style={{display:'grid',gridTemplateColumns:'160px 260px 1fr',gap:12}}>
             <Field label="ACV ($)"><Inp k="acv" placeholder="e.g. 72000"/></Field>
+            <Field label="Salesforce Link"><Inp k="sfLink" placeholder="https://qawolf1.lightning.force.com/…"/></Field>
             <Field label="Notes">
               <textarea value={d.notes} onChange={e=>setD(p=>({...p,notes:e.target.value}))} placeholder="Any context, next steps, or flags…" style={{...inputStyle,height:60,resize:'vertical'}}/>
             </Field>
@@ -342,6 +344,53 @@ function BarChart({bars,title}:{bars:{label:string;values:{status:Status;count:n
   )
 }
 
+// ─── Create Contact Modal ─────────────────────────────────────────────────────
+function CreateContactModal({onSave,onClose}:{onSave:(account:string,email:string,domain:string)=>void;onClose:()=>void}) {
+  const [account,setAccount]=useState('')
+  const [email,setEmail]=useState('')
+  const [domain,setDomain]=useState('')
+
+  // Auto-derive domain from email
+  const handleEmail=(v:string)=>{
+    setEmail(v)
+    const d=v.includes('@')?v.split('@')[1]:''
+    if (d) setDomain(d)
+  }
+
+  const canSave=account.trim()&&email.trim()
+
+  return (
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000}} onClick={onClose}>
+      <div style={{background:C.surface,border:`1px solid ${C.border2}`,borderRadius:12,padding:28,width:440,boxShadow:'0 24px 60px rgba(0,0,0,0.5)'}} onClick={e=>e.stopPropagation()}>
+        <div style={{fontSize:18,fontWeight:800,marginBottom:4}}>Create Contact</div>
+        <div style={{fontSize:12,color:C.text3,marginBottom:20}}>Manually add a lead not sourced from Slack</div>
+
+        <div style={{display:'flex',flexDirection:'column',gap:14}}>
+          <div>
+            <span style={labelStyle}>Account Name *</span>
+            <input value={account} onChange={e=>setAccount(e.target.value)} placeholder="e.g. Acme Corp" style={inputStyle}/>
+          </div>
+          <div>
+            <span style={labelStyle}>Email *</span>
+            <input value={email} onChange={e=>handleEmail(e.target.value)} placeholder="prospect@company.com" style={inputStyle}/>
+          </div>
+          <div>
+            <span style={labelStyle}>Domain</span>
+            <input value={domain} onChange={e=>setDomain(e.target.value)} placeholder="company.com" style={inputStyle}/>
+          </div>
+        </div>
+
+        <div style={{display:'flex',gap:8,marginTop:24,justifyContent:'flex-end'}}>
+          <button onClick={onClose} style={{fontSize:12,fontWeight:600,padding:'8px 16px',borderRadius:7,border:`1px solid ${C.border2}`,background:'transparent',color:C.text3,cursor:'pointer'}}>Cancel</button>
+          <button onClick={()=>canSave&&onSave(account.trim(),email.trim(),domain.trim()||email.split('@')[1]||'')} disabled={!canSave} style={{fontSize:12,fontWeight:700,padding:'8px 18px',borderRadius:7,border:'none',background:canSave?C.green:'rgba(0,229,160,0.3)',color:C.bg,cursor:canSave?'pointer':'default'}}>
+            Create Contact
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 export default function Dashboard() {
   const [liveLeads,  setLiveLeads]  = useState<AppLead[]>([])
@@ -357,6 +406,11 @@ export default function Dashboard() {
   const [copied,     setCopied]     = useState<string|null>(null)
   const [expanded,   setExpanded]   = useState<string|null>(null)
   const [chartPeriod,setChartPeriod]= useState<'week'|'month'>('week')
+  const [showCreate, setShowCreate] = useState(false)
+  const [manualLeads,setManualLeads]= useState<AppLead[]>([])
+
+  const getManualLeads=():AppLead[]=>{ try { return JSON.parse(localStorage.getItem('mql-manual')||'[]') } catch { return [] } }
+  const saveManualLeads=(leads:AppLead[])=>{ localStorage.setItem('mql-manual',JSON.stringify(leads)) }
 
   // Seed historical statuses & details into localStorage on first load
   useEffect(()=>{
@@ -371,6 +425,7 @@ export default function Dashboard() {
     })
     if (stDirty) localStorage.setItem('mql-st',JSON.stringify(st))
     if (dtDirty) localStorage.setItem('mql-dt',JSON.stringify(dt))
+    setManualLeads(getManualLeads())
   },[])
 
   const fetchLeads=useCallback(async()=>{
@@ -390,11 +445,20 @@ export default function Dashboard() {
   const updateDetail=(email:string,d:LeadDetail)=>setDetails(p=>({...p,[email]:d}))
   const copyEmail=(email:string)=>{ navigator.clipboard.writeText(email).then(()=>{ setCopied(email); setTimeout(()=>setCopied(null),2000) }) }
 
-  // All leads = historical + live (deduped by email)
-  const liveEmails=new Set(liveLeads.map(l=>l.email))
+  const createContact=(account:string,email:string,domain:string)=>{
+    const newLead:AppLead={ email, domain, account, name:null, sfUrl:null, date:new Date().toISOString().split('T')[0], receivedAt:new Date().toISOString(), source:'bdr', isManual:true }
+    const updated=[...manualLeads,newLead]
+    setManualLeads(updated); saveManualLeads(updated)
+    saveSt(email,'new')
+    setStatuses(p=>({...p,[email]:'new'}))
+    setShowCreate(false)
+  }
+
+  // All leads = historical + manual + live (deduped by email)
   const allLeads:AppLead[]=[
     ...HISTORICAL_LEADS,
-    ...liveLeads.filter(l=>!HISTORICAL_LEADS.some(h=>h.email===l.email)),
+    ...manualLeads.filter(l=>!HISTORICAL_LEADS.some(h=>h.email===l.email)),
+    ...liveLeads.filter(l=>!HISTORICAL_LEADS.some(h=>h.email===l.email)&&!manualLeads.some(m=>m.email===l.email)),
   ]
 
   // ── Pipeline filters ────────────────────────────────────────────────────────
@@ -416,6 +480,18 @@ export default function Dashboard() {
     }).length
     return acc
   },{} as Record<Status,number>)
+
+  // SQL and SQO counts — driven by detail fields, scoped to period
+  const sqlCount=allLeads.filter(l=>{
+    if (!l.receivedAt||new Date(l.receivedAt)<periodStart) return false
+    return (details[l.email]?.sqlDq||'')==='Yes'
+  }).length
+  const sqoCount=allLeads.filter(l=>{
+    if (!l.receivedAt||new Date(l.receivedAt)<periodStart) return false
+    return (details[l.email]?.sqo||'')==='Yes'
+  }).length
+  const sqlAllTime=allLeads.filter(l=>(details[l.email]?.sqlDq||'')==='Yes').length
+  const sqoAllTime=allLeads.filter(l=>(details[l.email]?.sqo||'')==='Yes').length
 
   // ── Analytics data ──────────────────────────────────────────────────────────
   // Pie: all-time status breakdown
@@ -465,7 +541,8 @@ export default function Dashboard() {
             <div style={{display:'flex',alignItems:'center',gap:7,flexWrap:'wrap'}}>
               <span style={{fontWeight:600,fontSize:13}}>{displayName}</span>
               {lead.isHistorical&&<span style={{fontSize:10,color:C.text3,background:C.surface3,borderRadius:4,padding:'1px 6px'}}>historical</span>}
-              {det.prospectName&&!lead.isHistorical&&<span style={{fontSize:11,color:C.text3}}>· {det.prospectName}</span>}
+              {lead.isManual&&<span style={{fontSize:10,color:C.amber,background:'rgba(245,166,35,0.12)',borderRadius:4,padding:'1px 6px',border:`1px solid rgba(245,166,35,0.3)`}}>manual</span>}
+              {det.prospectName&&!lead.isHistorical&&!lead.isManual&&<span style={{fontSize:11,color:C.text3}}>· {det.prospectName}</span>}
               {!lead.isHistorical&&(
                 <button onClick={e=>{e.stopPropagation();copyEmail(lead.email)}} style={{display:'inline-flex',alignItems:'center',gap:4,fontSize:11,fontWeight:600,padding:'3px 9px',borderRadius:999,border:`1px solid ${copied===lead.email?C.purpleL:C.border2}`,background:copied===lead.email?'rgba(123,110,246,0.18)':C.surface3,color:copied===lead.email?C.purpleL:C.text3,cursor:'pointer'}}>
                   {copied===lead.email?'✓ Copied!':'⎘ Copy'}
@@ -481,8 +558,8 @@ export default function Dashboard() {
             </div>
           </td>
           <td style={{padding:'10px 14px',opacity:dimmed?0.5:1}}>
-            {lead.sfUrl
-              ? <a href={lead.sfUrl} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()} style={{display:'inline-flex',alignItems:'center',gap:5,fontSize:11,fontWeight:600,padding:'3px 10px',borderRadius:999,border:`1px solid ${C.green}`,background:'rgba(0,229,160,0.13)',color:C.green,textDecoration:'none'}}>↗ SF</a>
+            {(lead.sfUrl||det.sfLink)
+              ? <a href={lead.sfUrl||det.sfLink} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()} style={{display:'inline-flex',alignItems:'center',gap:5,fontSize:11,fontWeight:600,padding:'3px 10px',borderRadius:999,border:`1px solid ${C.green}`,background:'rgba(0,229,160,0.13)',color:C.green,textDecoration:'none'}}>↗ SF</a>
               : <span style={{fontSize:11,color:C.text3}}>—</span>}
           </td>
           <td style={{padding:'10px 14px',opacity:dimmed?0.5:1}}>
@@ -582,10 +659,11 @@ export default function Dashboard() {
                   <button key={p} onClick={()=>{setPeriod(p);setStFilter('all')}} style={filterPill(period===p)}>{{week:'This Week',month:'This Month',quarter:'This Quarter'}[p]}</button>
                 ))}
               </div>
-              <div style={{display:'flex',gap:5}}>
+              <div style={{display:'flex',gap:5,alignItems:'center'}}>
                 {(['all','worked','untouched'] as WorkedFilter[]).map(w=>(
                   <button key={w} onClick={()=>setWorked(w)} style={filterPill(worked===w,C.amber)}>{{all:'All leads',worked:'Worked',untouched:'Untouched'}[w]}</button>
                 ))}
+                <button onClick={()=>setShowCreate(true)} style={{fontSize:12,fontWeight:700,padding:'5px 14px',borderRadius:999,border:`1px solid ${C.green}`,background:'rgba(0,229,160,0.13)',color:C.green,cursor:'pointer'}}>+ Contact</button>
               </div>
             </div>
           </div>
@@ -593,17 +671,19 @@ export default function Dashboard() {
           {error&&<div style={{display:'flex',alignItems:'center',gap:10,background:'rgba(255,92,92,0.12)',border:`1px solid ${C.red}`,borderRadius:7,padding:'10px 14px',fontSize:13,color:C.red,marginBottom:16}}>⚠ {error}</div>}
 
           {/* Summary cards — clickable to filter */}
-          <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:20}}>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:12,marginBottom:20}}>
             {[
-              {label:'Total in period', value:Object.values(pCounts).reduce((s,v)=>s+v,0), color:C.green,   sub:period,          filter:'all'     as StatusFilter},
-              {label:'Booked',          value:pCounts.booked,                                color:C.green,   sub:'meetings set',  filter:'booked'  as StatusFilter},
+              {label:'Total in period', value:Object.values(pCounts).reduce((s,v)=>s+v,0), color:C.green,   sub:period,          filter:'all'      as StatusFilter},
+              {label:'Booked',          value:pCounts.booked,                                color:C.green,   sub:'meetings set',  filter:'booked'   as StatusFilter},
               {label:'Contacted',       value:pCounts.contacted,                             color:C.purpleL, sub:'in progress',   filter:'contacted' as StatusFilter},
-              {label:'Untouched',       value:pCounts.new,                                   color:C.amber,   sub:'needs action',  filter:'new'     as StatusFilter},
+              {label:'Untouched',       value:pCounts.new,                                   color:C.amber,   sub:'needs action',  filter:'new'      as StatusFilter},
+              {label:'SQLs',            value:sqlCount,                                      color:'#60d4f4',  sub:'qualified',     filter:'all'      as StatusFilter},
+              {label:'SQOs',            value:sqoCount,                                      color:'#c084fc',  sub:'opp created',   filter:'all'      as StatusFilter},
             ].map(s=>(
-              <div key={s.label} onClick={()=>setStFilter(f=>f===s.filter?'all':s.filter)} style={{...card,cursor:'pointer',border:`1px solid ${stFilter===s.filter?s.color:C.border}`,transition:'border 0.15s'}}>
+              <div key={s.label} onClick={()=>s.filter!=='all'||s.label==='Total in period'?setStFilter(f=>f===s.filter&&s.label!=='Total in period'?'all':s.filter):undefined} style={{...card,cursor:s.label==='SQLs'||s.label==='SQOs'?'default':'pointer',border:`1px solid ${stFilter===s.filter&&s.label!=='SQLs'&&s.label!=='SQOs'&&s.label!=='Total in period'?s.color:C.border}`,transition:'border 0.15s'}}>
                 <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:8}}>{s.label}</div>
-                <div style={{fontSize:28,fontWeight:800,letterSpacing:'-0.03em',lineHeight:1,color:s.color}}>{s.value}</div>
-                <div style={{fontSize:11,color:C.text3,marginTop:5}}>{stFilter===s.filter?'← click to clear':s.sub}</div>
+                <div style={{fontSize:24,fontWeight:800,letterSpacing:'-0.03em',lineHeight:1,color:s.color}}>{s.value}</div>
+                <div style={{fontSize:11,color:C.text3,marginTop:5}}>{s.sub}</div>
               </div>
             ))}
           </div>
@@ -611,9 +691,9 @@ export default function Dashboard() {
           {/* Status breakdown — clickable */}
           <div style={{...card,marginBottom:20}}>
             <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:14}}>
-              Status breakdown · <span style={{fontWeight:400,textTransform:'none',letterSpacing:'normal'}}>click to filter</span>
+              Status breakdown · <span style={{fontWeight:400,textTransform:'none',letterSpacing:'normal'}}>click to filter · SQL and SQO from detail fields</span>
             </div>
-            <div style={{display:'flex',gap:12,flexWrap:'wrap'}}>
+            <div style={{display:'flex',gap:12,flexWrap:'wrap',alignItems:'flex-start'}}>
               {(Object.keys(STATUS_CONFIG) as Status[]).map(s=>{
                 const count=pCounts[s]
                 const pct=Object.values(pCounts).reduce((a,b)=>a+b,0)?Math.round(count/Object.values(pCounts).reduce((a,b)=>a+b,0)*100):0
@@ -633,6 +713,20 @@ export default function Dashboard() {
                   </div>
                 )
               })}
+              {/* SQL + SQO tiles */}
+              {[
+                {label:'SQL',value:sqlCount,color:'#60d4f4',sub:'SQL / DQ = Yes'},
+                {label:'SQO',value:sqoCount,color:'#c084fc',sub:'SQO = Yes'},
+              ].map(s=>(
+                <div key={s.label} style={{display:'flex',flexDirection:'column',gap:6,minWidth:72,padding:'8px 10px',borderRadius:8,border:`1px solid rgba(255,255,255,0.07)`,background:'transparent'}}>
+                  <div style={{display:'flex',alignItems:'center',gap:5}}>
+                    <span style={{width:8,height:8,borderRadius:'50%',background:s.color,flexShrink:0}}/>
+                    <span style={{fontSize:11,color:C.text2}}>{s.label}</span>
+                  </div>
+                  <div style={{fontSize:22,fontWeight:800,color:s.color,letterSpacing:'-0.02em'}}>{s.value}</div>
+                  <div style={{fontSize:10,color:C.text3}}>{s.sub}</div>
+                </div>
+              ))}
             </div>
           </div>
 
@@ -673,16 +767,18 @@ export default function Dashboard() {
           </div>
 
           {/* Top stats */}
-          <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:28}}>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:12,marginBottom:28}}>
             {[
-              {label:'Total leads',    value:allLeads.length,                                                              color:C.green,   sub:'all time'},
-              {label:'Booked',         value:allLeads.filter(l=>(statuses[l.email]||'new')==='booked').length,             color:C.green,   sub:'meetings set'},
-              {label:'SQL rate',       value:`${allLeads.length?Math.round(allLeads.filter(l=>(statuses[l.email]||'new')==='booked').length/allLeads.length*100):0}%`, color:C.purpleL, sub:'booked / total'},
-              {label:'Pipeline ACV',   value:`$${allLeads.reduce((s,l)=>{const d=details[l.email]; return s+(d?.acv?parseInt(d.acv)||0:0)},0).toLocaleString()}`, color:C.amber, sub:'from filled records'},
+              {label:'Total leads',  value:allLeads.length,                                                              color:C.green,   sub:'all time'},
+              {label:'Booked',       value:allLeads.filter(l=>(statuses[l.email]||'new')==='booked').length,             color:C.green,   sub:'meetings set'},
+              {label:'SQLs',         value:sqlAllTime,                                                                   color:'#60d4f4', sub:'SQL / DQ = Yes'},
+              {label:'SQOs',         value:sqoAllTime,                                                                   color:'#c084fc', sub:'opp created'},
+              {label:'SQL rate',     value:`${allLeads.length?Math.round(sqlAllTime/allLeads.length*100):0}%`,           color:C.purpleL, sub:'SQL / total'},
+              {label:'Pipeline ACV', value:`$${allLeads.reduce((s,l)=>{const d=details[l.email]; return s+(d?.acv?parseInt(d.acv)||0:0)},0).toLocaleString()}`, color:C.amber, sub:'from filled records'},
             ].map(s=>(
               <div key={s.label} style={card}>
                 <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:8}}>{s.label}</div>
-                <div style={{fontSize:28,fontWeight:800,letterSpacing:'-0.03em',lineHeight:1,color:s.color}}>{s.value}</div>
+                <div style={{fontSize:24,fontWeight:800,letterSpacing:'-0.03em',lineHeight:1,color:s.color}}>{s.value}</div>
                 <div style={{fontSize:11,color:C.text3,marginTop:5}}>{s.sub}</div>
               </div>
             ))}
@@ -740,6 +836,9 @@ export default function Dashboard() {
           </div>
         </>)}
       </main>
+
+      {/* ── Create Contact Modal ── */}
+      {showCreate&&<CreateContactModal onSave={createContact} onClose={()=>setShowCreate(false)}/>}
     </div>
   )
 }
