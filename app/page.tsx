@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
+import React from 'react'
 import type { Lead } from '@/lib/slack'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -215,61 +216,179 @@ const selectStyle:React.CSSProperties={...inputStyle,appearance:'none' as const,
 const labelStyle:React.CSSProperties={fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase' as const,letterSpacing:'.07em',marginBottom:4,display:'block'}
 
 // ─── Detail Panel ─────────────────────────────────────────────────────────────
+// ─── AE names (pre-populated, user can add more) ─────────────────────────────
+const DEFAULT_AES = [
+  'Ben Barrett','Charlie Pie','Colin O\'Connor','Devin Steinke',
+  'Jason Minster','Jordan Van Itallie','Kathryn Hajjar','Sally Lopez',
+  'Scott Wilson','Stephen Stabile','Veronika Fischer'
+]
+
+// ─── AE Combobox — dropdown + free text like Google Sheets ───────────────────
+function AECombobox({value,onChange}:{value:string;onChange:(v:string)=>void}) {
+  const [open,setOpen]=useState(false)
+  const [opts,setOpts]=useState<string[]>(()=>{
+    try { return JSON.parse(localStorage.getItem('mql-ae-opts')||'null')||DEFAULT_AES } catch { return DEFAULT_AES }
+  })
+  const [inputVal,setInputVal]=useState(value)
+  const ref=React.useRef<HTMLDivElement>(null)
+
+  // Sync inputVal when value changes externally
+  useEffect(()=>setInputVal(value),[value])
+
+  // Close on outside click
+  useEffect(()=>{
+    const handler=(e:MouseEvent)=>{ if (ref.current&&!ref.current.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown',handler)
+    return ()=>document.removeEventListener('mousedown',handler)
+  },[])
+
+  const filtered=opts.filter(o=>o.toLowerCase().includes(inputVal.toLowerCase()))
+  const showAdd=inputVal.trim()&&!opts.some(o=>o.toLowerCase()===inputVal.trim().toLowerCase())
+
+  const select=(v:string)=>{ onChange(v); setInputVal(v); setOpen(false) }
+
+  const addNew=()=>{
+    const v=inputVal.trim()
+    if (!v) return
+    const updated=[...opts,v].sort()
+    setOpts(updated)
+    localStorage.setItem('mql-ae-opts',JSON.stringify(updated))
+    select(v)
+  }
+
+  return (
+    <div ref={ref} style={{position:'relative'}} onClick={e=>e.stopPropagation()}>
+      <input
+        value={inputVal}
+        onChange={e=>{setInputVal(e.target.value);onChange(e.target.value);setOpen(true)}}
+        onFocus={()=>setOpen(true)}
+        placeholder="Select or type AE name…"
+        style={{...inputStyle,paddingRight:28}}
+        onClick={e=>e.stopPropagation()}
+      />
+      <span onClick={e=>{e.stopPropagation();setOpen(p=>!p)}}
+            style={{position:'absolute',right:8,top:'50%',transform:'translateY(-50%)',fontSize:9,color:C.text3,cursor:'pointer',userSelect:'none'}}>▼</span>
+      {open&&(
+        <div style={{position:'absolute',top:'100%',left:0,right:0,zIndex:100,background:C.surface,border:`1px solid ${C.border2}`,borderRadius:6,boxShadow:'0 8px 24px rgba(0,0,0,0.4)',maxHeight:180,overflowY:'auto',marginTop:2}}>
+          {filtered.length===0&&!showAdd&&<div style={{padding:'8px 10px',fontSize:11,color:C.text3}}>No matches</div>}
+          {filtered.map(o=>(
+            <div key={o} onMouseDown={e=>{e.preventDefault();select(o)}}
+                 style={{padding:'7px 10px',fontSize:12,color:C.text2,cursor:'pointer',background:'transparent'}}
+                 onMouseEnter={e=>(e.currentTarget.style.background=C.surface2)}
+                 onMouseLeave={e=>(e.currentTarget.style.background='transparent')}>
+              {o}
+            </div>
+          ))}
+          {showAdd&&(
+            <div onMouseDown={e=>{e.preventDefault();addNew()}}
+                 style={{padding:'7px 10px',fontSize:12,color:C.green,cursor:'pointer',borderTop:`1px solid ${C.border}`,display:'flex',alignItems:'center',gap:6}}>
+              <span style={{fontSize:14,fontWeight:700}}>+</span> Add &ldquo;{inputVal.trim()}&rdquo;
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Date input wrapper — prevents calendar icon from disappearing ────────────
+function DateField({value,onChange}:{value:string;onChange:(v:string)=>void}) {
+  return (
+    <div style={{position:'relative'}} onClick={e=>e.stopPropagation()}>
+      <input
+        type="date"
+        value={value}
+        onChange={e=>{e.stopPropagation();onChange(e.target.value)}}
+        onClick={e=>e.stopPropagation()}
+        style={{
+          ...inputStyle,
+          colorScheme:'dark',
+          minWidth:0,
+        }}
+      />
+    </div>
+  )
+}
+
 function DetailPanel({lead,detail,onSave,onClose}:{lead:AppLead;detail:LeadDetail;onSave:(d:LeadDetail)=>void;onClose:()=>void}) {
   const [d,setD]=useState<LeadDetail>(detail)
-  const set=(k:keyof LeadDetail)=>(e:React.ChangeEvent<HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement>)=>setD(p=>({...p,[k]:e.target.value}))
-  const handleSave=()=>{saveDetail(lead.email,d);onSave(d);onClose()}
+
+  // Stop ALL events from bubbling up to the row's onClick
+  const stopProp=(e:React.SyntheticEvent)=>e.stopPropagation()
+
+  const set=(k:keyof LeadDetail)=>(e:React.ChangeEvent<HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement>)=>{
+    e.stopPropagation()
+    setD(p=>({...p,[k]:e.target.value}))
+  }
+  const setVal=(k:keyof LeadDetail)=>(v:string)=>setD(p=>({...p,[k]:v}))
+
+  const handleSave=(e:React.MouseEvent)=>{ e.stopPropagation(); saveDetail(lead.email,d); onSave(d); onClose() }
+  const handleClose=(e:React.MouseEvent)=>{ e.stopPropagation(); onClose() }
+
   const Field=({label,children}:{label:string;children:React.ReactNode})=>(
-    <div style={{display:'flex',flexDirection:'column',gap:4}}><span style={labelStyle}>{label}</span>{children}</div>
+    <div style={{display:'flex',flexDirection:'column',gap:4}} onClick={stopProp}>
+      <span style={labelStyle}>{label}</span>
+      {children}
+    </div>
   )
   const Sel=({k,opts}:{k:keyof LeadDetail;opts:string[]})=>(
-    <select value={d[k]} onChange={set(k)} style={selectStyle}>{opts.map(o=><option key={o} value={o}>{o||'— Select —'}</option>)}</select>
+    <select value={d[k]} onChange={set(k)} onClick={stopProp} style={selectStyle}>
+      {opts.map(o=><option key={o} value={o}>{o||'— Select —'}</option>)}
+    </select>
   )
   const Inp=({k,placeholder}:{k:keyof LeadDetail;placeholder?:string})=>(
-    <input value={d[k]} onChange={set(k)} placeholder={placeholder||''} style={inputStyle}/>
+    <input value={d[k]} onChange={set(k)} onClick={stopProp} onFocus={stopProp} placeholder={placeholder||''} style={inputStyle}/>
   )
-  const DateInp=({k}:{k:keyof LeadDetail})=>(
-    <input type="date" value={d[k]} onChange={set(k)} style={inputStyle}/>
-  )
+
   return (
-    <tr>
-      <td colSpan={6} style={{padding:0}}>
-        <div style={{background:C.surface2,borderBottom:`1px solid ${C.border}`,padding:'20px 24px'}}>
+    <tr onClick={stopProp}>
+      <td colSpan={6} style={{padding:0}} onClick={stopProp}>
+        <div style={{background:C.surface2,borderBottom:`1px solid ${C.border}`,padding:'20px 24px'}} onClick={stopProp}>
           <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:20}}>
             <div>
               <div style={{fontSize:13,fontWeight:700}}>{lead.account||lead.email}</div>
-              <div style={{fontSize:11,color:C.text3}}>{lead.isHistorical?'Historical record':lead.email} {lead.sfUrl&&<a href={lead.sfUrl} target="_blank" rel="noopener noreferrer" style={{color:C.green,textDecoration:'none',marginLeft:8}}>↗ Open in SF</a>}</div>
+              <div style={{fontSize:11,color:C.text3}}>
+                {lead.isHistorical?'Historical record':lead.email}
+                {(lead.sfUrl||d.sfLink)&&<a href={lead.sfUrl||d.sfLink} target="_blank" rel="noopener noreferrer" style={{color:C.green,textDecoration:'none',marginLeft:8}}>↗ Open in SF</a>}
+              </div>
             </div>
             <div style={{display:'flex',gap:8}}>
               <button onClick={handleSave} style={{fontSize:12,fontWeight:700,padding:'7px 16px',borderRadius:7,border:'none',background:C.green,color:C.bg,cursor:'pointer'}}>Save</button>
-              <button onClick={onClose} style={{fontSize:12,fontWeight:600,padding:'7px 12px',borderRadius:7,border:`1px solid ${C.border2}`,background:'transparent',color:C.text3,cursor:'pointer'}}>✕</button>
+              <button onClick={handleClose} style={{fontSize:12,fontWeight:600,padding:'7px 12px',borderRadius:7,border:`1px solid ${C.border2}`,background:'transparent',color:C.text3,cursor:'pointer'}}>✕</button>
             </div>
           </div>
+
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:12,marginBottom:14}}>
             <Field label="Prospect Name"><Inp k="prospectName" placeholder="Full name"/></Field>
             <Field label="Title"><Inp k="title" placeholder="Job title"/></Field>
-            <Field label="AE"><Inp k="ae" placeholder="AE name"/></Field>
+            <Field label="AE">
+              <AECombobox value={d.ae} onChange={setVal('ae')}/>
+            </Field>
             <Field label="Source Channel"><Sel k="sourceChannel" opts={SOURCE_CHANNELS}/></Field>
           </div>
+
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:12,marginBottom:14}}>
             <Field label="Outreach Channel"><Sel k="outreachChannel" opts={OUTREACH_CH}/></Field>
-            <Field label="Connected Date"><DateInp k="connectedDate"/></Field>
-            <Field label="Meeting Booked Date"><DateInp k="meetingDate"/></Field>
+            <Field label="Connected Date"><DateField value={d.connectedDate} onChange={setVal('connectedDate')}/></Field>
+            <Field label="Meeting Booked Date"><DateField value={d.meetingDate} onChange={setVal('meetingDate')}/></Field>
             <Field label="Next Step"><Sel k="nextStep" opts={NEXT_STEPS}/></Field>
           </div>
+
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr 1fr 1fr',gap:12,marginBottom:14}}>
             <Field label="Next Step Status"><Sel k="nextStepStatus" opts={NEXT_STEP_STATUS}/></Field>
             <Field label="SQL / DQ"><Sel k="sqlDq" opts={SQL_OPTIONS}/></Field>
-            <Field label="SQL Date"><DateInp k="sqlDate"/></Field>
+            <Field label="SQL Date"><DateField value={d.sqlDate} onChange={setVal('sqlDate')}/></Field>
             <Field label="SQO"><Sel k="sqo" opts={SQO_OPTIONS}/></Field>
-            <Field label="SQO Date"><DateInp k="sqoDate"/></Field>
+            <Field label="SQO Date"><DateField value={d.sqoDate} onChange={setVal('sqoDate')}/></Field>
             <Field label="Multithreading"><Sel k="multithreading" opts={MT_OPTIONS}/></Field>
           </div>
+
           <div style={{display:'grid',gridTemplateColumns:'160px 260px 1fr',gap:12}}>
             <Field label="ACV ($)"><Inp k="acv" placeholder="e.g. 72000"/></Field>
             <Field label="Salesforce Link"><Inp k="sfLink" placeholder="https://qawolf1.lightning.force.com/…"/></Field>
             <Field label="Notes">
-              <textarea value={d.notes} onChange={e=>setD(p=>({...p,notes:e.target.value}))} placeholder="Any context, next steps, or flags…" style={{...inputStyle,height:60,resize:'vertical'}}/>
+              <textarea value={d.notes} onChange={e=>{e.stopPropagation();setD(p=>({...p,notes:e.target.value}))}} onClick={stopProp} onFocus={stopProp}
+                        placeholder="Any context, next steps, or flags…" style={{...inputStyle,height:60,resize:'vertical'}}/>
             </Field>
           </div>
         </div>
@@ -439,6 +558,7 @@ export default function Dashboard() {
   const [period,     setPeriod]     = useState<PeriodFilter>('all')
   const [worked,     setWorked]     = useState<WorkedFilter>('all')
   const [stFilter,   setStFilter]   = useState<StatusFilter>('all')
+  const [detailFilter,setDetailFilter]=useState<'none'|'sql'|'sqo'>('none')
   const [loading,    setLoading]    = useState(true)
   const [error,      setError]      = useState<string|null>(null)
   const [fetchedAt,  setFetchedAt]  = useState<string|null>(null)
@@ -512,6 +632,10 @@ export default function Dashboard() {
     if (worked==='worked'&&s==='new') return false
     if (worked==='untouched'&&s!=='new') return false
     if (stFilter!=='all'&&s!==stFilter) return false
+    const det=details[l.email]
+    if (detailFilter==='sql'&&(det?.sqlDq||'')==='Yes'===false) return false
+    if (detailFilter==='sql'&&(det?.sqlDq||'')!=='Yes') return false
+    if (detailFilter==='sqo'&&(det?.sqo||'')!=='Yes') return false
     return true
   })
 
@@ -721,13 +845,16 @@ export default function Dashboard() {
               {label:'Booked',          value:pCounts.booked,                                color:C.green,   sub:'meetings set',  filter:'booked'   as StatusFilter},
               {label:'Contacted',       value:pCounts.contacted,                             color:C.purpleL, sub:'in progress',   filter:'contacted' as StatusFilter},
               {label:'Untouched',       value:pCounts.new,                                   color:C.amber,   sub:'needs action',  filter:'new'      as StatusFilter},
-              {label:'SQLs',            value:sqlCount,                                      color:'#60d4f4',  sub:'qualified',     filter:'all'      as StatusFilter},
-              {label:'SQOs',            value:sqoCount,                                      color:'#c084fc',  sub:'opp created',   filter:'all'      as StatusFilter},
+              {label:'SQLs',            value:sqlCount,                                      color:'#60d4f4',  sub:'qualified',     filter:'all'      as StatusFilter, df:'sql' as const},
+              {label:'SQOs',            value:sqoCount,                                      color:'#c084fc',  sub:'opp created',   filter:'all'      as StatusFilter, df:'sqo' as const},
             ].map(s=>(
-              <div key={s.label} onClick={()=>s.filter!=='all'||s.label==='Total in period'?setStFilter(f=>f===s.filter&&s.label!=='Total in period'?'all':s.filter):undefined} style={{...card,cursor:s.label==='SQLs'||s.label==='SQOs'?'default':'pointer',border:`1px solid ${stFilter===s.filter&&s.label!=='SQLs'&&s.label!=='SQOs'&&s.label!=='Total in period'?s.color:C.border}`,transition:'border 0.15s'}}>
+              <div key={s.label} onClick={()=>{
+                if ('df' in s) { setDetailFilter(f=>(f===s.df?'none':s.df) as 'none'|'sql'|'sqo'); setStFilter('all') }
+                else if (s.filter!=='all'||s.label==='Total in period') setStFilter(f=>f===s.filter&&s.label!=='Total in period'?'all':s.filter)
+              }} style={{...card,cursor:'pointer',border:`1px solid ${'df' in s?(detailFilter===s.df?s.color:C.border):(stFilter===s.filter&&s.label!=='Total in period'?s.color:C.border)}`,transition:'border 0.15s'}}>
                 <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:8}}>{s.label}</div>
                 <div style={{fontSize:24,fontWeight:800,letterSpacing:'-0.03em',lineHeight:1,color:s.color}}>{s.value}</div>
-                <div style={{fontSize:11,color:C.text3,marginTop:5}}>{s.sub}</div>
+                <div style={{fontSize:11,color:C.text3,marginTop:5}}>{'df' in s&&detailFilter===s.df?'← click to clear':s.sub}</div>
               </div>
             ))}
           </div>
@@ -759,16 +886,17 @@ export default function Dashboard() {
               })}
               {/* SQL + SQO tiles */}
               {[
-                {label:'SQL',value:sqlCount,color:'#60d4f4',sub:'SQL / DQ = Yes'},
-                {label:'SQO',value:sqoCount,color:'#c084fc',sub:'SQO = Yes'},
+                {label:'SQL',value:sqlCount,color:'#60d4f4',sub:'SQL / DQ = Yes', df:'sql' as const},
+                {label:'SQO',value:sqoCount,color:'#c084fc',sub:'SQO = Yes', df:'sqo' as const},
               ].map(s=>(
-                <div key={s.label} style={{display:'flex',flexDirection:'column',gap:6,minWidth:72,padding:'8px 10px',borderRadius:8,border:`1px solid rgba(255,255,255,0.07)`,background:'transparent'}}>
+                <div key={s.label} onClick={()=>{setDetailFilter(f=>f===s.df?'none':s.df);setStFilter('all')}}
+                     style={{display:'flex',flexDirection:'column',gap:6,minWidth:72,padding:'8px 10px',borderRadius:8,cursor:'pointer',border:`1px solid ${detailFilter===s.df?s.color:'rgba(255,255,255,0.07)'}`,background:detailFilter===s.df?`rgba(${s.df==='sql'?'96,212,244':'192,132,252'},0.1)`:'transparent',transition:'all 0.15s'}}>
                   <div style={{display:'flex',alignItems:'center',gap:5}}>
                     <span style={{width:8,height:8,borderRadius:'50%',background:s.color,flexShrink:0}}/>
                     <span style={{fontSize:11,color:C.text2}}>{s.label}</span>
                   </div>
                   <div style={{fontSize:22,fontWeight:800,color:s.color,letterSpacing:'-0.02em'}}>{s.value}</div>
-                  <div style={{fontSize:10,color:C.text3}}>{s.sub}</div>
+                  <div style={{fontSize:10,color:C.text3}}>{detailFilter===s.df?'← clear':s.sub}</div>
                 </div>
               ))}
             </div>
@@ -797,7 +925,7 @@ export default function Dashboard() {
           </div>
           <div style={{marginTop:14,display:'flex',alignItems:'center',gap:8}}>
             <span style={{fontSize:12,color:C.text3}}>{pipelineLeads.length} leads shown</span>
-            {stFilter!=='all'&&<button onClick={()=>setStFilter('all')} style={{fontSize:11,fontWeight:600,color:C.text3,background:'none',border:`1px solid ${C.border2}`,borderRadius:999,padding:'2px 10px',cursor:'pointer'}}>✕ Clear filter</button>}
+            {(stFilter!=='all'||detailFilter!=='none')&&<button onClick={()=>{setStFilter('all');setDetailFilter('none')}} style={{fontSize:11,fontWeight:600,color:C.text3,background:'none',border:`1px solid ${C.border2}`,borderRadius:999,padding:'2px 10px',cursor:'pointer'}}>✕ Clear filter</button>}
           </div>
         </>)}
 
