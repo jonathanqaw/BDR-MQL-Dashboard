@@ -6,7 +6,7 @@ import type { Lead } from '@/lib/slack'
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Status       = 'new' | 'contacted' | 'booked' | 'nurture' | 'lost' | 'na' | 'dq'
 type View         = 'pipeline' | 'analytics'
-type PeriodFilter = 'week' | 'month' | 'quarter'
+type PeriodFilter = 'week' | 'month' | 'quarter' | 'all'
 type WorkedFilter = 'all' | 'worked' | 'untouched'
 type StatusFilter = 'all' | Status
 
@@ -183,7 +183,14 @@ function getResponseDot(receivedAt:string|null,status:Status):{color:string;labe
   if (mins<=59) return {color:C.amber,label:`${Math.round(mins)}m ago`}
   return {color:C.red,label:`${Math.round(mins)}m ago`}
 }
+// Convert email domain to readable company name: product-league.com → Product League
+function formatDomain(domain:string):string {
+  const base=domain.replace(/\.(com|io|co|net|org|ai|app|dev|inc|us|uk|ca|au)$/i,'').replace(/\.(co)$/i,'')
+  return base.split(/[-_.]/).map(w=>w.charAt(0).toUpperCase()+w.slice(1)).join(' ')
+}
+
 function getPeriodStart(p:PeriodFilter):Date {
+  if (p==='all') return new Date('2020-01-01')
   const n=new Date()
   if (p==='week') { const d=new Date(n); d.setDate(n.getDate()-n.getDay()); d.setHours(0,0,0,0); return d }
   if (p==='month') return new Date(n.getFullYear(),n.getMonth(),1)
@@ -397,7 +404,7 @@ export default function Dashboard() {
   const [statuses,   setStatuses]   = useState<Record<string,Status>>({})
   const [details,    setDetails]    = useState<Record<string,LeadDetail>>({})
   const [view,       setView]       = useState<View>('pipeline')
-  const [period,     setPeriod]     = useState<PeriodFilter>('week')
+  const [period,     setPeriod]     = useState<PeriodFilter>('all')
   const [worked,     setWorked]     = useState<WorkedFilter>('all')
   const [stFilter,   setStFilter]   = useState<StatusFilter>('all')
   const [loading,    setLoading]    = useState(true)
@@ -528,7 +535,7 @@ export default function Dashboard() {
     const dimmed=s==='dq'||s==='na'||s==='lost'
     const det=details[lead.email]||{...EMPTY_DETAIL,...(HISTORICAL_DETAILS[lead.email]||{})}
     const isOpen=expanded===lead.email
-    const displayName=lead.account||(det.prospectName?det.prospectName:lead.email)
+    const displayName=lead.account||(det.prospectName?det.prospectName:lead.domain?formatDomain(lead.domain):lead.email)
     const receivedDisplay=lead.receivedAt
       ? new Date(lead.receivedAt).toLocaleString('en-US',{month:'short',day:'numeric',hour:lead.isHistorical?undefined:'numeric',minute:lead.isHistorical?undefined:'2-digit'})
       : lead.date||'—'
@@ -655,8 +662,8 @@ export default function Dashboard() {
             </div>
             <div style={{display:'flex',flexDirection:'column',gap:8,alignItems:'flex-end'}}>
               <div style={{display:'flex',gap:5}}>
-                {(['week','month','quarter'] as PeriodFilter[]).map(p=>(
-                  <button key={p} onClick={()=>{setPeriod(p);setStFilter('all')}} style={filterPill(period===p)}>{{week:'This Week',month:'This Month',quarter:'This Quarter'}[p]}</button>
+                {(['all','week','month','quarter'] as PeriodFilter[]).map(p=>(
+                  <button key={p} onClick={()=>{setPeriod(p);setStFilter('all')}} style={filterPill(period===p)}>{{all:'All Time',week:'This Week',month:'This Month',quarter:'This Quarter'}[p]}</button>
                 ))}
               </div>
               <div style={{display:'flex',gap:5,alignItems:'center'}}>
