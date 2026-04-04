@@ -1116,7 +1116,7 @@ export default function Dashboard() {
   useEffect(()=>{ setStatuses(getSt()); setDetails(getDetails()); fetchLeads() },[fetchLeads])
 
   const updateStatus=(email:string,v:Status)=>{ saveSt(email,v); setStatuses(p=>({...p,[email]:v})) }
-  const updateDetail=(email:string,d:LeadDetail)=>setDetails(p=>({...p,[email]:d}))
+  const updateDetail=(email:string,d:LeadDetail)=>{ saveDetail(email,d); setDetails(p=>({...p,[email]:d})) }
   const copyEmail=(email:string)=>{ navigator.clipboard.writeText(email).then(()=>{ setCopied(email); setTimeout(()=>setCopied(null),2000) }) }
 
   const createContact=(account:string,email:string,domain:string)=>{
