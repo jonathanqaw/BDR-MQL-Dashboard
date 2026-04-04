@@ -1066,9 +1066,18 @@ export default function Dashboard() {
   const [showCreate, setShowCreate] = useState(false)
   const [manualLeads,setManualLeads]= useState<AppLead[]>([])
   const [nameOverrides,setNameOverrides]=useState<Record<string,string>>({})
+  const [deletedEmails,setDeletedEmails]=useState<Set<string>>(new Set())
 
   const getManualLeads=():AppLead[]=>{ try { return JSON.parse(localStorage.getItem('mql-manual')||'[]') } catch { return [] } }
   const saveManualLeads=(leads:AppLead[])=>{ localStorage.setItem('mql-manual',JSON.stringify(leads)) }
+
+  const getDeletedEmails=():Set<string>=>{ try { return new Set(JSON.parse(localStorage.getItem('mql-deleted')||'[]')) } catch { return new Set() } }
+  const deleteAccount=(email:string)=>{
+    const updated=new Set([...getDeletedEmails(),email])
+    localStorage.setItem('mql-deleted',JSON.stringify([...updated]))
+    setDeletedEmails(updated)
+    if (expanded===email) setExpanded(null)
+  }
 
   const updateNameOverride=(email:string,name:string)=>{
     saveNameOverride(email,name)
@@ -1090,6 +1099,7 @@ export default function Dashboard() {
     localStorage.setItem('mql-seeded-version',DATA_VERSION)
     setManualLeads(getManualLeads())
     setNameOverrides(getNameOverrides())
+    setDeletedEmails(getDeletedEmails())
   },[])
 
   const fetchLeads=useCallback(async()=>{
@@ -1130,7 +1140,7 @@ export default function Dashboard() {
     ...HISTORICAL_LEADS,
     ...enriched(manualLeads.filter(l=>!HISTORICAL_LEADS.some(h=>h.email===l.email)&&!historicalDomains.has(l.domain))),
     ...enriched(liveLeads.filter(l=>!HISTORICAL_LEADS.some(h=>h.email===l.email)&&!manualLeads.some(m=>m.email===l.email)&&!historicalDomains.has(l.domain))),
-  ]
+  ].filter(l=>!deletedEmails.has(l.email))
 
   // ── Pipeline filters ────────────────────────────────────────────────────────
   const periodStart=getPeriodStart(period)
@@ -1270,14 +1280,13 @@ export default function Dashboard() {
                   {(Object.keys(STATUS_CONFIG) as Status[]).map(k=><option key={k} value={k}>{STATUS_CONFIG[k].label}</option>)}
                 </select>
               </div>
-              {/* MQL Quality dropdown — separate from status */}
+              {/* Quality dropdown — HQ MQL / LQ MQL only, separate from Status */}
               {(()=>{
                 const det=details[lead.email]||{...EMPTY_DETAIL,...(HISTORICAL_DETAILS[lead.email]||{})}
                 const q=det.mqlQuality||''
                 const qCfg:{color:string;dim:string;border:string}=
                   q==='hq'?{color:'#f5a623',dim:'rgba(245,166,35,0.18)',border:'rgba(245,166,35,0.45)'}:
                   q==='lq'?{color:'#fb923c',dim:'rgba(251,146,60,0.15)',border:'rgba(251,146,60,0.4)'}:
-                  q==='dq'?{color:C.red,dim:'rgba(255,92,92,0.12)',border:'rgba(255,92,92,0.35)'}:
                   {color:C.text3,dim:'transparent',border:C.border2}
                 return (
                   <select
@@ -1290,14 +1299,21 @@ export default function Dashboard() {
                     onClick={e=>e.stopPropagation()}
                     style={{fontSize:11,fontWeight:600,padding:'4px 10px',borderRadius:999,border:`1px solid ${qCfg.border}`,background:qCfg.dim,color:qCfg.color,cursor:'pointer',outline:'none',appearance:'none'}}
                   >
-                    <option value=''>MQL</option>
+                    <option value=''>— Quality —</option>
                     <option value='hq'>HQ MQL</option>
                     <option value='lq'>LQ MQL</option>
-                    <option value='dq'>DQ</option>
                   </select>
                 )
               })()}
               <span style={{fontSize:11,color:C.text3}}>{isOpen?'▲':'▼'}</span>
+              <button
+                onClick={e=>{e.stopPropagation(); if(window.confirm(`Delete "${displayName}"? This can be undone from the Export backup.`)) deleteAccount(lead.email)}}
+                onMouseDown={e=>e.stopPropagation()}
+                title="Delete account"
+                style={{fontSize:11,color:'rgba(255,92,92,0.4)',background:'none',border:'none',cursor:'pointer',padding:'2px 4px',lineHeight:1}}
+                onMouseEnter={e=>(e.currentTarget.style.color=C.red)}
+                onMouseLeave={e=>(e.currentTarget.style.color='rgba(255,92,92,0.4)')}
+              >✕</button>
             </div>
           </td>
         </tr>
@@ -1375,6 +1391,7 @@ export default function Dashboard() {
               'mql-names':localStorage.getItem('mql-names'),
               'mql-manual':localStorage.getItem('mql-manual'),
               'mql-ae-opts-v2':localStorage.getItem('mql-ae-opts-v2'),
+              'mql-deleted':localStorage.getItem('mql-deleted'),
               exportedAt: new Date().toISOString(),
             }
             const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'})
@@ -1391,10 +1408,11 @@ export default function Dashboard() {
               reader.onload=ev=>{
                 try {
                   const data=JSON.parse(ev.target?.result as string)
-                  const keys=['mql-st','mql-dt','mql-names','mql-manual','mql-ae-opts-v2'] as const
+                  const keys=['mql-st','mql-dt','mql-names','mql-manual','mql-ae-opts-v2','mql-deleted'] as const
                   keys.forEach(k=>{ if(data[k]) localStorage.setItem(k,data[k]) })
                   setStatuses(getSt()); setDetails(getDetails())
                   setNameOverrides(getNameOverrides()); setManualLeads(getManualLeads())
+                  setDeletedEmails(getDeletedEmails())
                   alert('Backup restored successfully.')
                 } catch { alert('Invalid backup file.') }
               }
@@ -1504,16 +1522,16 @@ export default function Dashboard() {
               <thead>
                 <tr style={{background:C.surface2,borderBottom:`1px solid ${C.border}`}}>
                   <th style={{width:4,padding:0}}/>
-                  {['Account / Email','Domain / Source','SF','Date','Status'].map(h=>(
+                  {['Account / Email','Domain / Source','SF','Date','Status','Quality'].map(h=>(
                     <th key={h} style={{textAlign:'left',padding:'10px 14px',fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',whiteSpace:'nowrap'}}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {loading&&liveLeads.length===0
-                  ? <tr><td/><td colSpan={5} style={{textAlign:'center',padding:'52px 20px',color:C.text3,fontSize:14}}>Loading live leads from Slack…</td></tr>
+                  ? <tr><td/><td colSpan={6} style={{textAlign:'center',padding:'52px 20px',color:C.text3,fontSize:14}}>Loading live leads from Slack…</td></tr>
                   : pipelineLeads.length===0
-                  ? <tr><td/><td colSpan={5} style={{textAlign:'center',padding:'52px 20px',color:C.text3,fontSize:14}}>No leads match this filter.</td></tr>
+                  ? <tr><td/><td colSpan={6} style={{textAlign:'center',padding:'52px 20px',color:C.text3,fontSize:14}}>No leads match this filter.</td></tr>
                   : pipelineLeads.map(lead=>renderRow(lead))
                 }
               </tbody>
