@@ -46,7 +46,6 @@ const HISTORICAL_LEADS: AppLead[] = [
   { email:'circlemedical@historical',        domain:'circlemedical.com',        account:'Circle Medical',           name:'Florian Denu',             sfUrl:null, date:'2026-01-20', receivedAt:'2026-01-20T00:00:00.000Z', source:'bdr', isHistorical:true },
   { email:'nagarro@historical',              domain:'nagarro.com',              account:'Nagarro',                  name:'Nishant Thareja',          sfUrl:null, date:'2026-02-04', receivedAt:'2026-02-04T00:00:00.000Z', source:'bdr', isHistorical:true },
   { email:'bloomcoaching@historical',        domain:'bloomcoaching.com',        account:'Bloom Coaching',           name:'Thomas Stevens',           sfUrl:null, date:'2026-01-19', receivedAt:'2026-01-19T00:00:00.000Z', source:'bdr', isHistorical:true },
-  { email:'f1arcade@historical',             domain:'f1arcade.com',             account:'F1 Arcade',                name:'Gavin Williams',           sfUrl:null, date:'2026-01-20', receivedAt:'2026-01-20T00:00:00.000Z', source:'bdr', isHistorical:true },
   { email:'pods@historical',                 domain:'pods.com',                 account:'PODS',                     name:'Randy Withrow',            sfUrl:null, date:'2026-01-22', receivedAt:'2026-01-22T00:00:00.000Z', source:'bdr', isHistorical:true },
   { email:'sharkninja@historical',           domain:'sharkninja.com',           account:'SharkNinja',               name:'Jake Rutter',              sfUrl:null, date:'2026-01-27', receivedAt:'2026-01-27T00:00:00.000Z', source:'bdr', isHistorical:true },
   { email:'quince@historical',               domain:'quince.com',               account:'Quince',                   name:'Prabhanjan Jha',           sfUrl:null, date:'2026-02-04', receivedAt:'2026-02-04T00:00:00.000Z', source:'bdr', isHistorical:true },
@@ -83,7 +82,6 @@ const HISTORICAL_STATUSES: Record<string,Status> = {
   'circlemedical@historical':     'dq',
   'nagarro@historical':           'dq',
   'bloomcoaching@historical':     'booked',
-  'f1arcade@historical':          'booked',
   'pods@historical':              'booked',
   'sharkninja@historical':        'booked',
   'quince@historical':            'booked',
@@ -119,7 +117,6 @@ const HISTORICAL_DETAILS: Record<string,Partial<LeadDetail>> = {
   'circlemedical@historical':     { prospectName:'Florian Denu', title:'Senior Software Developer', sourceChannel:'leads-platform waitlist', outreachChannel:'Call', meetingDate:'2026-01-22', sqlDq:'No', multithreading:'Yes', notes:'Declined after checking out webpage' },
   'nagarro@historical':           { prospectName:'Nishant Thareja', title:'Lead Automation Engineer', sourceChannel:'#leads-bot', outreachChannel:'Call', meetingDate:'2026-02-06', sqlDq:'No', ae:'Ben Barrett' },
   'bloomcoaching@historical':     { prospectName:'Thomas Stevens', title:'Mid Frontend Software Engineer', sourceChannel:'#leads-bot', outreachChannel:'Call', meetingDate:'2026-01-23', sqlDq:'Yes', sqlDate:'2026-01-23', ae:'Stephen Stabile', multithreading:'Yes' },
-  'f1arcade@historical':          { prospectName:'Gavin Williams', title:'CTO', sourceChannel:'#growth-wins', outreachChannel:'Email', meetingDate:'2026-01-22', sqlDq:'Yes', sqlDate:'2026-01-22', ae:'Veronika Fischer', multithreading:'No' },
   'pods@historical':              { prospectName:'Randy Withrow', title:'Director Enterprise Applications', sourceChannel:'QA Wolf inbox', outreachChannel:'Email', meetingDate:'2026-01-27', sqlDq:'Yes', sqlDate:'2026-01-29', ae:'Charlie Pie', multithreading:'No', sqo:'Yes', sqoDate:'2026-02-05', acv:'96000', notes:'Received RFP & moving to scope + sample tests' },
   'sharkninja@historical':        { prospectName:'Jake Rutter', title:'Senior Director, Global DTC Engineering', sourceChannel:'AE assist', outreachChannel:'Email', meetingDate:'2026-01-29', sqlDq:'Yes', sqlDate:'2026-01-28', ae:'Colin O\'Connor', multithreading:'No', notes:'Colin to get back in touch with Jake at later date' },
   'quince@historical':            { prospectName:'Prabhanjan Jha', title:'Senior SDET Manager', sourceChannel:'#leads-bot', outreachChannel:'Email', meetingDate:'2026-02-12', sqlDq:'Yes', sqlDate:'2026-02-12', ae:'Veronika Fischer', multithreading:'No', notes:'Veronika waiting to hear back from leadership' },
@@ -1212,7 +1209,8 @@ export default function Dashboard() {
     const dimmed=s==='dq'||s==='na'||s==='lost'
     const det=details[lead.email]||{...EMPTY_DETAIL,...(HISTORICAL_DETAILS[lead.email]||{})}
     const isOpen=expanded===lead.email
-    const displayName=nameOverrides[lead.email]||(lead.account||(det.prospectName||lead.name||lead.domain&&formatDomain(lead.domain)||lead.email))
+    // Account name always takes priority — never overridden by prospect name
+    const displayName=nameOverrides[lead.email]||lead.account||formatDomain(lead.domain)||lead.email
     const receivedDisplay=lead.receivedAt
       ? new Date(lead.receivedAt).toLocaleString('en-US',{month:'short',day:'numeric',hour:lead.isHistorical?undefined:'numeric',minute:lead.isHistorical?undefined:'2-digit'})
       : lead.date||'—'
@@ -1272,6 +1270,33 @@ export default function Dashboard() {
                   {(Object.keys(STATUS_CONFIG) as Status[]).map(k=><option key={k} value={k}>{STATUS_CONFIG[k].label}</option>)}
                 </select>
               </div>
+              {/* MQL Quality dropdown — separate from status */}
+              {(()=>{
+                const det=details[lead.email]||{...EMPTY_DETAIL,...(HISTORICAL_DETAILS[lead.email]||{})}
+                const q=det.mqlQuality||''
+                const qCfg:{color:string;dim:string;border:string}=
+                  q==='hq'?{color:'#f5a623',dim:'rgba(245,166,35,0.18)',border:'rgba(245,166,35,0.45)'}:
+                  q==='lq'?{color:'#fb923c',dim:'rgba(251,146,60,0.15)',border:'rgba(251,146,60,0.4)'}:
+                  q==='dq'?{color:C.red,dim:'rgba(255,92,92,0.12)',border:'rgba(255,92,92,0.35)'}:
+                  {color:C.text3,dim:'transparent',border:C.border2}
+                return (
+                  <select
+                    value={q}
+                    onChange={e=>{
+                      e.stopPropagation()
+                      const updated={...EMPTY_DETAIL,...(HISTORICAL_DETAILS[lead.email]||{}),...(details[lead.email]||{}),mqlQuality:e.target.value}
+                      updateDetail(lead.email,updated)
+                    }}
+                    onClick={e=>e.stopPropagation()}
+                    style={{fontSize:11,fontWeight:600,padding:'4px 10px',borderRadius:999,border:`1px solid ${qCfg.border}`,background:qCfg.dim,color:qCfg.color,cursor:'pointer',outline:'none',appearance:'none'}}
+                  >
+                    <option value=''>MQL</option>
+                    <option value='hq'>HQ MQL</option>
+                    <option value='lq'>LQ MQL</option>
+                    <option value='dq'>DQ</option>
+                  </select>
+                )
+              })()}
               <span style={{fontSize:11,color:C.text3}}>{isOpen?'▲':'▼'}</span>
             </div>
           </td>
