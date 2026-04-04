@@ -1067,6 +1067,7 @@ export default function Dashboard() {
   const [manualLeads,setManualLeads]= useState<AppLead[]>([])
   const [nameOverrides,setNameOverrides]=useState<Record<string,string>>({})
   const [deletedEmails,setDeletedEmails]=useState<Set<string>>(new Set())
+  const [showHistory,setShowHistory]=useState(false)
 
   const getManualLeads=():AppLead[]=>{ try { return JSON.parse(localStorage.getItem('mql-manual')||'[]') } catch { return [] } }
   const saveManualLeads=(leads:AppLead[])=>{ localStorage.setItem('mql-manual',JSON.stringify(leads)) }
@@ -1077,6 +1078,35 @@ export default function Dashboard() {
     localStorage.setItem('mql-deleted',JSON.stringify([...updated]))
     setDeletedEmails(updated)
     if (expanded===email) setExpanded(null)
+    saveSnapshot('delete')
+  }
+
+  // ── History snapshots ────────────────────────────────────────────────────
+  const MAX_SNAPSHOTS=20
+  const getSnapshots=()=>{ try { return JSON.parse(localStorage.getItem('mql-history')||'[]') } catch { return [] } }
+  const saveSnapshot=(trigger:string)=>{
+    const snap={
+      savedAt: new Date().toISOString(),
+      trigger,
+      'mql-st':   localStorage.getItem('mql-st'),
+      'mql-dt':   localStorage.getItem('mql-dt'),
+      'mql-names':localStorage.getItem('mql-names'),
+      'mql-manual':localStorage.getItem('mql-manual'),
+      'mql-deleted':localStorage.getItem('mql-deleted'),
+    }
+    const snaps=[snap,...getSnapshots()].slice(0,MAX_SNAPSHOTS)
+    localStorage.setItem('mql-history',JSON.stringify(snaps))
+  }
+  const restoreSnapshot=(snap:any)=>{
+    if (!window.confirm('Restore this snapshot? Current data will be replaced.')) return
+    saveSnapshot('before-restore')
+    const keys=['mql-st','mql-dt','mql-names','mql-manual','mql-deleted'] as const
+    keys.forEach(k=>{ if(snap[k]) localStorage.setItem(k,snap[k]); else localStorage.removeItem(k) })
+    setStatuses(getSt()); setDetails(getDetails())
+    setNameOverrides(getNameOverrides()); setManualLeads(getManualLeads())
+    setDeletedEmails(getDeletedEmails())
+    setShowHistory(false)
+    alert('Snapshot restored.')
   }
 
   const updateNameOverride=(email:string,name:string)=>{
@@ -1115,8 +1145,8 @@ export default function Dashboard() {
 
   useEffect(()=>{ setStatuses(getSt()); setDetails(getDetails()); fetchLeads() },[fetchLeads])
 
-  const updateStatus=(email:string,v:Status)=>{ saveSt(email,v); setStatuses(p=>({...p,[email]:v})) }
-  const updateDetail=(email:string,d:LeadDetail)=>{ saveDetail(email,d); setDetails(p=>({...p,[email]:d})) }
+  const updateStatus=(email:string,v:Status)=>{ saveSt(email,v); setStatuses(p=>({...p,[email]:v})); saveSnapshot('status') }
+  const updateDetail=(email:string,d:LeadDetail)=>{ saveDetail(email,d); setDetails(p=>({...p,[email]:d})); saveSnapshot('detail') }
   const copyEmail=(email:string)=>{ navigator.clipboard.writeText(email).then(()=>{ setCopied(email); setTimeout(()=>setCopied(null),2000) }) }
 
   const createContact=(account:string,email:string,domain:string)=>{
@@ -1381,9 +1411,45 @@ export default function Dashboard() {
           {fetchedAt&&<div style={{fontSize:10,color:C.text3,textAlign:'center',marginTop:6}}>{new Date(fetchedAt).toLocaleTimeString()}</div>}
         </div>
         <div style={{height:1,background:C.border,margin:'4px 0'}}/>
-        {/* ── Export / Import ── */}
+        {/* ── Export / Import / History ── */}
         <div style={{padding:'8px 20px',display:'flex',flexDirection:'column',gap:6}}>
-          <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:2}}>Data Backup</div>
+          <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:2,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+            Data Backup
+            <button
+              onClick={()=>setShowHistory(h=>!h)}
+              title="View history & restore snapshots"
+              style={{background:'none',border:'none',cursor:'pointer',color:showHistory?C.green:C.text3,padding:2,lineHeight:1,fontSize:14}}
+              onMouseEnter={e=>(e.currentTarget.style.color=C.green)}
+              onMouseLeave={e=>(e.currentTarget.style.color=showHistory?C.green:C.text3)}
+            >🕐</button>
+          </div>
+          {showHistory&&(()=>{
+            const snaps=getSnapshots()
+            return (
+              <div style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:'8px',marginBottom:4,maxHeight:260,overflowY:'auto'}}>
+                <div style={{fontSize:10,fontWeight:700,color:C.text3,marginBottom:6,textTransform:'uppercase',letterSpacing:'.06em'}}>Activity History</div>
+                {snaps.length===0
+                  ? <div style={{fontSize:11,color:C.text3}}>No snapshots yet.</div>
+                  : snaps.map((s:any,i:number)=>(
+                    <div key={i} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'5px 0',borderBottom:i<snaps.length-1?`1px solid ${C.border}`:'none'}}>
+                      <div>
+                        <div style={{fontSize:11,color:C.text2,fontWeight:500}}>
+                          {s.trigger==='delete'?'🗑 Deleted account':s.trigger==='status'?'● Status change':s.trigger==='detail'?'✎ Detail saved':s.trigger==='before-restore'?'⟳ Pre-restore':'💾 Saved'}
+                        </div>
+                        <div style={{fontSize:10,color:C.text3}}>{new Date(s.savedAt).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}</div>
+                      </div>
+                      <button
+                        onClick={()=>restoreSnapshot(s)}
+                        style={{fontSize:10,fontWeight:600,padding:'3px 8px',borderRadius:5,border:`1px solid ${C.border2}`,background:'transparent',color:C.purpleL,cursor:'pointer'}}
+                        onMouseEnter={e=>(e.currentTarget.style.background=C.surface3)}
+                        onMouseLeave={e=>(e.currentTarget.style.background='transparent')}
+                      >Restore</button>
+                    </div>
+                  ))
+                }
+              </div>
+            )
+          })()}
           <button onClick={()=>{
             const payload={
               'mql-st':   localStorage.getItem('mql-st'),
@@ -1392,6 +1458,7 @@ export default function Dashboard() {
               'mql-manual':localStorage.getItem('mql-manual'),
               'mql-ae-opts-v2':localStorage.getItem('mql-ae-opts-v2'),
               'mql-deleted':localStorage.getItem('mql-deleted'),
+              'mql-history':localStorage.getItem('mql-history'),
               exportedAt: new Date().toISOString(),
             }
             const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'})
