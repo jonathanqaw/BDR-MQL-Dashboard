@@ -6,8 +6,9 @@ export interface Lead {
   name: string | null
   sfUrl: string | null
   date: string | null
-  receivedAt: string | null  // ISO timestamp of Slack message — used for response time indicator
+  receivedAt: string | null
   source: LeadSource
+  repSlackId: string | null  // Slack user ID of assigned BDR e.g. U098PSETPJ4 (null for historical leads)
 }
 
 const SLACK_API  = 'https://slack.com/api'
@@ -50,11 +51,15 @@ function parseSfUrl(text: string): string | null {
 }
 
 function parseDate(text: string, ts: string): string {
-  // Try "Lead Created Date: YYYY-MM-DD" or "Last IB Date: YYYY-MM-DD"
   const explicit = text.match(/(?:Lead Created Date|Last IB Date):\s*(\d{4}-\d{2}-\d{2})/)
   if (explicit) return explicit[1]
-  // Fall back to message timestamp
   return new Date(parseFloat(ts) * 1000).toISOString().split('T')[0]
+}
+
+function parseRepSlackId(text: string): string | null {
+  // Matches <@U098PSETPJ4|Jonathan> or <@U098PSETPJ4>
+  const match = text.match(/<@([A-Z0-9]+)(?:\|[^>]*)?>/)
+  return match ? match[1] : null
 }
 
 export async function fetchLeads(): Promise<Lead[]> {
@@ -68,7 +73,7 @@ export async function fetchLeads(): Promise<Lead[]> {
   for (const msg of messages) {
     const email = parseEmail(msg.text)
     if (!email || shouldSkip(email)) continue
-    if (seen.has(email)) continue // dedupe — keep first (most recent) occurrence
+    if (seen.has(email)) continue
 
     seen.set(email, {
       email,
@@ -78,12 +83,12 @@ export async function fetchLeads(): Promise<Lead[]> {
       date: parseDate(msg.text, msg.ts),
       receivedAt: new Date(parseFloat(msg.ts) * 1000).toISOString(),
       source: 'bdr',
+      repSlackId: parseRepSlackId(msg.text),
     })
   }
 
   const leads = Array.from(seen.values())
 
-  // Sort: SF links first, then by date descending
   leads.sort((a, b) => {
     if (a.sfUrl && !b.sfUrl) return -1
     if (!a.sfUrl && b.sfUrl) return 1
