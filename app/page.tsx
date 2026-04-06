@@ -295,6 +295,14 @@ function parseAcv(value:string|undefined):number {
   return Number.isFinite(n) ? n : 0
 }
 
+function getQuarterLabel(value:string|undefined):string {
+  if (!value) return 'No Date'
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return 'No Date'
+  const q = Math.floor(d.getMonth()/3)+1
+  return `Q${q} ${d.getFullYear()}`
+}
+
 const filterPill=(active:boolean,activeColor=C.purple):React.CSSProperties=>({
   fontSize:12,fontWeight:600,padding:'5px 13px',borderRadius:999,cursor:'pointer',
   border:active?`1px solid ${activeColor}`:`1px solid ${C.border2}`,
@@ -2369,6 +2377,64 @@ export default function Dashboard() {
                 details={details}
                 onViewLead={(email)=>{setView('pipeline');setExpanded(email);setPeriod('all')}}
               />
+            </div>
+          </div>
+
+          <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:16,marginBottom:24}}>
+            <div style={card}>
+              <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:12}}>
+                Quarterly opportunity breakdown
+              </div>
+              <BarChart
+                bars={Object.entries(
+                  allLeads
+                    .filter(l => (details[l.email]?.sqo||'') === 'Yes')
+                    .reduce((acc, l) => {
+                      const d = details[l.email]
+                      const key = getQuarterLabel(d?.closedWonDate || d?.sqoDate)
+                      if (!acc[key]) acc[key] = []
+                      acc[key].push(l)
+                      return acc
+                    }, {} as Record<string, AppLead[]>)
+                ).map(([label, leads]) => ({
+                  label,
+                  leads,
+                  total: leads.length,
+                  values: [
+                    { status:'inprogress' as const, count: leads.filter(l => { const d = details[l.email]; const s = statuses[l.email]||'new'; return d?.closedWon!=='Yes' && s!=='lost' && s!=='dq' }).length },
+                    { status:'lost' as const, count: leads.filter(l => { const d = details[l.email]; const s = statuses[l.email]||'new'; return d?.closedWon!=='Yes' && (s==='lost' || s==='dq') }).length },
+                    { status:'booked' as const, count: leads.filter(l => (details[l.email]?.closedWon||'')==='Yes').length },
+                  ]
+                }))}
+                title="Quarterly opportunity counts"
+                statuses={statuses}
+                details={details}
+                onViewLead={(email)=>{setView('pipeline');setExpanded(email);setPeriod('all')}}
+              />
+            </div>
+
+            <div style={card}>
+              <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:12}}>
+                Opportunity segmentation
+              </div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr',gap:10}}>
+                <div style={{background:C.surface3,border:`1px solid ${C.border}`,borderRadius:8,padding:'12px 14px'}}>
+                  <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase'}}>Total opportunities</div>
+                  <div style={{fontSize:24,fontWeight:800,color:'#c084fc',marginTop:6}}>{allLeads.filter(l=>(details[l.email]?.sqo||'')==='Yes').length}</div>
+                </div>
+                <div style={{background:C.surface3,border:`1px solid ${C.border}`,borderRadius:8,padding:'12px 14px'}}>
+                  <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase'}}>Active opportunities</div>
+                  <div style={{fontSize:24,fontWeight:800,color:'#00e5a0',marginTop:6}}>{allLeads.filter(l=>{const d=details[l.email]; const s=statuses[l.email]||'new'; return d?.sqo==='Yes' && d?.closedWon!=='Yes' && s!=='lost' && s!=='dq'}).length}</div>
+                </div>
+                <div style={{background:C.surface3,border:`1px solid ${C.border}`,borderRadius:8,padding:'12px 14px'}}>
+                  <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase'}}>Lost opportunities</div>
+                  <div style={{fontSize:24,fontWeight:800,color:C.red,marginTop:6}}>{allLeads.filter(l=>{const d=details[l.email]; const s=statuses[l.email]||'new'; return d?.sqo==='Yes' && d?.closedWon!=='Yes' && (s==='lost' || s==='dq')}).length}</div>
+                </div>
+                <div style={{background:C.surface3,border:`1px solid ${C.border}`,borderRadius:8,padding:'12px 14px'}}>
+                  <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase'}}>Pipeline ACV</div>
+                  <div style={{fontSize:24,fontWeight:800,color:C.amber,marginTop:6}}>${allLeads.reduce((s,l)=>{const d=details[l.email]; return s+((d?.sqo==='Yes'&&d?.acv)?parseAcv(d.acv):0)},0).toLocaleString()}</div>
+                </div>
+              </div>
             </div>
           </div>
 
