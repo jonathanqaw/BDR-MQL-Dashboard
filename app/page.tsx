@@ -554,11 +554,13 @@ function DetailPanel({lead,detail,onSave,onClose}:{lead:AppLead;detail:LeadDetai
   const stopProp=(e:React.SyntheticEvent)=>e.stopPropagation()
   const setVal=(k:keyof LeadDetail)=>(v:string)=>setD(p=>({...p,[k]:v}))
 
-  const handleSave=(e:React.MouseEvent)=>{
-    e.stopPropagation()
-    const finalD={...d, notes: notesRef.current?.value??d.notes}
-    saveDetail(lead.email,finalD); onSave(finalD); onClose()
-  }
+ const handleSave=(e:React.MouseEvent)=>{
+  e.stopPropagation()
+  const finalD={...d, notes: notesRef.current?.value??d.notes}
+  saveDetail(lead.email,finalD)
+  onSave(finalD)
+  onClose()
+}
   const handleClose=(e:React.MouseEvent)=>{ e.stopPropagation(); onClose() }
 
   return (
@@ -1577,16 +1579,27 @@ export default function Dashboard() {
           </td>
         </tr>
         {isOpen&&(
-          <DetailPanel
-            lead={lead}
-            detail={Object.assign(
-              {...EMPTY_DETAIL, prospectName: lead.name||''},
-              HISTORICAL_DETAILS[lead.email]||{},
-              details[lead.email]||{}
-            )}
-            onSave={d=>updateDetail(lead.email,d)}
-            onClose={()=>setExpanded(null)}
-          />
+         <DetailPanel
+  lead={lead}
+  detail={{
+    ...det,
+    mqlQuality: (statuses[lead.email]||'new') === 'dq'
+      ? 'dq'
+      : det.mqlQuality
+  }}
+  onSave={updatedDetail=>{
+    setDetails(p=>({...p,[lead.email]:updatedDetail}))
+
+    if (updatedDetail.mqlQuality === 'dq') {
+      setStatuses(prev => ({
+        ...prev,
+        [lead.email]: 'dq'
+      }))
+      saveSt(lead.email,'dq')
+    }
+  }}
+  onClose={()=>setExpanded(null)}
+/>
         )}
       </>
     )
