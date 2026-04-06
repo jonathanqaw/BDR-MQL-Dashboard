@@ -1577,7 +1577,7 @@ export default function Dashboard() {
   const reportSqoCount = reportBaseLeads.filter(l => (details[l.email]?.sqo || '').toLowerCase() === 'yes').length
   const reportPipeline = reportBaseLeads.reduce((sum,l)=>sum + (parseInt(details[l.email]?.acv || '0') || 0), 0)
 
-  const reportSummaryText = `Generated ${reportTotal} MQLs, ${reportSqlCount} SQLs (${pct(reportSqlCount, reportTotal)}%), ${reportSqoCount} SQOs (${pct(reportSqoCount, reportSqlCount || reportTotal)}%), and $${reportPipeline.toLocaleString()} in pipeline.`
+  const reportSummaryText = `Generated ${reportTotal} leads, ${reportSqlCount} SQLs (${pct(reportSqlCount, reportTotal)}%), ${reportSqoCount} SQOs (${pct(reportSqoCount, reportSqlCount || reportTotal)}%), and $${reportPipeline.toLocaleString()} in pipeline.`
 
   const reportRatioCards = [
     { label:'New → Contacted', value:`${pct(reportStatusCounts.contacted, reportStatusCounts.new || reportStatusCounts.contacted)}%`, sub:`${reportStatusCounts.contacted} progressed` },
@@ -1728,7 +1728,7 @@ export default function Dashboard() {
   const reportCopyText = [
     `🧾 ${reportLabel} Reporting Summary`,
     ``,
-    `- Total MQLs: ${reportTotal}`,
+    `- Total Leads: ${reportTotal}`,
     `- SQLs: ${reportSqlCount} (${pct(reportSqlCount, reportTotal)}%)`,
     `- SQOs: ${reportSqoCount} (${pct(reportSqoCount, reportSqlCount || reportTotal)}%)`,
     `- Pipeline: $${reportPipeline.toLocaleString()}`,
@@ -1762,7 +1762,7 @@ export default function Dashboard() {
     scope: reportScope,
     reportType: reportType,
     summary: {
-      totalMqls: reportTotal,
+      totalLeads: reportTotal,
       sqls: reportSqlCount,
       sqlRate: pct(reportSqlCount, reportTotal),
       sqos: reportSqoCount,
@@ -2473,7 +2473,7 @@ export default function Dashboard() {
 
               <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:14}}>
                 {[
-                  {label:'Total MQLs', value:reportTotal, sub:'report scope'},
+                  {label:'Total Leads', value:reportTotal, sub:'report scope'},
                   {label:'SQLs', value:reportSqlCount, sub:`${pct(reportSqlCount, reportTotal)}% conversion`},
                   {label:'SQOs', value:reportSqoCount, sub:`${pct(reportSqoCount, reportSqlCount || reportTotal)}% conversion`},
                   {label:'Pipeline', value:`$${reportPipeline.toLocaleString()}`, sub:'from ACV fields'},
