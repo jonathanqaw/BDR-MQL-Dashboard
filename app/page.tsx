@@ -175,6 +175,13 @@ const LIVE_SF_LINKS: Record<string,string> = {
   'jochen@norento.com':                  'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WDW4U2AX/view',
   'ernest.lam@dvcorporate.com':          'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WDCSL2A5/view',
   'diana.lang.ext@bureauveritas.com':    'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WHCdR2AX/view',
+  'r@turek.co':                          'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WO7ig2AD/view',
+  'yogesh@frugaltestingin.com':          'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WNsBl2AL/view',
+  'rohit.rawat@smartboxlockers.com':     'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WNZCL2A5/view',
+  'anvisha@nullframe.ai':                'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WMq5b2AD/view',
+  'xxia@inductivesolution.ai':           'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WMJw32AH/view',
+  'keerthana@icustomer.ai':              'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000RZFe92AH/view',
+  'ahmad@basheer.app':                   'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WMJHh2AP/view',
 }
 
 // ─── Prospect names recovered from chilinbot DMs ─────────────────────────────
@@ -1097,7 +1104,7 @@ export default function Dashboard() {
 
   // ── Edge Config sync ──────────────────────────────────────────────────────
   const syncToEdgeConfig = useCallback(async () => {
-    if (!currentRep?.slackId) return
+    if (!currentRep?.slackId) return  // skip if rep has no Slack ID set yet
     setEcSaving(true)
     try {
       const data = {
@@ -1228,6 +1235,15 @@ export default function Dashboard() {
 
   useEffect(()=>{ setStatuses(getSt()); setDetails(getDetails()); fetchLeads() },[fetchLeads])
 
+  // Load Edge Config data when rep changes
+  useEffect(()=>{
+    if (!currentRep?.slackId) return
+    loadFromEdgeConfig(currentRep.slackId).then(()=>{
+      setStatuses(getSt()); setDetails(getDetails())
+      setManualLeads(getManualLeads()); setDeletedEmails(getDeletedEmails())
+    })
+  },[currentRep?.slackId])
+
   const updateStatus=(email:string,v:Status)=>{ saveSt(email,v); setStatuses(p=>({...p,[email]:v})); saveSnapshot('status'); syncToEdgeConfig() }
   const updateDetail=(email:string,d:LeadDetail)=>{ saveDetail(email,d); setDetails(p=>({...p,[email]:d})); saveSnapshot('detail'); syncToEdgeConfig() }
   const copyEmail=(email:string)=>{ navigator.clipboard.writeText(email).then(()=>{ setCopied(email); setTimeout(()=>setCopied(null),2000) }) }
@@ -1250,9 +1266,12 @@ export default function Dashboard() {
     name: l.name || LIVE_PROSPECT_NAMES[l.email] || null,
   }))
 
-  // Filter live leads to current rep's Slack ID (if they have one set)
+  // Filter live leads to current rep's Slack ID.
+  // Only apply filtering when there are multiple active reps (slackId set).
+  // This prevents accidentally hiding leads during single-rep operation.
+  const activeReps = REP_REGISTRY.filter(r => r.slackId)
   const repSlackId = currentRep?.slackId || ''
-  const filteredLiveLeads = repSlackId
+  const filteredLiveLeads = (activeReps.length > 1 && repSlackId)
     ? liveLeads.filter(l => !l.repSlackId || l.repSlackId === repSlackId)
     : liveLeads
 
