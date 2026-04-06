@@ -1264,18 +1264,8 @@ export default function Dashboard() {
 
   useEffect(()=>{ setStatuses(getSt()); setDetails(getDetails()); fetchLeads() },[fetchLeads])
 
-  // Load Edge Config data only when manager switches to a different rep
-  const prevRepId = useRef<string>('')
-  useEffect(()=>{
-    if (!currentRep?.slackId) return
-    if (prevRepId.current === currentRep.id) return  // same rep, don't reload
-    if (auth?.role !== 'manager') return  // only manager switches reps
-    prevRepId.current = currentRep.id
-    loadFromEdgeConfig(currentRep.slackId).then(()=>{
-      setStatuses(getSt()); setDetails(getDetails())
-      setManualLeads(getManualLeads()); setDeletedEmails(getDeletedEmails())
-    })
-  },[currentRep?.id, auth?.role])
+  // Edge Config load is triggered ONLY by explicit rep switcher clicks in the sidebar
+  // Never fires on mount - prevents overwriting localStorage on page load
 
   const updateStatus=(email:string,v:Status)=>{ saveSt(email,v); setStatuses(p=>({...p,[email]:v})); saveSnapshot('status'); syncToEdgeConfig() }
   const updateDetail=(email:string,d:LeadDetail)=>{ saveDetail(email,d); setDetails(p=>({...p,[email]:d})); saveSnapshot('detail'); syncToEdgeConfig() }
