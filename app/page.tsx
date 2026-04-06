@@ -1548,7 +1548,15 @@ export default function Dashboard() {
   reportScope === 'individual_bdr' && reportBdrId
     ? allLeads.filter(l => {
         const rep = reps.find(r => r.id === reportBdrId)
-        return rep?.slackId && l.repSlackId === rep.slackId
+        if (!rep) return false
+
+        // Manager view should include unassigned leads plus anything explicitly assigned to Jonathan
+        if (rep.id === 'jonathan') {
+          return !l.repSlackId || (rep.slackId && l.repSlackId === rep.slackId)
+        }
+
+        // Individual reps only see leads explicitly assigned to them
+        return !!rep.slackId && l.repSlackId === rep.slackId
       })
     : allLeads
   const pct = (n:number,d:number)=> d>0 ? Math.round((n/d)*100) : 0
