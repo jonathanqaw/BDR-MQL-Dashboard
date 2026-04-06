@@ -1390,7 +1390,7 @@ export default function Dashboard() {
     .filter(d=>d.value>0)
 
   // Bar: group leads by week or month, stacked by status, with optional date range filter
-  const buildBars=(groupBy:'week'|'month')=>{
+  const buildBars=(groupBy:'week'|'month'|'quarter')=>{
     const groups=new Map<string,{label:string;date:Date;byStatus:Record<Status,number>;leads:AppLead[]}>()
     allLeads.forEach(l=>{
       if (!l.receivedAt) return
