@@ -43,6 +43,7 @@ interface AppLead extends Lead {
   account?: string
   isManual?: boolean
   repSlackId?: string | null
+  repId?: string | null
 }
 
 const EMPTY_DETAIL: LeadDetail = {
@@ -1364,7 +1365,7 @@ export default function Dashboard() {
   const copyEmail=(email:string)=>{ navigator.clipboard.writeText(email).then(()=>{ setCopied(email); setTimeout(()=>setCopied(null),2000) }) }
 
   const createContact=(account:string,email:string,domain:string)=>{
-    const newLead:AppLead={ email, domain, account, name:null, sfUrl:null, date:new Date().toISOString().split('T')[0], receivedAt:new Date().toISOString(), source:'bdr', repSlackId: currentRep?.slackId||null, isManual:true }
+    const newLead:AppLead={ email, domain, account, name:null, sfUrl:null, date:new Date().toISOString().split('T')[0], receivedAt:new Date().toISOString(), source:'bdr', repSlackId: currentRep?.slackId||null, repId: currentRep?.id||null, isManual:true }
     const updated=[...manualLeads,newLead]
     setManualLeads(updated); saveManualLeads(updated)
     saveSt(email,'new')
@@ -1400,18 +1401,15 @@ export default function Dashboard() {
   const allLeads:AppLead[]=[
   ...historicalLeadsForView,
   ...enriched(
-    (currentRep?.slackId
-      ? manualLeads.filter(
-          l =>
-            l.repSlackId === currentRep.slackId &&
-            !historicalLeadsForView.some(h=>h.email===l.email) &&
-            !historicalDomains.has(l.domain)
-        )
-      : manualLeads.filter(
-          l =>
-            !historicalLeadsForView.some(h=>h.email===l.email) &&
-            !historicalDomains.has(l.domain)
-        )
+    manualLeads.filter(
+      l =>
+        (
+          !currentRep?.id ||
+          l.repId === currentRep.id ||
+          (!l.repId && !!currentRep?.slackId && l.repSlackId === currentRep.slackId)
+        ) &&
+        !historicalLeadsForView.some(h=>h.email===l.email) &&
+        !historicalDomains.has(l.domain)
     )
   ),
   ...enriched(filteredLiveLeads.filter(l=>!historicalLeadsForView.some(h=>h.email===l.email)&&!manualLeads.some(m=>m.email===l.email)&&!historicalDomains.has(l.domain))),
