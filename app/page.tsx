@@ -35,7 +35,7 @@ interface LeadDetail {
   prospectName: string; title: string; sourceChannel: string; outreachChannel: string
   connectedDate: string; meetingDate: string; nextStep: string; nextStepStatus: string
   sqlDq: string; sqlDate: string; ae: string; multithreading: string
-  sqo: string; sqoDate: string; acv: string; notes: string; sfLink: string
+  sqo: string; sqoDate: string; acv: string; closedWon: string; closedWonDate: string; notes: string; sfLink: string
   mqlQuality: string  // '' | 'hq' | 'lq' | 'dq'
 }
 interface AppLead extends Lead {
@@ -49,7 +49,7 @@ interface AppLead extends Lead {
 const EMPTY_DETAIL: LeadDetail = {
   prospectName:'', title:'', sourceChannel:'', outreachChannel:'',
   connectedDate:'', meetingDate:'', nextStep:'', nextStepStatus:'',
-  sqlDq:'', sqlDate:'', ae:'', multithreading:'', sqo:'', sqoDate:'', acv:'', notes:'', sfLink:'',
+  sqlDq:'', sqlDate:'', ae:'', multithreading:'', sqo:'', sqoDate:'', acv:'', closedWon:'', closedWonDate:'', notes:'', sfLink:'',
   mqlQuality:''
 }
 
@@ -234,6 +234,7 @@ const NEXT_STEPS       = ['','Discovery Call','Demo','Sample Tests','Reconnect',
 const NEXT_STEP_STATUS = ['','In Progress','Discovery Held','Waiting for AE','TBD - Evaluation','Scheduled']
 const SQL_OPTIONS      = ['','Yes','No','Pending']
 const SQO_OPTIONS      = ['','Yes','No']
+const CLOSED_WON_OPTIONS = ['','Yes','No']
 const MT_OPTIONS       = ['','Yes','No']
 
 // ─── localStorage ─────────────────────────────────────────────────────────────
@@ -683,8 +684,10 @@ function DetailPanel({lead,detail,onSave,onClose}:{lead:AppLead;detail:LeadDetai
             </div>
           </div>
 
-          <div style={{display:'grid',gridTemplateColumns:'160px 260px 1fr',gap:12}}>
+          <div style={{display:'grid',gridTemplateColumns:'160px 140px 160px 260px 1fr',gap:12}}>
             <Field label="ACV ($)"><Inp value={d.acv} onChange={setVal('acv')} placeholder="e.g. 72000"/></Field>
+            <Field label="Closed-Won"><Sel value={d.closedWon} onChange={setVal('closedWon')} opts={CLOSED_WON_OPTIONS}/></Field>
+            <Field label="Closed-Won Date"><DateField value={d.closedWonDate} onChange={setVal('closedWonDate')}/></Field>
             <Field label="Salesforce Link"><Inp value={d.sfLink} onChange={setVal('sfLink')} placeholder="https://qawolf1.lightning.force.com/…"/></Field>
             <div style={{display:'flex',flexDirection:'column',gap:4}}>
               <span style={labelStyle}>Notes</span>
@@ -2311,14 +2314,16 @@ export default function Dashboard() {
           </div>
 
           {/* Top stats */}
-          <div style={{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:12,marginBottom:28}}>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(8,1fr)',gap:12,marginBottom:28}}>
             {[
-              {label:'Total leads',  value:allLeads.length,                                                              color:C.green,   sub:'all time'},
-              {label:'Booked',       value:allLeads.filter(l=>(statuses[l.email]||'new')==='booked').length,             color:C.green,   sub:'meetings set'},
-              {label:'SQLs',         value:sqlAllTime,                                                                   color:'#60d4f4', sub:'SQL / DQ = Yes'},
-              {label:'SQOs',         value:sqoAllTime,                                                                   color:'#c084fc', sub:'opp created'},
-              {label:'SQL rate',     value:`${allLeads.length?Math.round(sqlAllTime/allLeads.length*100):0}%`,           color:C.purpleL, sub:'SQL / total'},
-              {label:'Pipeline ACV', value:`$${allLeads.reduce((s,l)=>{const d=details[l.email]; return s+(d?.acv?parseAcv(d.acv):0)},0).toLocaleString()}`, color:C.amber, sub:'from filled records'},
+              {label:'Total leads',     value:allLeads.length,                                                                                           color:C.green,   sub:'all time'},
+              {label:'Booked',          value:allLeads.filter(l=>(statuses[l.email]||'new')==='booked').length,                                          color:C.green,   sub:'meetings set'},
+              {label:'SQLs',            value:sqlAllTime,                                                                                                color:'#60d4f4', sub:'SQL / DQ = Yes'},
+              {label:'SQOs',            value:sqoAllTime,                                                                                                color:'#c084fc', sub:'opp created'},
+              {label:'Closed-Won',      value:allLeads.filter(l=>(details[l.email]?.closedWon||'')==='Yes').length,                                     color:'#f59e0b', sub:'won accounts'},
+              {label:'SQL rate',        value:`${allLeads.length?Math.round(sqlAllTime/allLeads.length*100):0}%`,                                        color:C.purpleL, sub:'SQL / total'},
+              {label:'Pipeline ACV',    value:`$${allLeads.reduce((s,l)=>{const d=details[l.email]; return s+((d?.sqo==='Yes'&&d?.acv)?parseAcv(d.acv):0)},0).toLocaleString()}`, color:C.amber, sub:'SQO accounts only'},
+              {label:'Closed-Won ACV',  value:`$${allLeads.reduce((s,l)=>{const d=details[l.email]; return s+((d?.closedWon==='Yes'&&d?.acv)?parseAcv(d.acv):0)},0).toLocaleString()}`, color:'#f59e0b', sub:'won revenue'},
             ].map(s=>(
               <div key={s.label} style={card}>
                 <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:8}}>{s.label}</div>
@@ -2364,6 +2369,65 @@ export default function Dashboard() {
                 details={details}
                 onViewLead={(email)=>{setView('pipeline');setExpanded(email);setPeriod('all')}}
               />
+            </div>
+          </div>
+
+          {/* SQO ACV by account */}
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:24}}>
+            <div style={card}>
+              <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:12}}>
+                SQO account ACV mix
+              </div>
+              <PieChart
+                data={allLeads
+                  .filter(l => {
+                    const d = details[l.email]
+                    return d?.sqo === 'Yes' && parseAcv(d?.acv) > 0
+                  })
+                  .sort((a,b) => parseAcv(details[b.email]?.acv) - parseAcv(details[a.email]?.acv))
+                  .slice(0,8)
+                  .map((l,idx) => {
+                    const d = details[l.email]
+                    const palette = ['#c084fc','#60d4f4','#00e5a0','#f59e0b','#e879f9','#fb7185','#34d399','#a78bfa']
+                    return {
+                      label: l.account || d?.prospectName || formatDomain(l.domain),
+                      value: parseAcv(d?.acv),
+                      color: palette[idx % palette.length]
+                    }
+                  })}
+              />
+              <div style={{fontSize:11,color:C.text3,marginTop:12}}>
+                Total pipeline ACV represented: $
+                {allLeads.reduce((s,l)=>{const d=details[l.email]; return s+((d?.sqo==='Yes'&&d?.acv)?parseAcv(d.acv):0)},0).toLocaleString()}
+              </div>
+            </div>
+
+            <div style={card}>
+              <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:12}}>
+                Closed-Won revenue mix
+              </div>
+              <PieChart
+                data={allLeads
+                  .filter(l => {
+                    const d = details[l.email]
+                    return d?.closedWon === 'Yes' && parseAcv(d?.acv) > 0
+                  })
+                  .sort((a,b) => parseAcv(details[b.email]?.acv) - parseAcv(details[a.email]?.acv))
+                  .slice(0,8)
+                  .map((l,idx) => {
+                    const d = details[l.email]
+                    const palette = ['#f59e0b','#00e5a0','#60d4f4','#c084fc','#e879f9','#fb7185','#34d399','#a78bfa']
+                    return {
+                      label: l.account || d?.prospectName || formatDomain(l.domain),
+                      value: parseAcv(d?.acv),
+                      color: palette[idx % palette.length]
+                    }
+                  })}
+              />
+              <div style={{fontSize:11,color:C.text3,marginTop:12}}>
+                Total closed-won ACV: $
+                {allLeads.reduce((s,l)=>{const d=details[l.email]; return s+((d?.closedWon==='Yes'&&d?.acv)?parseAcv(d.acv):0)},0).toLocaleString()}
+              </div>
             </div>
           </div>
 
@@ -2442,6 +2506,29 @@ export default function Dashboard() {
           <div style={{marginBottom:28}}>
             <div style={{fontSize:26,fontWeight:800,letterSpacing:'-0.02em',lineHeight:1.15}}>Reporting<br/><span style={{color:C.green}}>Generator.</span></div>
             <div style={{fontSize:12,color:C.text3,marginTop:4}}>Structured report generation · leadership-ready summaries</div>
+          </div>
+
+          <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:20}}>
+            <div style={card}>
+              <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:8}}>SQO Count</div>
+              <div style={{fontSize:24,fontWeight:800,color:'#c084fc'}}>{sqoAllTime}</div>
+              <div style={{fontSize:11,color:C.text3,marginTop:5}}>all reps in scope</div>
+            </div>
+            <div style={card}>
+              <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:8}}>Pipeline ACV</div>
+              <div style={{fontSize:24,fontWeight:800,color:C.amber}}>${allLeads.reduce((s,l)=>{const d=details[l.email]; return s+((d?.sqo==='Yes'&&d?.acv)?parseAcv(d.acv):0)},0).toLocaleString()}</div>
+              <div style={{fontSize:11,color:C.text3,marginTop:5}}>SQO accounts only</div>
+            </div>
+            <div style={card}>
+              <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:8}}>Closed-Won Count</div>
+              <div style={{fontSize:24,fontWeight:800,color:'#f59e0b'}}>{allLeads.filter(l=>(details[l.email]?.closedWon||'')==='Yes').length}</div>
+              <div style={{fontSize:11,color:C.text3,marginTop:5}}>won accounts</div>
+            </div>
+            <div style={card}>
+              <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:8}}>Closed-Won ACV</div>
+              <div style={{fontSize:24,fontWeight:800,color:'#f59e0b'}}>${allLeads.reduce((s,l)=>{const d=details[l.email]; return s+((d?.closedWon==='Yes'&&d?.acv)?parseAcv(d.acv):0)},0).toLocaleString()}</div>
+              <div style={{fontSize:11,color:C.text3,marginTop:5}}>won revenue</div>
+            </div>
           </div>
 
           <div style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:16,padding:16,marginBottom:20}}>
