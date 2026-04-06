@@ -1400,10 +1400,24 @@ export default function Dashboard() {
   const historicalLeadsForView = isManagerView ? HISTORICAL_LEADS : []
 
   const allLeads:AppLead[]=[
-    ...historicalLeadsForView,
-    ...enriched(manualLeads.filter(l=>!historicalLeadsForView.some(h=>h.email===l.email)&&!historicalDomains.has(l.domain))),
-    ...enriched(filteredLiveLeads.filter(l=>!historicalLeadsForView.some(h=>h.email===l.email)&&!manualLeads.some(m=>m.email===l.email)&&!historicalDomains.has(l.domain))),
-  ].filter(l=>!deletedEmails.has(l.email))
+  ...historicalLeadsForView,
+  ...enriched(
+    (currentRep?.slackId
+      ? manualLeads.filter(
+          l =>
+            l.repSlackId === currentRep.slackId &&
+            !historicalLeadsForView.some(h=>h.email===l.email) &&
+            !historicalDomains.has(l.domain)
+        )
+      : manualLeads.filter(
+          l =>
+            !historicalLeadsForView.some(h=>h.email===l.email) &&
+            !historicalDomains.has(l.domain)
+        )
+    )
+  ),
+  ...enriched(filteredLiveLeads.filter(l=>!historicalLeadsForView.some(h=>h.email===l.email)&&!manualLeads.some(m=>m.email===l.email)&&!historicalDomains.has(l.domain))),
+].filter(l=>!deletedEmails.has(l.email))
 
   // ── Pipeline filters ────────────────────────────────────────────────────────
   const periodStart=getPeriodStart(period)
