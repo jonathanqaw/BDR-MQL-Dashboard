@@ -1154,17 +1154,32 @@ export default function Dashboard() {
   }, [currentRep])
 
   const loadFromEdgeConfig = useCallback(async (slackId: string) => {
+    const keys = ['mql-st','mql-dt','mql-names','mql-manual','mql-deleted'] as const
+
+    // Always start clean when switching reps so one rep never inherits another rep's view
+    keys.forEach(k => localStorage.removeItem(k))
+
     try {
       const res = await fetch(`/api/rep-data?repId=${slackId}`)
-      const { data } = await res.json()
-      if (!data) return
-      // Only overwrite if Edge Config actually has data
-      if (data.statuses) localStorage.setItem('mql-st', data.statuses)
-      if (data.details)  localStorage.setItem('mql-dt', data.details)
-      if (data.names)    localStorage.setItem('mql-names', data.names)
-      if (data.manual)   localStorage.setItem('mql-manual', data.manual)
-      if (data.deleted)  localStorage.setItem('mql-deleted', data.deleted)
-    } catch(e) { console.error('Edge Config load failed:', e) }
+      const payload = await res.json()
+      const data = payload?.data ?? payload
+
+      if (data) {
+        if (data['mql-st'] || data.statuses) localStorage.setItem('mql-st', data['mql-st'] ?? data.statuses)
+        if (data['mql-dt'] || data.details) localStorage.setItem('mql-dt', data['mql-dt'] ?? data.details)
+        if (data['mql-names'] || data.names) localStorage.setItem('mql-names', data['mql-names'] ?? data.names)
+        if (data['mql-manual'] || data.manual) localStorage.setItem('mql-manual', data['mql-manual'] ?? data.manual)
+        if (data['mql-deleted'] || data.deleted) localStorage.setItem('mql-deleted', data['mql-deleted'] ?? data.deleted)
+      }
+    } catch(e) {
+      console.error('Rep data load failed:', e)
+    }
+
+    setStatuses(getSt())
+    setDetails(getDetails())
+    setNameOverrides(getNameOverrides())
+    setManualLeads(getManualLeads())
+    setDeletedEmails(getDeletedEmails())
   }, [])
 
   const [liveLeads,  setLiveLeads]  = useState<AppLead[]>([])
