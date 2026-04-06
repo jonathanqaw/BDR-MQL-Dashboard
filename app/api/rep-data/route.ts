@@ -14,8 +14,18 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const file = await get(key(repId), { type: 'json' })
-    return NextResponse.json({ data: file ?? null })
+    const blob = await get(key(repId))
+    if (!blob) {
+      return NextResponse.json({ data: null })
+    }
+
+    const res = await fetch(blob.url, { cache: 'no-store' })
+    if (!res.ok) {
+      throw new Error(`Blob fetch failed: ${res.status}`)
+    }
+
+    const data = await res.json()
+    return NextResponse.json({ data })
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 })
   }
@@ -29,10 +39,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'repId required' }, { status: 400 })
     }
 
-    await put(key(repId), data, {
-      access: 'private',
+    await put(key(repId), JSON.stringify(data), {
+      access: 'public',
       contentType: 'application/json',
-      addRandomSuffix: false
+      addRandomSuffix: false,
+      allowOverwrite: true,
     })
 
     return NextResponse.json({ ok: true })
