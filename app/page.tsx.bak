@@ -3,7 +3,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import React from 'react'
 import type { Lead } from '@/lib/slack'
-import SalesforceWidget from './components/SalesforceWidget'
 
 // ─── Rep Registry ─────────────────────────────────────────────────────────────
 // Manager edits these in-dashboard. Stored in Edge Config under 'rep_registry'.
@@ -2143,8 +2142,6 @@ export default function Dashboard() {
               </div>
             ))}
           </div>
-
-          <SalesforceWidget />
 
           {/* Status breakdown — clickable */}
           <div style={{...card,marginBottom:20}}>
