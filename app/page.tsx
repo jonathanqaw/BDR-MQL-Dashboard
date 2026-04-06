@@ -1702,6 +1702,44 @@ export default function Dashboard() {
   const pipelineTrend = trendMeta(currentPeriodMetrics.pipeline, previousPeriodMetrics.pipeline)
 
 
+
+  const reportLabel =
+    reportTimeframe === 'monthly'
+      ? 'Monthly'
+      : reportTimeframe === 'quarterly'
+        ? 'Quarterly'
+        : 'Custom Range'
+
+  const reportCopyText = [
+    `🧾 ${reportLabel} Reporting Summary`,
+    ``,
+    `- Total MQLs: ${reportTotal}`,
+    `- SQLs: ${reportSqlCount} (${pct(reportSqlCount, reportTotal)}%)`,
+    `- SQOs: ${reportSqoCount} (${pct(reportSqoCount, reportSqlCount || reportTotal)}%)`,
+    `- Pipeline: $${reportPipeline.toLocaleString()}`,
+    ``,
+    `Trend vs previous period:`,
+    `- SQL Rate: ${sqlTrend.arrow} ${Math.abs(sqlTrend.delta)} pts (${currentPeriodMetrics.sqlRate}% vs ${previousPeriodMetrics.sqlRate}%)`,
+    `- SQO Conversion: ${sqoTrend.arrow} ${Math.abs(sqoTrend.delta)} pts (${currentPeriodMetrics.sqoRate}% vs ${previousPeriodMetrics.sqoRate}%)`,
+    `- Pipeline: ${pipelineTrend.arrow} $${Math.abs(pipelineTrend.delta).toLocaleString()} ($${currentPeriodMetrics.pipeline.toLocaleString()} vs $${previousPeriodMetrics.pipeline.toLocaleString()})`,
+    ``,
+    `Funnel insights:`,
+    `- Biggest drop-off: ${biggestDropoff.label} (${biggestDropoff.value}% conversion)`,
+    `- Strongest stage: ${strongestStage.label} (${strongestStage.value}% conversion)`,
+    `- Most common terminal status: ${mostCommonTerminal.label} (${mostCommonTerminal.value})`,
+    `- Most recoverable pool: ${mostRecoverablePool.label} (${mostRecoverablePool.value})`,
+  ].join('\n')
+
+  const copyReportSummary = async () => {
+    try {
+      await navigator.clipboard.writeText(reportCopyText)
+      alert('Report summary copied.')
+    } catch {
+      alert('Could not copy summary.')
+    }
+  }
+
+
   // ─────────────────────────────────────────────────────────────────────────────
   // ── Login screen ────────────────────────────────────────────────────────────
   if (!auth) return (
@@ -2276,12 +2314,19 @@ export default function Dashboard() {
               </div>
             )}
 
-            <div style={{marginTop:14}}>
+            <div style={{marginTop:14,display:'flex',gap:8,alignItems:'center'}}>
               <button
                 onClick={()=>setReportGenerated(true)}
                 style={{fontSize:12,fontWeight:700,padding:'10px 14px',border:'none',borderRadius:10,background:C.green,color:'#06281d',cursor:'pointer'}}
               >
                 Generate Report
+              </button>
+
+              <button
+                onClick={copyReportSummary}
+                style={{fontSize:12,fontWeight:700,padding:'10px 14px',border:`1px solid ${C.border2}`,borderRadius:10,background:C.surface3,color:C.text,cursor:'pointer'}}
+              >
+                Copy Summary
               </button>
             </div>
           </div>
