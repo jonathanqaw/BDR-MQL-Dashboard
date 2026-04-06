@@ -1090,10 +1090,7 @@ export default function Dashboard() {
       const a:AuthState = { role:'rep', repId: repParam }
       setAuth(a); sessionStorage.setItem('mql-auth', JSON.stringify(a))
     }
-    // Load rep registry from Edge Config
-    fetch('/api/rep-data?repId=__registry__').then(r=>r.json()).then(({data})=>{
-      if (data?.reps) setReps(data.reps)
-    }).catch(()=>{})
+    // Edge Config disabled - registry stored in code
   },[])
 
   const handleLogin=()=>{
