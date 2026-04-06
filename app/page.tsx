@@ -1320,8 +1320,15 @@ export default function Dashboard() {
   // Manager viewing Jonathan (only active rep) = show all leads unfiltered.
   const activeReps = reps.filter(r => r.slackId)
   const repSlackId = currentRep?.slackId || ''
+  const isManagerView = currentRep?.id === 'jonathan'
+
   const filteredLiveLeads = (activeReps.length > 1 && repSlackId)
-    ? liveLeads.filter(l => !l.repSlackId || l.repSlackId === repSlackId)
+    ? liveLeads.filter(l => {
+        if (isManagerView) {
+          return !l.repSlackId || l.repSlackId === repSlackId
+        }
+        return l.repSlackId === repSlackId
+      })
     : liveLeads
 
   const allLeads:AppLead[]=[
