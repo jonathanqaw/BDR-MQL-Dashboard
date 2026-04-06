@@ -5,19 +5,20 @@ import React from 'react'
 import type { Lead } from '@/lib/slack'
 
 // ─── Rep Registry ─────────────────────────────────────────────────────────────
-// Add new reps here when they onboard. slackId must match the Slack user ID
-// tagged in #bdr-routed-leads messages.
-const REP_REGISTRY = [
-  { id: 'jonathan', name: 'Jonathan Kim',   slackId: 'U098PSETPJ4', isManager: true  },
-  { id: 'rep2',     name: 'Rep 2 (TBD)',    slackId: '',             isManager: false },
-  { id: 'rep3',     name: 'Rep 3 (TBD)',    slackId: '',             isManager: false },
-  { id: 'rep4',     name: 'Rep 4 (TBD)',    slackId: '',             isManager: false },
-] as const
+// Manager edits these in-dashboard. Stored in Edge Config under 'rep_registry'.
+// slackId must match the Slack user ID tagged in #bdr-routed-leads messages.
+type Rep = { id: string; name: string; slackId: string; passcode: string }
+
+const DEFAULT_REPS: Rep[] = [
+  { id: 'jonathan', name: 'Jonathan Kim', slackId: 'U098PSETPJ4', passcode: '' },
+  { id: 'rep2',     name: 'Rep 2 (TBD)', slackId: '',             passcode: '' },
+  { id: 'rep3',     name: 'Rep 3 (TBD)', slackId: '',             passcode: '' },
+  { id: 'rep4',     name: 'Rep 4 (TBD)', slackId: '',             passcode: '' },
+]
 
 const MANAGER_PASSCODE = 'johnnywolfpack2026'
 
-type RepId = typeof REP_REGISTRY[number]['id']
-type AuthState = { role: 'manager' } | { role: 'rep'; repId: RepId } | null
+type AuthState = { role: 'manager' } | { role: 'rep'; repId: string } | null
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Status       = 'new' | 'contacted' | 'booked' | 'nurture' | 'lost' | 'na' | 'dq' | 'inprogress'
@@ -1072,20 +1073,27 @@ export default function Dashboard() {
   const [auth, setAuth] = useState<AuthState>(null)
   const [passcode, setPasscode] = useState('')
   const [passErr, setPassErr] = useState(false)
-  const [activeRepId, setActiveRepId] = useState<RepId>('jonathan')
+  const [activeRepId, setActiveRepId] = useState('jonathan')
   const [ecSaving, setEcSaving] = useState(false)
+  const [reps, setReps] = useState<Rep[]>(DEFAULT_REPS)
+  const [showRepEditor, setShowRepEditor] = useState(false)
+  const [editingRep, setEditingRep] = useState<Rep|null>(null)
 
   // ── Auth: check sessionStorage on mount ───────────────────────────────────
   useEffect(()=>{
     const saved = sessionStorage.getItem('mql-auth')
     if (saved) { try { setAuth(JSON.parse(saved)) } catch {} }
-    // Also check URL param for direct rep access
+    // Check URL param for direct rep access (bypasses login)
     const params = new URLSearchParams(window.location.search)
-    const repParam = params.get('rep') as RepId | null
-    if (repParam && REP_REGISTRY.find(r=>r.id===repParam)) {
+    const repParam = params.get('rep')
+    if (repParam) {
       const a:AuthState = { role:'rep', repId: repParam }
       setAuth(a); sessionStorage.setItem('mql-auth', JSON.stringify(a))
     }
+    // Load rep registry from Edge Config
+    fetch('/api/rep-data?repId=__registry__').then(r=>r.json()).then(({data})=>{
+      if (data?.reps) setReps(data.reps)
+    }).catch(()=>{})
   },[])
 
   const handleLogin=()=>{
@@ -1094,17 +1102,37 @@ export default function Dashboard() {
       setAuth(a); sessionStorage.setItem('mql-auth', JSON.stringify(a))
       setPassErr(false)
     } else {
-      setPassErr(true)
+      // Check rep passcodes
+      const rep = reps.find(r=>r.passcode && r.passcode===passcode)
+      if (rep) {
+        const a:AuthState = { role:'rep', repId: rep.id }
+        setAuth(a); sessionStorage.setItem('mql-auth', JSON.stringify(a))
+        setPassErr(false)
+      } else {
+        setPassErr(true)
+      }
     }
   }
 
+  const saveRepRegistry = async (updated: Rep[]) => {
+    setReps(updated)
+    await fetch('/api/rep-data', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repId: '__registry__', data: { reps: updated } }),
+    }).catch(()=>{})
+  }
+
   // Which rep's data are we currently viewing?
-  const currentRepId: RepId = auth?.role==='manager' ? activeRepId : (auth?.role==='rep' ? auth.repId : 'jonathan')
-  const currentRep = REP_REGISTRY.find(r=>r.id===currentRepId)!
+  const currentRep = auth?.role==='manager'
+    ? (reps.find(r=>r.id===activeRepId) || reps[0])
+    : auth?.role==='rep'
+    ? (reps.find(r=>r.id===auth.repId) || reps[0])
+    : reps[0]
 
   // ── Edge Config sync ──────────────────────────────────────────────────────
   const syncToEdgeConfig = useCallback(async () => {
-    if (!currentRep?.slackId) return  // skip if rep has no Slack ID set yet
+    if (!currentRep?.slackId) return
     setEcSaving(true)
     try {
       const data = {
@@ -1129,6 +1157,7 @@ export default function Dashboard() {
       const res = await fetch(`/api/rep-data?repId=${slackId}`)
       const { data } = await res.json()
       if (!data) return
+      // Only overwrite if Edge Config actually has data
       if (data.statuses) localStorage.setItem('mql-st', data.statuses)
       if (data.details)  localStorage.setItem('mql-dt', data.details)
       if (data.names)    localStorage.setItem('mql-names', data.names)
@@ -1235,14 +1264,18 @@ export default function Dashboard() {
 
   useEffect(()=>{ setStatuses(getSt()); setDetails(getDetails()); fetchLeads() },[fetchLeads])
 
-  // Load Edge Config data when rep changes
+  // Load Edge Config data only when manager switches to a different rep
+  const prevRepId = useRef<string>('')
   useEffect(()=>{
     if (!currentRep?.slackId) return
+    if (prevRepId.current === currentRep.id) return  // same rep, don't reload
+    if (auth?.role !== 'manager') return  // only manager switches reps
+    prevRepId.current = currentRep.id
     loadFromEdgeConfig(currentRep.slackId).then(()=>{
       setStatuses(getSt()); setDetails(getDetails())
       setManualLeads(getManualLeads()); setDeletedEmails(getDeletedEmails())
     })
-  },[currentRep?.slackId])
+  },[currentRep?.id, auth?.role])
 
   const updateStatus=(email:string,v:Status)=>{ saveSt(email,v); setStatuses(p=>({...p,[email]:v})); saveSnapshot('status'); syncToEdgeConfig() }
   const updateDetail=(email:string,d:LeadDetail)=>{ saveDetail(email,d); setDetails(p=>({...p,[email]:d})); saveSnapshot('detail'); syncToEdgeConfig() }
@@ -1266,10 +1299,10 @@ export default function Dashboard() {
     name: l.name || LIVE_PROSPECT_NAMES[l.email] || null,
   }))
 
-  // Filter live leads to current rep's Slack ID.
-  // Only apply filtering when there are multiple active reps (slackId set).
-  // This prevents accidentally hiding leads during single-rep operation.
-  const activeReps = REP_REGISTRY.filter(r => r.slackId)
+  // Filter live leads by rep Slack ID.
+  // Only filter when multiple reps are active AND current rep has a Slack ID.
+  // Manager viewing Jonathan (only active rep) = show all leads unfiltered.
+  const activeReps = reps.filter(r => r.slackId)
   const repSlackId = currentRep?.slackId || ''
   const filteredLiveLeads = (activeReps.length > 1 && repSlackId)
     ? liveLeads.filter(l => !l.repSlackId || l.repSlackId === repSlackId)
@@ -1525,27 +1558,90 @@ export default function Dashboard() {
             onMouseEnter={e=>(e.currentTarget.style.color=C.red)} onMouseLeave={e=>(e.currentTarget.style.color=C.text3)}>⎋</button>
         </div>
 
-        {/* Manager rep switcher */}
+        {/* Manager rep switcher + editor */}
         {auth.role==='manager'&&(
           <div style={{padding:'0 20px 12px'}}>
-            <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:6}}>Viewing Rep</div>
+            <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:6,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+              Reps
+              <button onClick={()=>setShowRepEditor(e=>!e)} title="Edit reps" style={{background:'none',border:'none',cursor:'pointer',color:showRepEditor?C.amber:C.text3,fontSize:12,padding:0}}
+                onMouseEnter={e=>(e.currentTarget.style.color=C.amber)} onMouseLeave={e=>(e.currentTarget.style.color=showRepEditor?C.amber:C.text3)}>✎</button>
+            </div>
             <div style={{display:'flex',flexDirection:'column',gap:3}}>
-              {REP_REGISTRY.map(r=>(
-                <button key={r.id} onClick={async()=>{
-                  setActiveRepId(r.id)
-                  if (r.slackId) await loadFromEdgeConfig(r.slackId)
-                  setStatuses(getSt()); setDetails(getDetails())
-                  setManualLeads(getManualLeads()); setNameOverrides(getNameOverrides())
-                  setDeletedEmails(getDeletedEmails())
-                }} style={{
-                  textAlign:'left' as const,padding:'6px 10px',borderRadius:6,border:`1px solid ${activeRepId===r.id?C.green:C.border}`,
-                  background:activeRepId===r.id?'rgba(0,229,160,0.1)':'transparent',
-                  color:activeRepId===r.id?C.green:r.slackId?C.text2:C.text3,
-                  fontSize:11,fontWeight:activeRepId===r.id?700:500,cursor:'pointer',
-                }}>
-                  {r.name}{!r.slackId&&<span style={{fontSize:9,color:C.text3,marginLeft:4}}>(not set)</span>}
-                </button>
+              {reps.map(r=>(
+                <div key={r.id} style={{display:'flex',alignItems:'center',gap:4}}>
+                  <button onClick={async()=>{
+                    setActiveRepId(r.id)
+                    if (r.slackId) {
+                      await loadFromEdgeConfig(r.slackId)
+                      setStatuses(getSt()); setDetails(getDetails())
+                      setManualLeads(getManualLeads()); setNameOverrides(getNameOverrides())
+                      setDeletedEmails(getDeletedEmails())
+                    }
+                  }} style={{
+                    flex:1,textAlign:'left' as const,padding:'6px 10px',borderRadius:6,
+                    border:`1px solid ${activeRepId===r.id?C.green:C.border}`,
+                    background:activeRepId===r.id?'rgba(0,229,160,0.1)':'transparent',
+                    color:activeRepId===r.id?C.green:r.slackId?C.text2:C.text3,
+                    fontSize:11,fontWeight:activeRepId===r.id?700:500,cursor:'pointer',
+                  }}>
+                    {r.name}{!r.slackId&&<span style={{fontSize:9,color:C.text3,marginLeft:4}}>(not set)</span>}
+                  </button>
+                  {showRepEditor&&(
+                    <button onClick={()=>setEditingRep({...r})} style={{background:'none',border:'none',cursor:'pointer',color:C.text3,fontSize:11,padding:'2px 4px'}}
+                      onMouseEnter={e=>(e.currentTarget.style.color=C.amber)} onMouseLeave={e=>(e.currentTarget.style.color=C.text3)}>✎</button>
+                  )}
+                </div>
               ))}
+            </div>
+            {showRepEditor&&(
+              <button onClick={()=>{
+                const newRep:Rep={id:`rep${Date.now()}`,name:'New Rep',slackId:'',passcode:''}
+                setEditingRep(newRep)
+              }} style={{marginTop:6,fontSize:10,fontWeight:600,padding:'4px 8px',borderRadius:5,border:`1px solid ${C.border2}`,background:'transparent',color:C.purpleL,cursor:'pointer',width:'100%'}}>
+                + Add Rep
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Rep editor modal */}
+        {editingRep&&(
+          <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',zIndex:200,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={()=>setEditingRep(null)}>
+            <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:24,width:340}} onClick={e=>e.stopPropagation()}>
+              <div style={{fontSize:14,fontWeight:700,marginBottom:16}}>Edit Rep</div>
+              {([
+                ['Name', 'name', 'text', 'Jonathan Kim'],
+                ['Slack User ID', 'slackId', 'text', 'U098PSETPJ4'],
+                ['Rep Passcode', 'passcode', 'password', 'Set a passcode for this rep'],
+              ] as const).map(([label, field, type, placeholder])=>(
+                <div key={field} style={{marginBottom:12}}>
+                  <div style={{fontSize:11,color:C.text3,marginBottom:4}}>{label}</div>
+                  <input
+                    type={type}
+                    value={(editingRep as any)[field]}
+                    onChange={e=>setEditingRep(p=>p?{...p,[field]:e.target.value}:p)}
+                    placeholder={placeholder}
+                    style={{width:'100%',padding:'8px 10px',borderRadius:6,border:`1px solid ${C.border2}`,background:C.surface2,color:C.text,fontSize:12,outline:'none',boxSizing:'border-box' as const}}
+                  />
+                </div>
+              ))}
+              <div style={{fontSize:10,color:C.text3,marginBottom:12}}>Rep URL: <code style={{color:C.purpleL}}>?rep={editingRep.id}</code></div>
+              <div style={{display:'flex',gap:8}}>
+                <button onClick={async()=>{
+                  const updated = reps.find(r=>r.id===editingRep.id)
+                    ? reps.map(r=>r.id===editingRep.id?editingRep:r)
+                    : [...reps, editingRep]
+                  await saveRepRegistry(updated)
+                  setEditingRep(null)
+                }} style={{flex:1,padding:'8px',borderRadius:6,border:'none',background:C.green,color:C.bg,fontSize:12,fontWeight:700,cursor:'pointer'}}>Save</button>
+                <button onClick={async()=>{
+                  if (!window.confirm(`Delete ${editingRep.name}?`)) return
+                  const updated = reps.filter(r=>r.id!==editingRep.id)
+                  await saveRepRegistry(updated)
+                  setEditingRep(null)
+                }} style={{padding:'8px 12px',borderRadius:6,border:`1px solid ${C.red}`,background:'transparent',color:C.red,fontSize:12,cursor:'pointer'}}>Delete</button>
+                <button onClick={()=>setEditingRep(null)} style={{padding:'8px 12px',borderRadius:6,border:`1px solid ${C.border2}`,background:'transparent',color:C.text3,fontSize:12,cursor:'pointer'}}>Cancel</button>
+              </div>
             </div>
           </div>
         )}
