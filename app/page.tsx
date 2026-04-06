@@ -1328,7 +1328,6 @@ export default function Dashboard() {
       : repSlackId
         ? liveLeads.filter(l => l.repSlackId === repSlackId)
         : []
-    : liveLeads
 
   const historicalLeadsForView = isManagerView ? HISTORICAL_LEADS : []
 
