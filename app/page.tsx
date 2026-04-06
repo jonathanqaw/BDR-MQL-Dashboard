@@ -1205,7 +1205,7 @@ export default function Dashboard() {
   const [fetchedAt,  setFetchedAt]  = useState<string|null>(null)
   const [copied,     setCopied]     = useState<string|null>(null)
   const [expanded,   setExpanded]   = useState<string|null>(null)
-  const [chartPeriod,setChartPeriod]= useState<'week'|'month'>('week')
+  const [chartPeriod,setChartPeriod]= useState<'week'|'month'|'quarter'>('week')
   const [chartFrom,  setChartFrom]  = useState('')
   const [chartTo,    setChartTo]    = useState('')
   const [showCreate, setShowCreate] = useState(false)
@@ -2252,8 +2252,8 @@ export default function Dashboard() {
               <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12,flexWrap:'wrap',gap:8}}>
                 <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em'}}>Leads over time</div>
                 <div style={{display:'flex',gap:5,alignItems:'center',flexWrap:'wrap'}}>
-                  {(['week','month'] as const).map(p=>(
-                    <button key={p} onClick={()=>setChartPeriod(p)} style={filterPill(chartPeriod===p)}>{{week:'Week over week',month:'Month over month'}[p]}</button>
+                  {(['week','month','quarter'] as const).map(p=>(
+                    <button key={p} onClick={()=>setChartPeriod(p)} style={filterPill(chartPeriod===p)}>{{week:'Week over week',month:'Month over month',quarter:'Quarterly'}[p]}</button>
                   ))}
                 </div>
               </div>
@@ -2267,7 +2267,7 @@ export default function Dashboard() {
               </div>
               <BarChart
                 bars={buildBars(chartPeriod)}
-                title={chartPeriod==='week'?'Weekly lead volume':'Monthly lead volume'}
+                title={chartPeriod==='week'?'Weekly lead volume':chartPeriod==='month'?'Monthly lead volume':'Quarterly lead volume'}
                 statuses={statuses}
                 details={details}
                 onViewLead={(email)=>{setView('pipeline');setExpanded(email);setPeriod('all')}}
