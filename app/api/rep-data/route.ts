@@ -21,9 +21,19 @@ export async function GET(req: NextRequest) {
     }
 
     const text = await new Response(result.stream).text()
-    const data = text ? JSON.parse(text) : null
+    const raw = text ? JSON.parse(text) : null
 
-    return NextResponse.json({ data })
+    // Return BOTH shapes:
+    // 1) data: raw full payload
+    // 2) top-level aliases for older frontend code
+    return NextResponse.json({
+      data: raw,
+      statuses: raw?.['mql-st'] ?? raw?.statuses ?? null,
+      details: raw?.['mql-dt'] ?? raw?.details ?? null,
+      names: raw?.['mql-names'] ?? raw?.names ?? null,
+      manual: raw?.['mql-manual'] ?? raw?.manual ?? null,
+      deleted: raw?.['mql-deleted'] ?? raw?.deleted ?? null,
+    })
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 })
   }
