@@ -22,10 +22,13 @@ type AuthState = { role: 'manager' } | { role: 'rep'; repId: string } | null
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Status       = 'new' | 'contacted' | 'booked' | 'nurture' | 'lost' | 'na' | 'dq' | 'inprogress'
-type View         = 'pipeline' | 'analytics'
+type View         = 'pipeline' | 'analytics' | 'reporting'
 type PeriodFilter = 'week' | 'month' | 'quarter' | 'all'
 type WorkedFilter = 'all' | 'worked' | 'untouched'
 type StatusFilter = 'all' | Status
+type ReportTimeframe = 'monthly' | 'quarterly' | 'custom'
+type ReportScope = 'all_bdrs' | 'individual_bdr'
+type ReportType = 'full_funnel' | 'pipeline_performance' | 'mql_quality' | 'conversion_analysis'
 
 interface LeadDetail {
   prospectName: string; title: string; sourceChannel: string; outreachChannel: string
@@ -1189,6 +1192,12 @@ export default function Dashboard() {
   const [period,     setPeriod]     = useState<PeriodFilter>('all')
   const [worked,     setWorked]     = useState<WorkedFilter>('all')
   const [stFilter,   setStFilter]   = useState<StatusFilter>('all')
+  const [reportTimeframe, setReportTimeframe] = useState<ReportTimeframe>('quarterly')
+  const [reportScope, setReportScope] = useState<ReportScope>('all_bdrs')
+  const [reportType, setReportType] = useState<ReportType>('full_funnel')
+  const [reportRangeStart, setReportRangeStart] = useState('')
+  const [reportRangeEnd, setReportRangeEnd] = useState('')
+  const [reportGenerated, setReportGenerated] = useState(false)
   const [detailFilter,setDetailFilter]=useState<'none'|'sql'|'sqo'>('none')
   const [loading,    setLoading]    = useState(true)
   const [error,      setError]      = useState<string|null>(null)
@@ -1670,7 +1679,7 @@ export default function Dashboard() {
         )}
 
         <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.1em',padding:'6px 20px 4px'}}>Views</div>
-        {([['pipeline','📊','Pipeline','MQL tracking · expandable'],['analytics','📈','Analytics','Charts · trends · breakdown']] as const).map(([v,icon,label,sub])=>(
+        {([['pipeline','📊','Pipeline','MQL tracking · expandable'],['analytics','📈','Analytics','Charts · trends · breakdown'],['reporting','🧾','Reporting','Generated summaries · leadership-ready']] as const).map(([v,icon,label,sub])=>(
           <div key={v} style={navBtn(view===v as View)} onClick={()=>setView(v as View)}>
             <div style={{width:26,height:26,borderRadius:6,background:view===v?C.purple:C.surface3,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,color:view===v?'#fff':C.text3,flexShrink:0}}>{icon}</div>
             <div>
