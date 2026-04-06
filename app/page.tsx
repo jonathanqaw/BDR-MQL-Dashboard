@@ -2372,13 +2372,13 @@ export default function Dashboard() {
                 >
                   <option value="all_bdrs">All BDRs</option>
                   <option value="individual_bdr">Individual BDR</option>
-</select>
+                </select>
 
                 {reportScope==='individual_bdr' && (
                   <select
                     value={reportBdrId}
                     onChange={e=>setReportBdrId(e.target.value)}
-                    style={{marginTop:8,fontSize:12,padding:'8px 10px',borderRadius:8}}
+                    style={{width:'100%',marginTop:8,fontSize:12,padding:'10px 12px',border:`1px solid ${C.border2}`,borderRadius:8,background:C.surface3,color:C.text}}
                   >
                     <option value="">Select BDR</option>
                     {reps.map(r=>(
@@ -2386,9 +2386,6 @@ export default function Dashboard() {
                     ))}
                   </select>
                 )}
-
-                <select
-                </select>
               </div>
 
               <div>
