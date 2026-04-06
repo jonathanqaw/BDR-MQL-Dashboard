@@ -1128,26 +1128,7 @@ export default function Dashboard() {
     : reps[0]
 
   // ── Edge Config sync ──────────────────────────────────────────────────────
-  const syncToEdgeConfig = useCallback(async () => {
-    if (!currentRep?.slackId) return
-    setEcSaving(true)
-    try {
-      const data = {
-        statuses: localStorage.getItem('mql-st'),
-        details:  localStorage.getItem('mql-dt'),
-        names:    localStorage.getItem('mql-names'),
-        manual:   localStorage.getItem('mql-manual'),
-        deleted:  localStorage.getItem('mql-deleted'),
-        savedAt:  new Date().toISOString(),
-      }
-      await fetch('/api/rep-data', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ repId: currentRep.slackId, data }),
-      })
-    } catch(e) { console.error('Edge Config sync failed:', e) }
-    finally { setEcSaving(false) }
-  }, [currentRep])
+  const syncToEdgeConfig = useCallback(async () => { return }, [])
 
   const loadFromEdgeConfig = useCallback(async (slackId: string) => {
     try {
