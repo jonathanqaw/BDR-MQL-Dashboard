@@ -598,6 +598,7 @@ function DetailPanel({lead,detail,onSave,onClose}:{lead:AppLead;detail:LeadDetai
                         sfLink: data.url || url,
                         sqlDate: toDateInputValue(data.sqlDate || prev.sqlDate),
                         connectedDate: toDateInputValue(data.mqlDate || prev.connectedDate),
+                        meetingDate: toDateInputValue(data.meetingBookedDate || prev.meetingDate),
                       }))
                     } catch {
                       alert('Could not reach local Salesforce agent.')
