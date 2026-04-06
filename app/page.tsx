@@ -432,6 +432,19 @@ function AECombobox({value,onChange}:{value:string;onChange:(v:string)=>void}) {
 }
 
 // ─── Date input wrapper — prevents calendar icon from disappearing ────────────
+function toDateInputValue(value:string) {
+  if (!value) return ''
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value
+
+  const m = value.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+  if (!m) return value
+
+  const mm = m[1].padStart(2,'0')
+  const dd = m[2].padStart(2,'0')
+  const yyyy = m[3]
+  return `${yyyy}-${mm}-${dd}`
+}
+
 function DateField({value,onChange}:{value:string;onChange:(v:string)=>void}) {
   return (
     <div
@@ -583,8 +596,8 @@ function DetailPanel({lead,detail,onSave,onClose}:{lead:AppLead;detail:LeadDetai
                         prospectName: data.name || prev.prospectName,
                         title: data.title || prev.title,
                         sfLink: data.url || url,
-                        sqlDate: data.sqlDate || prev.sqlDate,
-                        connectedDate: data.mqlDate || prev.connectedDate,
+                        sqlDate: toDateInputValue(data.sqlDate || prev.sqlDate),
+                        connectedDate: toDateInputValue(data.mqlDate || prev.connectedDate),
                       }))
                     } catch {
                       alert('Could not reach local Salesforce agent.')
