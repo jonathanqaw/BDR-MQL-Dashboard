@@ -1365,9 +1365,7 @@ export default function Dashboard() {
 
   const createContact=(account:string,email:string,domain:string)=>{
     const newLead:AppLead={ email, domain, account, name:null, sfUrl:null, date:new Date().toISOString().split('T')[0], receivedAt:new Date().toISOString(), source:'bdr', repSlackId: currentRep?.slackId||null, isManual:true }
-    const updated=[(shouldFilterByRep
-  ? manualLeads.filter(l => l.repSlackId === repSlackId)
-  : manualLeads),newLead]
+    const updated=[...manualLeads,newLead]
     setManualLeads(updated); saveManualLeads(updated)
     saveSt(email,'new')
     setStatuses(p=>({...p,[email]:'new'}))
