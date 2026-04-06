@@ -1632,6 +1632,76 @@ export default function Dashboard() {
   const mostRecoverablePool = terminalPools.reduce((a,b)=>b.label==='Nurture' && b.value>=a.value ? b : a, terminalPools[0])
 
 
+
+  const getReportRange = () => {
+    const now = new Date()
+    let start = new Date(now)
+    let end = new Date(now)
+
+    if (reportTimeframe === 'monthly') {
+      start = new Date(now.getFullYear(), now.getMonth(), 1)
+      end = new Date(now.getFullYear(), now.getMonth() + 1, 0)
+    } else if (reportTimeframe === 'quarterly') {
+      const qStartMonth = Math.floor(now.getMonth() / 3) * 3
+      start = new Date(now.getFullYear(), qStartMonth, 1)
+      end = new Date(now.getFullYear(), qStartMonth + 3, 0)
+    } else if (reportTimeframe === 'custom' && reportRangeStart && reportRangeEnd) {
+      start = new Date(reportRangeStart + 'T00:00:00')
+      end = new Date(reportRangeEnd + 'T23:59:59')
+    } else {
+      start = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1)
+      end = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3 + 3, 0)
+    }
+
+    return { start, end }
+  }
+
+  const { start: reportStart, end: reportEnd } = getReportRange()
+  const rangeMs = Math.max(1, reportEnd.getTime() - reportStart.getTime())
+  const prevStart = new Date(reportStart.getTime() - rangeMs)
+  const prevEnd = new Date(reportEnd.getTime() - rangeMs)
+
+  const inRange = (lead:any, start:Date, end:Date) => {
+    const d = lead.date ? new Date(lead.date + 'T12:00:00') : null
+    return !!d && d >= start && d <= end
+  }
+
+  const currentPeriodLeads = reportBaseLeads.filter(l => inRange(l, reportStart, reportEnd))
+  const previousPeriodLeads = reportBaseLeads.filter(l => inRange(l, prevStart, prevEnd))
+
+  const calcPeriodMetrics = (leads:any[]) => {
+    const total = leads.length
+    const sqls = leads.filter(l => (details[l.email]?.sqlDq || '').toLowerCase() === 'yes').length
+    const sqos = leads.filter(l => (details[l.email]?.sqo || '').toLowerCase() === 'yes').length
+    const pipeline = leads.reduce((sum,l)=>sum + (parseInt(details[l.email]?.acv || '0') || 0), 0)
+    return {
+      total,
+      sqls,
+      sqos,
+      pipeline,
+      sqlRate: pct(sqls, total),
+      sqoRate: pct(sqos, sqls || total),
+    }
+  }
+
+  const currentPeriodMetrics = calcPeriodMetrics(currentPeriodLeads)
+  const previousPeriodMetrics = calcPeriodMetrics(previousPeriodLeads)
+
+  const delta = (curr:number, prev:number) => curr - prev
+  const trendMeta = (curr:number, prev:number) => {
+    const d = delta(curr, prev)
+    return {
+      delta: d,
+      arrow: d > 0 ? '↑' : d < 0 ? '↓' : '→',
+      color: d > 0 ? C.green : d < 0 ? C.red : C.text3,
+    }
+  }
+
+  const sqlTrend = trendMeta(currentPeriodMetrics.sqlRate, previousPeriodMetrics.sqlRate)
+  const sqoTrend = trendMeta(currentPeriodMetrics.sqoRate, previousPeriodMetrics.sqoRate)
+  const pipelineTrend = trendMeta(currentPeriodMetrics.pipeline, previousPeriodMetrics.pipeline)
+
+
   // ─────────────────────────────────────────────────────────────────────────────
   // ── Login screen ────────────────────────────────────────────────────────────
   if (!auth) return (
@@ -2331,23 +2401,62 @@ export default function Dashboard() {
               </div>
             </div>
 
-            <div style={card}>
-              <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:12}}>
-                Funnel Insights
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
+              <div style={card}>
+                <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:12}}>
+                  Trend Comparison
+                </div>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12}}>
+                  {[
+                    {
+                      label:'SQL Rate',
+                      current:`${currentPeriodMetrics.sqlRate}%`,
+                      prev:`${previousPeriodMetrics.sqlRate}% prev`,
+                      trend: sqlTrend
+                    },
+                    {
+                      label:'SQO Conversion',
+                      current:`${currentPeriodMetrics.sqoRate}%`,
+                      prev:`${previousPeriodMetrics.sqoRate}% prev`,
+                      trend: sqoTrend
+                    },
+                    {
+                      label:'Pipeline',
+                      current:`$${currentPeriodMetrics.pipeline.toLocaleString()}`,
+                      prev:`$${previousPeriodMetrics.pipeline.toLocaleString()} prev`,
+                      trend: pipelineTrend
+                    },
+                  ].map(card=>(
+                    <div key={card.label} style={{background:C.surface3,border:`1px solid ${C.border}`,borderRadius:10,padding:12}}>
+                      <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:8}}>{card.label}</div>
+                      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8}}>
+                        <div style={{fontSize:18,fontWeight:800,color:C.text}}>{card.current}</div>
+                        <div style={{fontSize:16,fontWeight:800,color:card.trend.color}}>{card.trend.arrow} {Math.abs(card.trend.delta)}</div>
+                      </div>
+                      <div style={{fontSize:11,color:C.text3,marginTop:4}}>{card.prev}</div>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12}}>
-                {[
-                  {label:'Biggest drop-off', value:biggestDropoff.label, sub:`${biggestDropoff.value}% conversion`},
-                  {label:'Strongest stage', value:strongestStage.label, sub:`${strongestStage.value}% conversion`},
-                  {label:'Most common terminal', value:mostCommonTerminal.label, sub:`${mostCommonTerminal.value} leads`},
-                  {label:'Most recoverable pool', value:mostRecoverablePool.label, sub:`${mostRecoverablePool.value} leads`},
-                ].map(card=>(
-                  <div key={card.label} style={{background:C.surface3,border:`1px solid ${C.border}`,borderRadius:10,padding:12}}>
-                    <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:8}}>{card.label}</div>
-                    <div style={{fontSize:16,fontWeight:800,color:C.text}}>{card.value}</div>
-                    <div style={{fontSize:11,color:C.text3,marginTop:4}}>{card.sub}</div>
-                  </div>
-                ))}
+
+              <div style={card}>
+                <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:12}}>
+                  Funnel Insights
+                </div>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:12}}>
+                  {[
+                    {label:'Biggest drop-off', value:biggestDropoff.label, sub:`${biggestDropoff.value}% conversion`},
+                    {label:'Strongest stage', value:strongestStage.label, sub:`${strongestStage.value}% conversion`},
+                    {label:'Most common terminal', value:mostCommonTerminal.label, sub:`${mostCommonTerminal.value} leads`},
+                    {label:'Most recoverable pool', value:mostRecoverablePool.label, sub:`${mostRecoverablePool.value} leads`},
+                  ].map(card=>(
+                    <div key={card.label} style={{background:C.surface3,border:`1px solid ${C.border}`,borderRadius:10,padding:12}}>
+                      <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:8}}>{card.label}</div>
+                      <div style={{fontSize:16,fontWeight:800,color:C.text}}>{card.value}</div>
+                      <div style={{fontSize:11,color:C.text3,marginTop:4}}>{card.sub}</div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
