@@ -38,6 +38,7 @@ interface AppLead extends Lead {
   isHistorical?: boolean
   account?: string
   isManual?: boolean
+  repSlackId?: string | null
 }
 
 const EMPTY_DETAIL: LeadDetail = {
