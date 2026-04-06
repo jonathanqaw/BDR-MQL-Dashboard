@@ -535,6 +535,7 @@ const Inp=({value,onChange,placeholder}:{value:string;onChange:(v:string)=>void;
 
 function DetailPanel({lead,detail,onSave,onClose}:{lead:AppLead;detail:LeadDetail;onSave:(d:LeadDetail)=>void;onClose:()=>void}) {
   const [d,setD]=useState<LeadDetail>(detail)
+  const [hydrating,setHydrating]=useState(false)
   const notesRef=React.useRef<HTMLTextAreaElement>(null)
 
   const stopProp=(e:React.SyntheticEvent)=>e.stopPropagation()
@@ -557,6 +558,42 @@ function DetailPanel({lead,detail,onSave,onClose}:{lead:AppLead;detail:LeadDetai
               <div style={{fontSize:11,color:C.text3}}>
                 {lead.isHistorical?'Historical record':lead.email}
                 {(lead.sfUrl||d.sfLink)&&<a href={lead.sfUrl||d.sfLink} target="_blank" rel="noopener noreferrer" style={{color:C.green,textDecoration:'none',marginLeft:8}}>↗ Open in SF</a>}
+                <button
+                  onClick={async()=>{
+                    const url = lead.sfUrl || d.sfLink
+                    if (!url) {
+                      alert('Add a Salesforce link first.')
+                      return
+                    }
+                    try {
+                      setHydrating(true)
+                      const res = await fetch('http://localhost:3030/hydrate', {
+                        method:'POST',
+                        headers:{'Content-Type':'application/json'},
+                        body: JSON.stringify({ url })
+                      })
+                      const json = await res.json()
+                      if (!json?.success || !json?.data) {
+                        alert('Hydration failed.')
+                        return
+                      }
+                      const data = json.data
+                      setD(prev => ({
+                        ...prev,
+                        prospectName: data.name || prev.prospectName,
+                        title: data.title || prev.title,
+                        sfLink: data.url || url,
+                      }))
+                    } catch {
+                      alert('Could not reach local Salesforce agent.')
+                    } finally {
+                      setHydrating(false)
+                    }
+                  }}
+                  style={{marginLeft:8,fontSize:11,fontWeight:600,padding:'4px 10px',borderRadius:999,border:`1px solid ${C.purple}`,background:'rgba(123,110,246,0.14)',color:C.purpleL,cursor:'pointer'}}
+                >
+                  {hydrating ? 'Hydrating…' : 'Hydrate from SF'}
+                </button>
               </div>
             </div>
             <div style={{display:'flex',gap:8}}>
