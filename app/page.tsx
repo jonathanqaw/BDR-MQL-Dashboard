@@ -1575,6 +1575,63 @@ export default function Dashboard() {
     { label:'Nurture Pool', value:`${pct(reportStatusCounts.nurture, reportTotal)}%`, sub:`${reportStatusCounts.nurture} in nurture` },
   ]
 
+
+  const reportSourceRows = Object.entries(
+    reportBaseLeads.reduce((acc, lead) => {
+      const source = (details[lead.email]?.sourceChannel || lead.source || 'unknown').toString()
+      if (!acc[source]) acc[source] = { mqls:0, sqls:0, sqos:0, pipeline:0 }
+      acc[source].mqls += 1
+      if ((details[lead.email]?.sqlDq || '').toLowerCase() === 'yes') acc[source].sqls += 1
+      if ((details[lead.email]?.sqo || '').toLowerCase() === 'yes') acc[source].sqos += 1
+      acc[source].pipeline += parseInt(details[lead.email]?.acv || '0') || 0
+      return acc
+    }, {} as Record<string,{mqls:number,sqls:number,sqos:number,pipeline:number}>)
+  ).map(([source,vals])=>({
+    source,
+    mqls: vals.mqls,
+    sqlRate: pct(vals.sqls, vals.mqls),
+    sqoRate: pct(vals.sqos, vals.mqls),
+    pipeline: vals.pipeline,
+  })).sort((a,b)=>b.mqls-a.mqls)
+
+  const reportBdrRows = reps.map(rep => {
+    const repLeads = rep.id === 'jonathan'
+      ? reportBaseLeads
+      : reportBaseLeads.filter(l => l.repSlackId && l.repSlackId === rep.slackId)
+
+    const sqls = repLeads.filter(l => (details[l.email]?.sqlDq || '').toLowerCase() === 'yes').length
+    const sqos = repLeads.filter(l => (details[l.email]?.sqo || '').toLowerCase() === 'yes').length
+    const pipeline = repLeads.reduce((sum,l)=>sum + (parseInt(details[l.email]?.acv || '0') || 0), 0)
+
+    return {
+      name: rep.name,
+      mqls: repLeads.length,
+      sqls,
+      sqos,
+      pipeline,
+    }
+  })
+
+  const progressionRatios = [
+    { label:'New → Contacted', value:pct(reportStatusCounts.contacted, reportStatusCounts.new || reportStatusCounts.contacted) },
+    { label:'Contacted → In Progress', value:pct(reportStatusCounts.inprogress, reportStatusCounts.contacted || reportStatusCounts.inprogress) },
+    { label:'In Progress → Booked', value:pct(reportStatusCounts.booked, reportStatusCounts.inprogress || reportStatusCounts.booked) },
+    { label:'Booked → SQL', value:pct(reportSqlCount, reportStatusCounts.booked || reportSqlCount) },
+    { label:'SQL → SQO', value:pct(reportSqoCount, reportSqlCount || reportSqoCount) },
+  ]
+
+  const biggestDropoff = progressionRatios.reduce((worst, r) => r.value < worst.value ? r : worst, progressionRatios[0])
+  const strongestStage = progressionRatios.reduce((best, r) => r.value > best.value ? r : best, progressionRatios[0])
+
+  const terminalPools = [
+    { label:'Lost', value:reportStatusCounts.lost },
+    { label:'DQ', value:reportStatusCounts.dq },
+    { label:'Nurture', value:reportStatusCounts.nurture },
+  ]
+  const mostCommonTerminal = terminalPools.reduce((a,b)=>b.value>a.value?b:a, terminalPools[0])
+  const mostRecoverablePool = terminalPools.reduce((a,b)=>b.label==='Nurture' && b.value>=a.value ? b : a, terminalPools[0])
+
+
   // ─────────────────────────────────────────────────────────────────────────────
   // ── Login screen ────────────────────────────────────────────────────────────
   if (!auth) return (
@@ -2229,6 +2286,68 @@ export default function Dashboard() {
                     </div>
                   ))}
                 </div>
+              </div>
+            </div>
+
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
+              <div style={card}>
+                <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:12}}>
+                  Source Quality Breakdown
+                </div>
+                <div style={{display:'grid',gap:8}}>
+                  <div style={{display:'grid',gridTemplateColumns:'1.5fr .7fr .7fr .7fr .9fr',gap:10,fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',padding:'0 4px'}}>
+                    <div>Source</div><div>MQLs</div><div>SQL %</div><div>SQO %</div><div>Pipeline</div>
+                  </div>
+                  {reportSourceRows.map(row=>(
+                    <div key={row.source} style={{display:'grid',gridTemplateColumns:'1.5fr .7fr .7fr .7fr .9fr',gap:10,alignItems:'center',padding:'9px 10px',background:C.surface3,border:`1px solid ${C.border}`,borderRadius:10}}>
+                      <div style={{fontSize:12,color:C.text2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{row.source}</div>
+                      <div style={{fontSize:12,fontWeight:700,color:C.text}}>{row.mqls}</div>
+                      <div style={{fontSize:12,color:C.text2}}>{row.sqlRate}%</div>
+                      <div style={{fontSize:12,color:C.text2}}>{row.sqoRate}%</div>
+                      <div style={{fontSize:12,color:C.text2}}>${row.pipeline.toLocaleString()}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div style={card}>
+                <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:12}}>
+                  BDR Performance Breakdown
+                </div>
+                <div style={{display:'grid',gap:8}}>
+                  <div style={{display:'grid',gridTemplateColumns:'1.2fr .7fr .7fr .7fr .9fr',gap:10,fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',padding:'0 4px'}}>
+                    <div>BDR</div><div>MQLs</div><div>SQLs</div><div>SQOs</div><div>Pipeline</div>
+                  </div>
+                  {reportBdrRows.map(row=>(
+                    <div key={row.name} style={{display:'grid',gridTemplateColumns:'1.2fr .7fr .7fr .7fr .9fr',gap:10,alignItems:'center',padding:'9px 10px',background:C.surface3,border:`1px solid ${C.border}`,borderRadius:10}}>
+                      <div style={{fontSize:12,color:C.text2}}>{row.name}</div>
+                      <div style={{fontSize:12,fontWeight:700,color:C.text}}>{row.mqls}</div>
+                      <div style={{fontSize:12,color:C.text2}}>{row.sqls}</div>
+                      <div style={{fontSize:12,color:C.text2}}>{row.sqos}</div>
+                      <div style={{fontSize:12,color:C.text2}}>${row.pipeline.toLocaleString()}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div style={card}>
+              <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:12}}>
+                Funnel Insights
+              </div>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12}}>
+                {[
+                  {label:'Biggest drop-off', value:biggestDropoff.label, sub:`${biggestDropoff.value}% conversion`},
+                  {label:'Strongest stage', value:strongestStage.label, sub:`${strongestStage.value}% conversion`},
+                  {label:'Most common terminal', value:mostCommonTerminal.label, sub:`${mostCommonTerminal.value} leads`},
+                  {label:'Most recoverable pool', value:mostRecoverablePool.label, sub:`${mostRecoverablePool.value} leads`},
+                ].map(card=>(
+                  <div key={card.label} style={{background:C.surface3,border:`1px solid ${C.border}`,borderRadius:10,padding:12}}>
+                    <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:8}}>{card.label}</div>
+                    <div style={{fontSize:16,fontWeight:800,color:C.text}}>{card.value}</div>
+                    <div style={{fontSize:11,color:C.text3,marginTop:4}}>{card.sub}</div>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
