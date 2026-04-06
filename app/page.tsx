@@ -1331,10 +1331,12 @@ export default function Dashboard() {
       })
     : liveLeads
 
+  const historicalLeadsForView = isManagerView ? HISTORICAL_LEADS : []
+
   const allLeads:AppLead[]=[
-    ...HISTORICAL_LEADS,
-    ...enriched(manualLeads.filter(l=>!HISTORICAL_LEADS.some(h=>h.email===l.email)&&!historicalDomains.has(l.domain))),
-    ...enriched(filteredLiveLeads.filter(l=>!HISTORICAL_LEADS.some(h=>h.email===l.email)&&!manualLeads.some(m=>m.email===l.email)&&!historicalDomains.has(l.domain))),
+    ...historicalLeadsForView,
+    ...enriched(manualLeads.filter(l=>!historicalLeadsForView.some(h=>h.email===l.email)&&!historicalDomains.has(l.domain))),
+    ...enriched(filteredLiveLeads.filter(l=>!historicalLeadsForView.some(h=>h.email===l.email)&&!manualLeads.some(m=>m.email===l.email)&&!historicalDomains.has(l.domain))),
   ].filter(l=>!deletedEmails.has(l.email))
 
   // ── Pipeline filters ────────────────────────────────────────────────────────
