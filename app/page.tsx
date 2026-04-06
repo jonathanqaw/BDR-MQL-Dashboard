@@ -4,6 +4,22 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import React from 'react'
 import type { Lead } from '@/lib/slack'
 
+// ─── Rep Registry ─────────────────────────────────────────────────────────────
+// Manager edits these in-dashboard. Stored in Edge Config under 'rep_registry'.
+// slackId must match the Slack user ID tagged in #bdr-routed-leads messages.
+type Rep = { id: string; name: string; slackId: string; passcode: string }
+
+const DEFAULT_REPS: Rep[] = [
+  { id: 'jonathan', name: 'Jonathan Kim', slackId: 'U098PSETPJ4', passcode: '' },
+  { id: 'rep2',     name: 'Rep 2 (TBD)', slackId: '',             passcode: '' },
+  { id: 'rep3',     name: 'Rep 3 (TBD)', slackId: '',             passcode: '' },
+  { id: 'rep4',     name: 'Rep 4 (TBD)', slackId: '',             passcode: '' },
+]
+
+const MANAGER_PASSCODE = 'johnnywolfpack2026'
+
+type AuthState = { role: 'manager' } | { role: 'rep'; repId: string } | null
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Status       = 'new' | 'contacted' | 'booked' | 'nurture' | 'lost' | 'na' | 'dq' | 'inprogress'
 type View         = 'pipeline' | 'analytics'
@@ -33,38 +49,38 @@ const EMPTY_DETAIL: LeadDetail = {
 
 // ─── Historical records from spreadsheet ─────────────────────────────────────
 const HISTORICAL_LEADS: AppLead[] = [
-  { email:'logicmonitor@historical',         domain:'logicmonitor.com',        account:'LogicMonitor',             name:'Jitender Kumar Prasad',    sfUrl:null, date:'2025-12-08', receivedAt:'2025-12-08T00:00:00.000Z', source:'bdr', isHistorical:true },
-  { email:'kenanadvantage@historical',        domain:'kenanadvantage.com',       account:'Kenan Advantage Group',    name:'Dave Derecskey',           sfUrl:null, date:'2025-12-09', receivedAt:'2025-12-09T00:00:00.000Z', source:'bdr', isHistorical:true },
-  { email:'evoke@historical',                domain:'evoke.com',                account:'evoke',                    name:'Cristian Mocanu',          sfUrl:null, date:'2025-12-11', receivedAt:'2025-12-11T00:00:00.000Z', source:'bdr', isHistorical:true },
-  { email:'gatewayticketing@historical',     domain:'gatewayticketing.com',     account:'Gateway Ticketing',        name:'Rebecca Lathrop',          sfUrl:null, date:'2025-12-03', receivedAt:'2025-12-03T00:00:00.000Z', source:'bdr', isHistorical:true },
-  { email:'trackunit@historical',            domain:'trackunit.com',            account:'Trackunit',                name:'Philip Quinn',             sfUrl:null, date:'2025-12-17', receivedAt:'2025-12-17T00:00:00.000Z', source:'bdr', isHistorical:true },
-  { email:'harrys@historical',               domain:'harrys.com',               account:"Harry's",                  name:'Simon Anguish / Matthew Dreyer', sfUrl:null, date:'2025-12-19', receivedAt:'2025-12-19T00:00:00.000Z', source:'bdr', isHistorical:true },
-  { email:'decisionresources@historical',    domain:'decisionresources.com',    account:'Decision Resources Inc.',  name:'Tim McManus',              sfUrl:null, date:'2026-01-12', receivedAt:'2026-01-12T00:00:00.000Z', source:'bdr', isHistorical:true },
-  { email:'everydayhealth@historical',       domain:'everydayhealth.com',       account:'Everyday Health Group',    name:'Kholilur Rahman',          sfUrl:null, date:'2026-01-13', receivedAt:'2026-01-13T00:00:00.000Z', source:'bdr', isHistorical:true },
-  { email:'tradera@historical',              domain:'tradera.com',              account:'Tradera',                  name:'Emma Carlsson',            sfUrl:null, date:'2026-01-14', receivedAt:'2026-01-14T00:00:00.000Z', source:'bdr', isHistorical:true },
-  { email:'vidmob@historical',               domain:'vidmob.com',               account:'Vidmob',                   name:'Ben Holm',                 sfUrl:null, date:'2026-01-14', receivedAt:'2026-01-14T00:00:00.000Z', source:'bdr', isHistorical:true },
-  { email:'circlemedical@historical',        domain:'circlemedical.com',        account:'Circle Medical',           name:'Florian Denu',             sfUrl:null, date:'2026-01-20', receivedAt:'2026-01-20T00:00:00.000Z', source:'bdr', isHistorical:true },
-  { email:'nagarro@historical',              domain:'nagarro.com',              account:'Nagarro',                  name:'Nishant Thareja',          sfUrl:null, date:'2026-02-04', receivedAt:'2026-02-04T00:00:00.000Z', source:'bdr', isHistorical:true },
-  { email:'bloomcoaching@historical',        domain:'bloomcoaching.com',        account:'Bloom Coaching',           name:'Thomas Stevens',           sfUrl:null, date:'2026-01-19', receivedAt:'2026-01-19T00:00:00.000Z', source:'bdr', isHistorical:true },
-  { email:'pods@historical',                 domain:'pods.com',                 account:'PODS',                     name:'Randy Withrow',            sfUrl:null, date:'2026-01-22', receivedAt:'2026-01-22T00:00:00.000Z', source:'bdr', isHistorical:true },
-  { email:'sharkninja@historical',           domain:'sharkninja.com',           account:'SharkNinja',               name:'Jake Rutter',              sfUrl:null, date:'2026-01-27', receivedAt:'2026-01-27T00:00:00.000Z', source:'bdr', isHistorical:true },
-  { email:'quince@historical',               domain:'quince.com',               account:'Quince',                   name:'Prabhanjan Jha',           sfUrl:null, date:'2026-02-04', receivedAt:'2026-02-04T00:00:00.000Z', source:'bdr', isHistorical:true },
-  { email:'quartr@historical',               domain:'quartr.com',               account:'Quartr',                   name:'Fabricio Vergara',         sfUrl:null, date:'2026-02-05', receivedAt:'2026-02-05T00:00:00.000Z', source:'bdr', isHistorical:true },
-  { email:'prophetx@historical',             domain:'prophetx.com',             account:'ProphetX',                 name:'Nathan Busscher',          sfUrl:null, date:'2026-02-17', receivedAt:'2026-02-17T00:00:00.000Z', source:'bdr', isHistorical:true },
-  { email:'yassir@historical',               domain:'yassir.com',               account:'Yassir',                   name:'Artem Pashkov',            sfUrl:null, date:'2026-02-18', receivedAt:'2026-02-18T00:00:00.000Z', source:'bdr', isHistorical:true },
-  { email:'westjet@historical',              domain:'westjet.com',              account:'WestJet',                  name:'Santhosha Chandrashekharappa', sfUrl:null, date:'2026-02-20', receivedAt:'2026-02-20T00:00:00.000Z', source:'bdr', isHistorical:true },
-  { email:'robbinsresearch@historical',      domain:'robbinsresearch.com',      account:'Robbins Research',         name:'Nick Jensen',              sfUrl:null, date:'2026-02-25', receivedAt:'2026-02-25T00:00:00.000Z', source:'bdr', isHistorical:true },
-  { email:'cradle@historical',               domain:'cradle.com',               account:'Cradle',                   name:'Melanie Burger',           sfUrl:null, date:'2026-02-25', receivedAt:'2026-02-25T00:00:00.000Z', source:'bdr', isHistorical:true },
-  { email:'onephase@historical',             domain:'onephase.com',             account:'onPhase',                  name:'Louis Velez',              sfUrl:null, date:'2026-03-03', receivedAt:'2026-03-03T00:00:00.000Z', source:'bdr', isHistorical:true },
-  { email:'novemberfive@historical',         domain:'novemberfive.com',         account:'November Five',            name:'Antonio Marquez',          sfUrl:null, date:'2026-03-05', receivedAt:'2026-03-05T00:00:00.000Z', source:'bdr', isHistorical:true },
-  { email:'north@historical',                domain:'north.com',                account:'North',                    name:'Forum Vyas',               sfUrl:null, date:'2026-03-05', receivedAt:'2026-03-05T00:00:00.000Z', source:'bdr', isHistorical:true },
-  { email:'enablecomp@historical',           domain:'enablecomp.com',           account:'EnableComp',               name:'Keith Clayton',            sfUrl:null, date:'2026-03-10', receivedAt:'2026-03-10T00:00:00.000Z', source:'bdr', isHistorical:true },
-  { email:'nuqleous@historical',             domain:'nuqleous.com',             account:'Nuqleous',                 name:'Steven Williams',          sfUrl:null, date:'2026-03-12', receivedAt:'2026-03-12T00:00:00.000Z', source:'bdr', isHistorical:true },
-  { email:'playtech@historical',             domain:'playtech.com',             account:'Playtech',                 name:'Borislav Zhezhev',         sfUrl:null, date:'2026-03-12', receivedAt:'2026-03-12T00:00:00.000Z', source:'bdr', isHistorical:true },
-  { email:'azets@historical',                domain:'azets.com',                account:'Azets',                    name:'Kristijonas Bulzgis',      sfUrl:null, date:'2026-03-24', receivedAt:'2026-03-24T00:00:00.000Z', source:'bdr', isHistorical:true },
-  { email:'jpmorganchase@historical',        domain:'jpmorganchase.com',        account:'JPMorganChase',            name:'Hikmet Tenis',             sfUrl:null, date:'2026-03-26', receivedAt:'2026-03-26T00:00:00.000Z', source:'bdr', isHistorical:true },
-  { email:'pex@historical',                  domain:'pex.com',                  account:'PEX',                      name:'Brandon Sim',              sfUrl:null, date:'2026-03-31', receivedAt:'2026-03-31T00:00:00.000Z', source:'bdr', isHistorical:true },
-  { email:'productleague@historical',        domain:'product-league.com',       account:'Product League',           name:'Ingmar van Oostrum',       sfUrl:'https://qawolf1.lightning.force.com/lightning/r/Contact/003PA00000ZIU9yYAH/view', date:'2026-04-02', receivedAt:'2026-04-02T00:00:00.000Z', source:'bdr', isHistorical:true },
+  { email:'logicmonitor@historical',         domain:'logicmonitor.com',        account:'LogicMonitor',             name:'Jitender Kumar Prasad',    sfUrl:null, date:'2025-12-08', receivedAt:'2025-12-08T00:00:00.000Z', source:'bdr', repSlackId:null, isHistorical:true },
+  { email:'kenanadvantage@historical',        domain:'kenanadvantage.com',       account:'Kenan Advantage Group',    name:'Dave Derecskey',           sfUrl:null, date:'2025-12-09', receivedAt:'2025-12-09T00:00:00.000Z', source:'bdr', repSlackId:null, isHistorical:true },
+  { email:'evoke@historical',                domain:'evoke.com',                account:'evoke',                    name:'Cristian Mocanu',          sfUrl:null, date:'2025-12-11', receivedAt:'2025-12-11T00:00:00.000Z', source:'bdr', repSlackId:null, isHistorical:true },
+  { email:'gatewayticketing@historical',     domain:'gatewayticketing.com',     account:'Gateway Ticketing',        name:'Rebecca Lathrop',          sfUrl:null, date:'2025-12-03', receivedAt:'2025-12-03T00:00:00.000Z', source:'bdr', repSlackId:null, isHistorical:true },
+  { email:'trackunit@historical',            domain:'trackunit.com',            account:'Trackunit',                name:'Philip Quinn',             sfUrl:null, date:'2025-12-17', receivedAt:'2025-12-17T00:00:00.000Z', source:'bdr', repSlackId:null, isHistorical:true },
+  { email:'harrys@historical',               domain:'harrys.com',               account:"Harry's",                  name:'Simon Anguish / Matthew Dreyer', sfUrl:null, date:'2025-12-19', receivedAt:'2025-12-19T00:00:00.000Z', source:'bdr', repSlackId:null, isHistorical:true },
+  { email:'decisionresources@historical',    domain:'decisionresources.com',    account:'Decision Resources Inc.',  name:'Tim McManus',              sfUrl:null, date:'2026-01-12', receivedAt:'2026-01-12T00:00:00.000Z', source:'bdr', repSlackId:null, isHistorical:true },
+  { email:'everydayhealth@historical',       domain:'everydayhealth.com',       account:'Everyday Health Group',    name:'Kholilur Rahman',          sfUrl:null, date:'2026-01-13', receivedAt:'2026-01-13T00:00:00.000Z', source:'bdr', repSlackId:null, isHistorical:true },
+  { email:'tradera@historical',              domain:'tradera.com',              account:'Tradera',                  name:'Emma Carlsson',            sfUrl:null, date:'2026-01-14', receivedAt:'2026-01-14T00:00:00.000Z', source:'bdr', repSlackId:null, isHistorical:true },
+  { email:'vidmob@historical',               domain:'vidmob.com',               account:'Vidmob',                   name:'Ben Holm',                 sfUrl:null, date:'2026-01-14', receivedAt:'2026-01-14T00:00:00.000Z', source:'bdr', repSlackId:null, isHistorical:true },
+  { email:'circlemedical@historical',        domain:'circlemedical.com',        account:'Circle Medical',           name:'Florian Denu',             sfUrl:null, date:'2026-01-20', receivedAt:'2026-01-20T00:00:00.000Z', source:'bdr', repSlackId:null, isHistorical:true },
+  { email:'nagarro@historical',              domain:'nagarro.com',              account:'Nagarro',                  name:'Nishant Thareja',          sfUrl:null, date:'2026-02-04', receivedAt:'2026-02-04T00:00:00.000Z', source:'bdr', repSlackId:null, isHistorical:true },
+  { email:'bloomcoaching@historical',        domain:'bloomcoaching.com',        account:'Bloom Coaching',           name:'Thomas Stevens',           sfUrl:null, date:'2026-01-19', receivedAt:'2026-01-19T00:00:00.000Z', source:'bdr', repSlackId:null, isHistorical:true },
+  { email:'pods@historical',                 domain:'pods.com',                 account:'PODS',                     name:'Randy Withrow',            sfUrl:null, date:'2026-01-22', receivedAt:'2026-01-22T00:00:00.000Z', source:'bdr', repSlackId:null, isHistorical:true },
+  { email:'sharkninja@historical',           domain:'sharkninja.com',           account:'SharkNinja',               name:'Jake Rutter',              sfUrl:null, date:'2026-01-27', receivedAt:'2026-01-27T00:00:00.000Z', source:'bdr', repSlackId:null, isHistorical:true },
+  { email:'quince@historical',               domain:'quince.com',               account:'Quince',                   name:'Prabhanjan Jha',           sfUrl:null, date:'2026-02-04', receivedAt:'2026-02-04T00:00:00.000Z', source:'bdr', repSlackId:null, isHistorical:true },
+  { email:'quartr@historical',               domain:'quartr.com',               account:'Quartr',                   name:'Fabricio Vergara',         sfUrl:null, date:'2026-02-05', receivedAt:'2026-02-05T00:00:00.000Z', source:'bdr', repSlackId:null, isHistorical:true },
+  { email:'prophetx@historical',             domain:'prophetx.com',             account:'ProphetX',                 name:'Nathan Busscher',          sfUrl:null, date:'2026-02-17', receivedAt:'2026-02-17T00:00:00.000Z', source:'bdr', repSlackId:null, isHistorical:true },
+  { email:'yassir@historical',               domain:'yassir.com',               account:'Yassir',                   name:'Artem Pashkov',            sfUrl:null, date:'2026-02-18', receivedAt:'2026-02-18T00:00:00.000Z', source:'bdr', repSlackId:null, isHistorical:true },
+  { email:'westjet@historical',              domain:'westjet.com',              account:'WestJet',                  name:'Santhosha Chandrashekharappa', sfUrl:null, date:'2026-02-20', receivedAt:'2026-02-20T00:00:00.000Z', source:'bdr', repSlackId:null, isHistorical:true },
+  { email:'robbinsresearch@historical',      domain:'robbinsresearch.com',      account:'Robbins Research',         name:'Nick Jensen',              sfUrl:null, date:'2026-02-25', receivedAt:'2026-02-25T00:00:00.000Z', source:'bdr', repSlackId:null, isHistorical:true },
+  { email:'cradle@historical',               domain:'cradle.com',               account:'Cradle',                   name:'Melanie Burger',           sfUrl:null, date:'2026-02-25', receivedAt:'2026-02-25T00:00:00.000Z', source:'bdr', repSlackId:null, isHistorical:true },
+  { email:'onephase@historical',             domain:'onephase.com',             account:'onPhase',                  name:'Louis Velez',              sfUrl:null, date:'2026-03-03', receivedAt:'2026-03-03T00:00:00.000Z', source:'bdr', repSlackId:null, isHistorical:true },
+  { email:'novemberfive@historical',         domain:'novemberfive.com',         account:'November Five',            name:'Antonio Marquez',          sfUrl:null, date:'2026-03-05', receivedAt:'2026-03-05T00:00:00.000Z', source:'bdr', repSlackId:null, isHistorical:true },
+  { email:'north@historical',                domain:'north.com',                account:'North',                    name:'Forum Vyas',               sfUrl:null, date:'2026-03-05', receivedAt:'2026-03-05T00:00:00.000Z', source:'bdr', repSlackId:null, isHistorical:true },
+  { email:'enablecomp@historical',           domain:'enablecomp.com',           account:'EnableComp',               name:'Keith Clayton',            sfUrl:null, date:'2026-03-10', receivedAt:'2026-03-10T00:00:00.000Z', source:'bdr', repSlackId:null, isHistorical:true },
+  { email:'nuqleous@historical',             domain:'nuqleous.com',             account:'Nuqleous',                 name:'Steven Williams',          sfUrl:null, date:'2026-03-12', receivedAt:'2026-03-12T00:00:00.000Z', source:'bdr', repSlackId:null, isHistorical:true },
+  { email:'playtech@historical',             domain:'playtech.com',             account:'Playtech',                 name:'Borislav Zhezhev',         sfUrl:null, date:'2026-03-12', receivedAt:'2026-03-12T00:00:00.000Z', source:'bdr', repSlackId:null, isHistorical:true },
+  { email:'azets@historical',                domain:'azets.com',                account:'Azets',                    name:'Kristijonas Bulzgis',      sfUrl:null, date:'2026-03-24', receivedAt:'2026-03-24T00:00:00.000Z', source:'bdr', repSlackId:null, isHistorical:true },
+  { email:'jpmorganchase@historical',        domain:'jpmorganchase.com',        account:'JPMorganChase',            name:'Hikmet Tenis',             sfUrl:null, date:'2026-03-26', receivedAt:'2026-03-26T00:00:00.000Z', source:'bdr', repSlackId:null, isHistorical:true },
+  { email:'pex@historical',                  domain:'pex.com',                  account:'PEX',                      name:'Brandon Sim',              sfUrl:null, date:'2026-03-31', receivedAt:'2026-03-31T00:00:00.000Z', source:'bdr', repSlackId:null, isHistorical:true },
+  { email:'productleague@historical',        domain:'product-league.com',       account:'Product League',           name:'Ingmar van Oostrum',       sfUrl:'https://qawolf1.lightning.force.com/lightning/r/Contact/003PA00000ZIU9yYAH/view', date:'2026-04-02', receivedAt:'2026-04-02T00:00:00.000Z', source:'bdr', repSlackId:null, isHistorical:true },
 ]
 
 // Historical default statuses & details
@@ -160,6 +176,13 @@ const LIVE_SF_LINKS: Record<string,string> = {
   'jochen@norento.com':                  'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WDW4U2AX/view',
   'ernest.lam@dvcorporate.com':          'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WDCSL2A5/view',
   'diana.lang.ext@bureauveritas.com':    'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WHCdR2AX/view',
+  'r@turek.co':                          'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WO7ig2AD/view',
+  'yogesh@frugaltestingin.com':          'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WNsBl2AL/view',
+  'rohit.rawat@smartboxlockers.com':     'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WNZCL2A5/view',
+  'anvisha@nullframe.ai':                'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WMq5b2AD/view',
+  'xxia@inductivesolution.ai':           'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WMJw32AH/view',
+  'keerthana@icustomer.ai':              'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000RZFe92AH/view',
+  'ahmad@basheer.app':                   'https://qawolf1.lightning.force.com/lightning/r/Lead/00QPA00000WMJHh2AP/view',
 }
 
 // ─── Prospect names recovered from chilinbot DMs ─────────────────────────────
@@ -1047,6 +1070,102 @@ function CreateContactModal({onSave,onClose}:{onSave:(account:string,email:strin
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 export default function Dashboard() {
+  const [auth, setAuth] = useState<AuthState>(null)
+  const [passcode, setPasscode] = useState('')
+  const [passErr, setPassErr] = useState(false)
+  const [activeRepId, setActiveRepId] = useState('jonathan')
+  const [ecSaving, setEcSaving] = useState(false)
+  const [reps, setReps] = useState<Rep[]>(DEFAULT_REPS)
+  const [showRepEditor, setShowRepEditor] = useState(false)
+  const [editingRep, setEditingRep] = useState<Rep|null>(null)
+
+  // ── Auth: check sessionStorage on mount ───────────────────────────────────
+  useEffect(()=>{
+    const saved = sessionStorage.getItem('mql-auth')
+    if (saved) { try { setAuth(JSON.parse(saved)) } catch {} }
+    // Check URL param for direct rep access (bypasses login)
+    const params = new URLSearchParams(window.location.search)
+    const repParam = params.get('rep')
+    if (repParam) {
+      const a:AuthState = { role:'rep', repId: repParam }
+      setAuth(a); sessionStorage.setItem('mql-auth', JSON.stringify(a))
+    }
+    // Load rep registry from Edge Config
+    fetch('/api/rep-data?repId=__registry__').then(r=>r.json()).then(({data})=>{
+      if (data?.reps) setReps(data.reps)
+    }).catch(()=>{})
+  },[])
+
+  const handleLogin=()=>{
+    if (passcode === MANAGER_PASSCODE) {
+      const a:AuthState = { role:'manager' }
+      setAuth(a); sessionStorage.setItem('mql-auth', JSON.stringify(a))
+      setPassErr(false)
+    } else {
+      // Check rep passcodes
+      const rep = reps.find(r=>r.passcode && r.passcode===passcode)
+      if (rep) {
+        const a:AuthState = { role:'rep', repId: rep.id }
+        setAuth(a); sessionStorage.setItem('mql-auth', JSON.stringify(a))
+        setPassErr(false)
+      } else {
+        setPassErr(true)
+      }
+    }
+  }
+
+  const saveRepRegistry = async (updated: Rep[]) => {
+    setReps(updated)
+    await fetch('/api/rep-data', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repId: '__registry__', data: { reps: updated } }),
+    }).catch(()=>{})
+  }
+
+  // Which rep's data are we currently viewing?
+  const currentRep = auth?.role==='manager'
+    ? (reps.find(r=>r.id===activeRepId) || reps[0])
+    : auth?.role==='rep'
+    ? (reps.find(r=>r.id===auth.repId) || reps[0])
+    : reps[0]
+
+  // ── Edge Config sync ──────────────────────────────────────────────────────
+  const syncToEdgeConfig = useCallback(async () => {
+    if (!currentRep?.slackId) return
+    setEcSaving(true)
+    try {
+      const data = {
+        statuses: localStorage.getItem('mql-st'),
+        details:  localStorage.getItem('mql-dt'),
+        names:    localStorage.getItem('mql-names'),
+        manual:   localStorage.getItem('mql-manual'),
+        deleted:  localStorage.getItem('mql-deleted'),
+        savedAt:  new Date().toISOString(),
+      }
+      await fetch('/api/rep-data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repId: currentRep.slackId, data }),
+      })
+    } catch(e) { console.error('Edge Config sync failed:', e) }
+    finally { setEcSaving(false) }
+  }, [currentRep])
+
+  const loadFromEdgeConfig = useCallback(async (slackId: string) => {
+    try {
+      const res = await fetch(`/api/rep-data?repId=${slackId}`)
+      const { data } = await res.json()
+      if (!data) return
+      // Only overwrite if Edge Config actually has data
+      if (data.statuses) localStorage.setItem('mql-st', data.statuses)
+      if (data.details)  localStorage.setItem('mql-dt', data.details)
+      if (data.names)    localStorage.setItem('mql-names', data.names)
+      if (data.manual)   localStorage.setItem('mql-manual', data.manual)
+      if (data.deleted)  localStorage.setItem('mql-deleted', data.deleted)
+    } catch(e) { console.error('Edge Config load failed:', e) }
+  }, [])
+
   const [liveLeads,  setLiveLeads]  = useState<AppLead[]>([])
   const [statuses,   setStatuses]   = useState<Record<string,Status>>({})
   const [details,    setDetails]    = useState<Record<string,LeadDetail>>({})
@@ -1067,6 +1186,7 @@ export default function Dashboard() {
   const [manualLeads,setManualLeads]= useState<AppLead[]>([])
   const [nameOverrides,setNameOverrides]=useState<Record<string,string>>({})
   const [deletedEmails,setDeletedEmails]=useState<Set<string>>(new Set())
+  const [showHistory,setShowHistory]=useState(false)
 
   const getManualLeads=():AppLead[]=>{ try { return JSON.parse(localStorage.getItem('mql-manual')||'[]') } catch { return [] } }
   const saveManualLeads=(leads:AppLead[])=>{ localStorage.setItem('mql-manual',JSON.stringify(leads)) }
@@ -1077,6 +1197,35 @@ export default function Dashboard() {
     localStorage.setItem('mql-deleted',JSON.stringify([...updated]))
     setDeletedEmails(updated)
     if (expanded===email) setExpanded(null)
+    saveSnapshot('delete')
+  }
+
+  // ── History snapshots ────────────────────────────────────────────────────
+  const MAX_SNAPSHOTS=20
+  const getSnapshots=()=>{ try { return JSON.parse(localStorage.getItem('mql-history')||'[]') } catch { return [] } }
+  const saveSnapshot=(trigger:string)=>{
+    const snap={
+      savedAt: new Date().toISOString(),
+      trigger,
+      'mql-st':   localStorage.getItem('mql-st'),
+      'mql-dt':   localStorage.getItem('mql-dt'),
+      'mql-names':localStorage.getItem('mql-names'),
+      'mql-manual':localStorage.getItem('mql-manual'),
+      'mql-deleted':localStorage.getItem('mql-deleted'),
+    }
+    const snaps=[snap,...getSnapshots()].slice(0,MAX_SNAPSHOTS)
+    localStorage.setItem('mql-history',JSON.stringify(snaps))
+  }
+  const restoreSnapshot=(snap:any)=>{
+    if (!window.confirm('Restore this snapshot? Current data will be replaced.')) return
+    saveSnapshot('before-restore')
+    const keys=['mql-st','mql-dt','mql-names','mql-manual','mql-deleted'] as const
+    keys.forEach(k=>{ if(snap[k]) localStorage.setItem(k,snap[k]); else localStorage.removeItem(k) })
+    setStatuses(getSt()); setDetails(getDetails())
+    setNameOverrides(getNameOverrides()); setManualLeads(getManualLeads())
+    setDeletedEmails(getDeletedEmails())
+    setShowHistory(false)
+    alert('Snapshot restored.')
   }
 
   const updateNameOverride=(email:string,name:string)=>{
@@ -1115,12 +1264,25 @@ export default function Dashboard() {
 
   useEffect(()=>{ setStatuses(getSt()); setDetails(getDetails()); fetchLeads() },[fetchLeads])
 
-  const updateStatus=(email:string,v:Status)=>{ saveSt(email,v); setStatuses(p=>({...p,[email]:v})) }
-  const updateDetail=(email:string,d:LeadDetail)=>setDetails(p=>({...p,[email]:d}))
+  // Load Edge Config data only when manager switches to a different rep
+  const prevRepId = useRef<string>('')
+  useEffect(()=>{
+    if (!currentRep?.slackId) return
+    if (prevRepId.current === currentRep.id) return  // same rep, don't reload
+    if (auth?.role !== 'manager') return  // only manager switches reps
+    prevRepId.current = currentRep.id
+    loadFromEdgeConfig(currentRep.slackId).then(()=>{
+      setStatuses(getSt()); setDetails(getDetails())
+      setManualLeads(getManualLeads()); setDeletedEmails(getDeletedEmails())
+    })
+  },[currentRep?.id, auth?.role])
+
+  const updateStatus=(email:string,v:Status)=>{ saveSt(email,v); setStatuses(p=>({...p,[email]:v})); saveSnapshot('status'); syncToEdgeConfig() }
+  const updateDetail=(email:string,d:LeadDetail)=>{ saveDetail(email,d); setDetails(p=>({...p,[email]:d})); saveSnapshot('detail'); syncToEdgeConfig() }
   const copyEmail=(email:string)=>{ navigator.clipboard.writeText(email).then(()=>{ setCopied(email); setTimeout(()=>setCopied(null),2000) }) }
 
   const createContact=(account:string,email:string,domain:string)=>{
-    const newLead:AppLead={ email, domain, account, name:null, sfUrl:null, date:new Date().toISOString().split('T')[0], receivedAt:new Date().toISOString(), source:'bdr', isManual:true }
+    const newLead:AppLead={ email, domain, account, name:null, sfUrl:null, date:new Date().toISOString().split('T')[0], receivedAt:new Date().toISOString(), source:'bdr', repSlackId: currentRep?.slackId||null, isManual:true }
     const updated=[...manualLeads,newLead]
     setManualLeads(updated); saveManualLeads(updated)
     saveSt(email,'new')
@@ -1136,10 +1298,20 @@ export default function Dashboard() {
     sfUrl: l.sfUrl || LIVE_SF_LINKS[l.email] || null,
     name: l.name || LIVE_PROSPECT_NAMES[l.email] || null,
   }))
+
+  // Filter live leads by rep Slack ID.
+  // Only filter when multiple reps are active AND current rep has a Slack ID.
+  // Manager viewing Jonathan (only active rep) = show all leads unfiltered.
+  const activeReps = reps.filter(r => r.slackId)
+  const repSlackId = currentRep?.slackId || ''
+  const filteredLiveLeads = (activeReps.length > 1 && repSlackId)
+    ? liveLeads.filter(l => !l.repSlackId || l.repSlackId === repSlackId)
+    : liveLeads
+
   const allLeads:AppLead[]=[
     ...HISTORICAL_LEADS,
     ...enriched(manualLeads.filter(l=>!HISTORICAL_LEADS.some(h=>h.email===l.email)&&!historicalDomains.has(l.domain))),
-    ...enriched(liveLeads.filter(l=>!HISTORICAL_LEADS.some(h=>h.email===l.email)&&!manualLeads.some(m=>m.email===l.email)&&!historicalDomains.has(l.domain))),
+    ...enriched(filteredLiveLeads.filter(l=>!HISTORICAL_LEADS.some(h=>h.email===l.email)&&!manualLeads.some(m=>m.email===l.email)&&!historicalDomains.has(l.domain))),
   ].filter(l=>!deletedEmails.has(l.email))
 
   // ── Pipeline filters ────────────────────────────────────────────────────────
@@ -1340,6 +1512,33 @@ export default function Dashboard() {
   })
 
   // ─────────────────────────────────────────────────────────────────────────────
+  // ── Login screen ────────────────────────────────────────────────────────────
+  if (!auth) return (
+    <div style={{display:'flex',minHeight:'100vh',background:C.bg,color:C.text,fontFamily:'-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif',alignItems:'center',justifyContent:'center'}}>
+      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:16,padding:'40px 48px',width:360,textAlign:'center'}}>
+        <div style={{width:48,height:48,borderRadius:12,background:C.green,display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,fontWeight:800,color:C.bg,margin:'0 auto 20px'}}>QW</div>
+        <div style={{fontSize:20,fontWeight:700,marginBottom:4}}>BDR Dashboard</div>
+        <div style={{fontSize:13,color:C.text3,marginBottom:28}}>QA Wolf · Manager Access</div>
+        <input
+          type="password"
+          placeholder="Enter passcode"
+          value={passcode}
+          onChange={e=>{setPasscode(e.target.value);setPassErr(false)}}
+          onKeyDown={e=>e.key==='Enter'&&handleLogin()}
+          style={{width:'100%',padding:'10px 14px',borderRadius:8,border:`1px solid ${passErr?C.red:C.border2}`,background:C.surface2,color:C.text,fontSize:14,outline:'none',boxSizing:'border-box',marginBottom:passErr?6:12}}
+        />
+        {passErr&&<div style={{fontSize:11,color:C.red,marginBottom:8}}>Incorrect passcode</div>}
+        <button onClick={handleLogin} style={{width:'100%',padding:'10px',borderRadius:8,border:'none',background:C.green,color:C.bg,fontSize:14,fontWeight:700,cursor:'pointer'}}>
+          Sign In
+        </button>
+        <div style={{marginTop:20,fontSize:11,color:C.text3}}>
+          Rep access? Use your direct link:<br/>
+          <code style={{color:C.purpleL}}>/dashboard?rep=jonathan</code>
+        </div>
+      </div>
+    </div>
+  )
+
   return (
     <div style={{display:'flex',minHeight:'100vh',background:C.bg,color:C.text,fontFamily:'-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif'}}>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
@@ -1348,11 +1547,105 @@ export default function Dashboard() {
       <aside style={{width:252,flexShrink:0,background:C.surface,borderRight:`1px solid ${C.border}`,display:'flex',flexDirection:'column',paddingBottom:24}}>
         <div style={{display:'flex',alignItems:'center',gap:11,padding:'18px 20px',borderBottom:`1px solid ${C.border}`,marginBottom:14}}>
           <div style={{width:34,height:34,borderRadius:8,background:C.green,display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,fontWeight:800,color:C.bg,flexShrink:0}}>QW</div>
-          <div>
+          <div style={{flex:1,minWidth:0}}>
             <div style={{fontSize:13,fontWeight:700}}>QA Wolf</div>
             <div style={{fontSize:10,fontWeight:600,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em'}}>BDR Portal</div>
           </div>
+          {auth.role==='manager'&&(
+            <div title="Manager" style={{fontSize:10,fontWeight:700,color:C.amber,background:'rgba(245,166,35,0.15)',borderRadius:5,padding:'2px 6px',border:'1px solid rgba(245,166,35,0.3)',flexShrink:0}}>MGR</div>
+          )}
+          <button onClick={()=>{setAuth(null);sessionStorage.removeItem('mql-auth')}} title="Sign out" style={{background:'none',border:'none',color:C.text3,cursor:'pointer',fontSize:14,padding:2,flexShrink:0}}
+            onMouseEnter={e=>(e.currentTarget.style.color=C.red)} onMouseLeave={e=>(e.currentTarget.style.color=C.text3)}>⎋</button>
         </div>
+
+        {/* Manager rep switcher + editor */}
+        {auth.role==='manager'&&(
+          <div style={{padding:'0 20px 12px'}}>
+            <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:6,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+              Reps
+              <button onClick={()=>setShowRepEditor(e=>!e)} title="Edit reps" style={{background:'none',border:'none',cursor:'pointer',color:showRepEditor?C.amber:C.text3,fontSize:12,padding:0}}
+                onMouseEnter={e=>(e.currentTarget.style.color=C.amber)} onMouseLeave={e=>(e.currentTarget.style.color=showRepEditor?C.amber:C.text3)}>✎</button>
+            </div>
+            <div style={{display:'flex',flexDirection:'column',gap:3}}>
+              {reps.map(r=>(
+                <div key={r.id} style={{display:'flex',alignItems:'center',gap:4}}>
+                  <button onClick={async()=>{
+                    setActiveRepId(r.id)
+                    if (r.slackId) {
+                      await loadFromEdgeConfig(r.slackId)
+                      setStatuses(getSt()); setDetails(getDetails())
+                      setManualLeads(getManualLeads()); setNameOverrides(getNameOverrides())
+                      setDeletedEmails(getDeletedEmails())
+                    }
+                  }} style={{
+                    flex:1,textAlign:'left' as const,padding:'6px 10px',borderRadius:6,
+                    border:`1px solid ${activeRepId===r.id?C.green:C.border}`,
+                    background:activeRepId===r.id?'rgba(0,229,160,0.1)':'transparent',
+                    color:activeRepId===r.id?C.green:r.slackId?C.text2:C.text3,
+                    fontSize:11,fontWeight:activeRepId===r.id?700:500,cursor:'pointer',
+                  }}>
+                    {r.name}{!r.slackId&&<span style={{fontSize:9,color:C.text3,marginLeft:4}}>(not set)</span>}
+                  </button>
+                  {showRepEditor&&(
+                    <button onClick={()=>setEditingRep({...r})} style={{background:'none',border:'none',cursor:'pointer',color:C.text3,fontSize:11,padding:'2px 4px'}}
+                      onMouseEnter={e=>(e.currentTarget.style.color=C.amber)} onMouseLeave={e=>(e.currentTarget.style.color=C.text3)}>✎</button>
+                  )}
+                </div>
+              ))}
+            </div>
+            {showRepEditor&&(
+              <button onClick={()=>{
+                const newRep:Rep={id:`rep${Date.now()}`,name:'New Rep',slackId:'',passcode:''}
+                setEditingRep(newRep)
+              }} style={{marginTop:6,fontSize:10,fontWeight:600,padding:'4px 8px',borderRadius:5,border:`1px solid ${C.border2}`,background:'transparent',color:C.purpleL,cursor:'pointer',width:'100%'}}>
+                + Add Rep
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Rep editor modal */}
+        {editingRep&&(
+          <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',zIndex:200,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={()=>setEditingRep(null)}>
+            <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:24,width:340}} onClick={e=>e.stopPropagation()}>
+              <div style={{fontSize:14,fontWeight:700,marginBottom:16}}>Edit Rep</div>
+              {([
+                ['Name', 'name', 'text', 'Jonathan Kim'],
+                ['Slack User ID', 'slackId', 'text', 'U098PSETPJ4'],
+                ['Rep Passcode', 'passcode', 'password', 'Set a passcode for this rep'],
+              ] as const).map(([label, field, type, placeholder])=>(
+                <div key={field} style={{marginBottom:12}}>
+                  <div style={{fontSize:11,color:C.text3,marginBottom:4}}>{label}</div>
+                  <input
+                    type={type}
+                    value={(editingRep as any)[field]}
+                    onChange={e=>setEditingRep(p=>p?{...p,[field]:e.target.value}:p)}
+                    placeholder={placeholder}
+                    style={{width:'100%',padding:'8px 10px',borderRadius:6,border:`1px solid ${C.border2}`,background:C.surface2,color:C.text,fontSize:12,outline:'none',boxSizing:'border-box' as const}}
+                  />
+                </div>
+              ))}
+              <div style={{fontSize:10,color:C.text3,marginBottom:12}}>Rep URL: <code style={{color:C.purpleL}}>?rep={editingRep.id}</code></div>
+              <div style={{display:'flex',gap:8}}>
+                <button onClick={async()=>{
+                  const updated = reps.find(r=>r.id===editingRep.id)
+                    ? reps.map(r=>r.id===editingRep.id?editingRep:r)
+                    : [...reps, editingRep]
+                  await saveRepRegistry(updated)
+                  setEditingRep(null)
+                }} style={{flex:1,padding:'8px',borderRadius:6,border:'none',background:C.green,color:C.bg,fontSize:12,fontWeight:700,cursor:'pointer'}}>Save</button>
+                <button onClick={async()=>{
+                  if (!window.confirm(`Delete ${editingRep.name}?`)) return
+                  const updated = reps.filter(r=>r.id!==editingRep.id)
+                  await saveRepRegistry(updated)
+                  setEditingRep(null)
+                }} style={{padding:'8px 12px',borderRadius:6,border:`1px solid ${C.red}`,background:'transparent',color:C.red,fontSize:12,cursor:'pointer'}}>Delete</button>
+                <button onClick={()=>setEditingRep(null)} style={{padding:'8px 12px',borderRadius:6,border:`1px solid ${C.border2}`,background:'transparent',color:C.text3,fontSize:12,cursor:'pointer'}}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.1em',padding:'6px 20px 4px'}}>Views</div>
         {([['pipeline','📊','Pipeline','MQL tracking · expandable'],['analytics','📈','Analytics','Charts · trends · breakdown']] as const).map(([v,icon,label,sub])=>(
           <div key={v} style={navBtn(view===v as View)} onClick={()=>setView(v as View)}>
@@ -1364,7 +1657,7 @@ export default function Dashboard() {
           </div>
         ))}
         <div style={{height:1,background:C.border,margin:'10px 0'}}/>
-        <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.1em',padding:'6px 20px 4px'}}>Jonathan Kim</div>
+        <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.1em',padding:'6px 20px 4px'}}>{currentRep.name}</div>
         <div style={{display:'flex',alignItems:'center',gap:10,padding:'8px 20px'}}>
           <div style={{width:26,height:26,borderRadius:6,background:C.surface3,display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:700,color:C.text3,flexShrink:0}}>SF</div>
           <div>
@@ -1381,9 +1674,45 @@ export default function Dashboard() {
           {fetchedAt&&<div style={{fontSize:10,color:C.text3,textAlign:'center',marginTop:6}}>{new Date(fetchedAt).toLocaleTimeString()}</div>}
         </div>
         <div style={{height:1,background:C.border,margin:'4px 0'}}/>
-        {/* ── Export / Import ── */}
+        {/* ── Export / Import / History ── */}
         <div style={{padding:'8px 20px',display:'flex',flexDirection:'column',gap:6}}>
-          <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:2}}>Data Backup</div>
+          <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:2,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+            Data Backup
+            <button
+              onClick={()=>setShowHistory(h=>!h)}
+              title="View history & restore snapshots"
+              style={{background:'none',border:'none',cursor:'pointer',color:showHistory?C.green:C.text3,padding:2,lineHeight:1,fontSize:14}}
+              onMouseEnter={e=>(e.currentTarget.style.color=C.green)}
+              onMouseLeave={e=>(e.currentTarget.style.color=showHistory?C.green:C.text3)}
+            >🕐</button>
+          </div>
+          {showHistory&&(()=>{
+            const snaps=getSnapshots()
+            return (
+              <div style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,padding:'8px',marginBottom:4,maxHeight:260,overflowY:'auto'}}>
+                <div style={{fontSize:10,fontWeight:700,color:C.text3,marginBottom:6,textTransform:'uppercase',letterSpacing:'.06em'}}>Activity History</div>
+                {snaps.length===0
+                  ? <div style={{fontSize:11,color:C.text3}}>No snapshots yet.</div>
+                  : snaps.map((s:any,i:number)=>(
+                    <div key={i} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'5px 0',borderBottom:i<snaps.length-1?`1px solid ${C.border}`:'none'}}>
+                      <div>
+                        <div style={{fontSize:11,color:C.text2,fontWeight:500}}>
+                          {s.trigger==='delete'?'🗑 Deleted account':s.trigger==='status'?'● Status change':s.trigger==='detail'?'✎ Detail saved':s.trigger==='before-restore'?'⟳ Pre-restore':'💾 Saved'}
+                        </div>
+                        <div style={{fontSize:10,color:C.text3}}>{new Date(s.savedAt).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}</div>
+                      </div>
+                      <button
+                        onClick={()=>restoreSnapshot(s)}
+                        style={{fontSize:10,fontWeight:600,padding:'3px 8px',borderRadius:5,border:`1px solid ${C.border2}`,background:'transparent',color:C.purpleL,cursor:'pointer'}}
+                        onMouseEnter={e=>(e.currentTarget.style.background=C.surface3)}
+                        onMouseLeave={e=>(e.currentTarget.style.background='transparent')}
+                      >Restore</button>
+                    </div>
+                  ))
+                }
+              </div>
+            )
+          })()}
           <button onClick={()=>{
             const payload={
               'mql-st':   localStorage.getItem('mql-st'),
@@ -1392,6 +1721,7 @@ export default function Dashboard() {
               'mql-manual':localStorage.getItem('mql-manual'),
               'mql-ae-opts-v2':localStorage.getItem('mql-ae-opts-v2'),
               'mql-deleted':localStorage.getItem('mql-deleted'),
+              'mql-history':localStorage.getItem('mql-history'),
               exportedAt: new Date().toISOString(),
             }
             const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'})
@@ -1433,7 +1763,7 @@ export default function Dashboard() {
           <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:16,marginBottom:24}}>
             <div>
               <div style={{fontSize:26,fontWeight:800,letterSpacing:'-0.02em',lineHeight:1.15}}>Pipeline<br/><span style={{color:C.green}}>Overview.</span></div>
-              <div style={{fontSize:12,color:C.text3,marginTop:4}}>Jonathan Kim · {allLeads.length} total leads · click any row to expand</div>
+              <div style={{fontSize:12,color:C.text3,marginTop:4}}>{currentRep.name} · {allLeads.length} total leads · click any row to expand{ecSaving&&<span style={{color:C.amber,marginLeft:8}}>↑ syncing…</span>}</div>
             </div>
             <div style={{display:'flex',flexDirection:'column',gap:8,alignItems:'flex-end'}}>
               <div style={{display:'flex',gap:5}}>
