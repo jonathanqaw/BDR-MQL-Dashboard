@@ -287,6 +287,13 @@ function getMonthLabel(date:Date):string {
   return date.toLocaleString('en-US',{month:'short',year:'2-digit'})
 }
 
+function parseAcv(value:string|undefined):number {
+  if (!value) return 0
+  const cleaned = String(value).replace(/[^0-9.-]/g,'')
+  const n = Number(cleaned)
+  return Number.isFinite(n) ? n : 0
+}
+
 const filterPill=(active:boolean,activeColor=C.purple):React.CSSProperties=>({
   fontSize:12,fontWeight:600,padding:'5px 13px',borderRadius:999,cursor:'pointer',
   border:active?`1px solid ${activeColor}`:`1px solid ${C.border2}`,
@@ -2311,7 +2318,7 @@ export default function Dashboard() {
               {label:'SQLs',         value:sqlAllTime,                                                                   color:'#60d4f4', sub:'SQL / DQ = Yes'},
               {label:'SQOs',         value:sqoAllTime,                                                                   color:'#c084fc', sub:'opp created'},
               {label:'SQL rate',     value:`${allLeads.length?Math.round(sqlAllTime/allLeads.length*100):0}%`,           color:C.purpleL, sub:'SQL / total'},
-              {label:'Pipeline ACV', value:`$${allLeads.reduce((s,l)=>{const d=details[l.email]; return s+(d?.acv?parseInt(d.acv)||0:0)},0).toLocaleString()}`, color:C.amber, sub:'from filled records'},
+              {label:'Pipeline ACV', value:`$${allLeads.reduce((s,l)=>{const d=details[l.email]; return s+(d?.acv?parseAcv(d.acv):0)},0).toLocaleString()}`, color:C.amber, sub:'from filled records'},
             ].map(s=>(
               <div key={s.label} style={card}>
                 <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:8}}>{s.label}</div>
