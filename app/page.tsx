@@ -2038,6 +2038,39 @@ export default function Dashboard() {
           </div>
         </>)}
 
+
+  const reportBaseLeads = allLeads
+  const pct = (n:number,d:number)=> d>0 ? Math.round((n/d)*100) : 0
+
+  const reportStatusCounts = {
+    new: reportBaseLeads.filter(l => (statuses[l.email] || 'new') === 'new').length,
+    contacted: reportBaseLeads.filter(l => (statuses[l.email] || 'new') === 'contacted').length,
+    inprogress: reportBaseLeads.filter(l => (statuses[l.email] || 'new') === 'inprogress').length,
+    booked: reportBaseLeads.filter(l => (statuses[l.email] || 'new') === 'booked').length,
+    nurture: reportBaseLeads.filter(l => (statuses[l.email] || 'new') === 'nurture').length,
+    lost: reportBaseLeads.filter(l => (statuses[l.email] || 'new') === 'lost').length,
+    dq: reportBaseLeads.filter(l => (statuses[l.email] || 'new') === 'dq').length,
+    na: reportBaseLeads.filter(l => (statuses[l.email] || 'new') === 'na').length,
+  }
+
+  const reportTotal = reportBaseLeads.length
+  const reportSqlCount = reportBaseLeads.filter(l => (details[l.email]?.sqlDq || '').toLowerCase() === 'yes').length
+  const reportSqoCount = reportBaseLeads.filter(l => (details[l.email]?.sqo || '').toLowerCase() === 'yes').length
+  const reportPipeline = reportBaseLeads.reduce((sum,l)=>sum + (parseInt(details[l.email]?.acv || '0') || 0), 0)
+
+  const reportSummaryText = `Generated ${reportTotal} MQLs, ${reportSqlCount} SQLs (${pct(reportSqlCount, reportTotal)}%), ${reportSqoCount} SQOs (${pct(reportSqoCount, reportSqlCount || reportTotal)}%), and $${reportPipeline.toLocaleString()} in pipeline.`
+
+  const reportRatioCards = [
+    { label:'New → Contacted', value:`${pct(reportStatusCounts.contacted, reportStatusCounts.new || reportStatusCounts.contacted)}%`, sub:`${reportStatusCounts.contacted} progressed` },
+    { label:'Contacted → In Progress', value:`${pct(reportStatusCounts.inprogress, reportStatusCounts.contacted || reportStatusCounts.inprogress)}%`, sub:`${reportStatusCounts.inprogress} progressed` },
+    { label:'In Progress → Booked', value:`${pct(reportStatusCounts.booked, reportStatusCounts.inprogress || reportStatusCounts.booked)}%`, sub:`${reportStatusCounts.booked} progressed` },
+    { label:'Booked → SQL', value:`${pct(reportSqlCount, reportStatusCounts.booked || reportSqlCount)}%`, sub:`${reportSqlCount} SQLs` },
+    { label:'SQL → SQO', value:`${pct(reportSqoCount, reportSqlCount || reportSqoCount)}%`, sub:`${reportSqoCount} SQOs` },
+    { label:'Lost %', value:`${pct(reportStatusCounts.lost, reportTotal)}%`, sub:`${reportStatusCounts.lost} lost` },
+    { label:'DQ %', value:`${pct(reportStatusCounts.dq, reportTotal)}%`, sub:`${reportStatusCounts.dq} DQ` },
+    { label:'Nurture Pool', value:`${pct(reportStatusCounts.nurture, reportTotal)}%`, sub:`${reportStatusCounts.nurture} in nurture` },
+  ]
+
         {/* ══════════════════════════════════════════════════════
             REPORTING VIEW
         ══════════════════════════════════════════════════════ */}
@@ -2126,31 +2159,76 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <div style={{display:'grid',gridTemplateColumns:'1.2fr .8fr',gap:16}}>
+          <div style={{display:'grid',gap:16}}>
             <div style={card}>
               <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:12}}>
                 Executive Summary
               </div>
+
+              <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:14}}>
+                {[
+                  {label:'Total MQLs', value:reportTotal, sub:'report scope'},
+                  {label:'SQLs', value:reportSqlCount, sub:`${pct(reportSqlCount, reportTotal)}% conversion`},
+                  {label:'SQOs', value:reportSqoCount, sub:`${pct(reportSqoCount, reportSqlCount || reportTotal)}% conversion`},
+                  {label:'Pipeline', value:`$${reportPipeline.toLocaleString()}`, sub:'from ACV fields'},
+                ].map(s=>(
+                  <div key={s.label} style={{background:C.surface3,border:`1px solid ${C.border}`,borderRadius:10,padding:12}}>
+                    <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:8}}>{s.label}</div>
+                    <div style={{fontSize:22,fontWeight:800,color:C.text,letterSpacing:'-0.03em'}}>{s.value}</div>
+                    <div style={{fontSize:11,color:C.text3,marginTop:4}}>{s.sub}</div>
+                  </div>
+                ))}
+              </div>
+
               <div style={{fontSize:14,color:C.text2,lineHeight:1.65}}>
                 {reportGenerated
-                  ? 'Reporting shell generated. Next step will add full funnel summary metrics, conversion ratios, source quality, rep breakdowns, and narrative insights.'
+                  ? reportSummaryText
                   : 'Choose a timeframe, scope, and report type, then click Generate Report to create a structured leadership-style report.'}
               </div>
             </div>
 
-            <div style={card}>
-              <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:12}}>
-                Reporting Sections
+            <div style={{display:'grid',gridTemplateColumns:'1.1fr .9fr',gap:16}}>
+              <div style={card}>
+                <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:12}}>
+                  Status Volume Summary
+                </div>
+                <div style={{display:'grid',gap:8}}>
+                  {[
+                    ['New', reportStatusCounts.new],
+                    ['Contacted', reportStatusCounts.contacted],
+                    ['In Progress', reportStatusCounts.inprogress],
+                    ['Booked', reportStatusCounts.booked],
+                    ['Nurture', reportStatusCounts.nurture],
+                    ['Lost', reportStatusCounts.lost],
+                    ['DQ', reportStatusCounts.dq],
+                    ['NA', reportStatusCounts.na],
+                    ['SQL', reportSqlCount],
+                    ['SQO', reportSqoCount],
+                  ].map(([label,count])=>(
+                    <div key={String(label)} style={{display:'grid',gridTemplateColumns:'1fr auto auto',gap:10,alignItems:'center',padding:'9px 10px',background:C.surface3,border:`1px solid ${C.border}`,borderRadius:10}}>
+                      <div style={{fontSize:13,color:C.text2}}>{label}</div>
+                      <div style={{fontSize:13,fontWeight:700,color:C.text}}>{count as number}</div>
+                      <div style={{fontSize:11,color:C.text3,width:54,textAlign:'right'}}>{pct(count as number, reportTotal)}%</div>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <div style={{display:'grid',gap:8,fontSize:12,color:C.text2}}>
-                <div>• Full Funnel Summary</div>
-                <div>• Status Volume Summary</div>
-                <div>• Stage Conversion Ratios</div>
-                <div>• Leakage + Recovery Analysis</div>
-                <div>• Source Quality Breakdown</div>
-                <div>• BDR Performance Breakdown</div>
-                <div>• Period-over-Period Trends</div>
-                <div>• Funnel Insights</div>
+
+              <div style={card}>
+                <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:12}}>
+                  Key Ratios
+                </div>
+                <div style={{display:'grid',gap:8}}>
+                  {reportRatioCards.map(card=>(
+                    <div key={card.label} style={{padding:'10px 12px',background:C.surface3,border:`1px solid ${C.border}`,borderRadius:10}}>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10}}>
+                        <div style={{fontSize:13,color:C.text2}}>{card.label}</div>
+                        <div style={{fontSize:16,fontWeight:800,color:C.text}}>{card.value}</div>
+                      </div>
+                      <div style={{fontSize:11,color:C.text3,marginTop:4}}>{card.sub}</div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
