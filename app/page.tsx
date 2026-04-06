@@ -1322,13 +1322,12 @@ export default function Dashboard() {
   const repSlackId = currentRep?.slackId || ''
   const isManagerView = currentRep?.id === 'jonathan'
 
-  const filteredLiveLeads = (activeReps.length > 1 && repSlackId)
-    ? liveLeads.filter(l => {
-        if (isManagerView) {
-          return !l.repSlackId || l.repSlackId === repSlackId
-        }
-        return l.repSlackId === repSlackId
-      })
+  const filteredLiveLeads =
+    isManagerView
+      ? liveLeads.filter(l => !l.repSlackId || l.repSlackId === repSlackId)
+      : repSlackId
+        ? liveLeads.filter(l => l.repSlackId === repSlackId)
+        : []
     : liveLeads
 
   const historicalLeadsForView = isManagerView ? HISTORICAL_LEADS : []
