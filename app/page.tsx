@@ -583,6 +583,8 @@ function DetailPanel({lead,detail,onSave,onClose}:{lead:AppLead;detail:LeadDetai
                         prospectName: data.name || prev.prospectName,
                         title: data.title || prev.title,
                         sfLink: data.url || url,
+                        sqlDate: data.sqlDate || prev.sqlDate,
+                        connectedDate: data.mqlDate || prev.connectedDate,
                       }))
                     } catch {
                       alert('Could not reach local Salesforce agent.')
