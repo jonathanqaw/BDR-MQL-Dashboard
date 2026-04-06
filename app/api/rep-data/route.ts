@@ -14,17 +14,15 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const blob = await get(key(repId))
-    if (!blob) {
+    const result = await get(key(repId), { access: 'private' })
+
+    if (!result || result.statusCode !== 200 || !result.stream) {
       return NextResponse.json({ data: null })
     }
 
-    const res = await fetch(blob.url, { cache: 'no-store' })
-    if (!res.ok) {
-      throw new Error(`Blob fetch failed: ${res.status}`)
-    }
+    const text = await new Response(result.stream).text()
+    const data = text ? JSON.parse(text) : null
 
-    const data = await res.json()
     return NextResponse.json({ data })
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 })
@@ -40,7 +38,7 @@ export async function POST(req: NextRequest) {
     }
 
     await put(key(repId), JSON.stringify(data), {
-      access: 'public',
+      access: 'private',
       contentType: 'application/json',
       addRandomSuffix: false,
       allowOverwrite: true,
