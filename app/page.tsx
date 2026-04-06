@@ -1543,6 +1543,38 @@ export default function Dashboard() {
     background:active?'rgba(123,110,246,0.18)':'transparent',
   })
 
+  const reportBaseLeads = allLeads
+  const pct = (n:number,d:number)=> d>0 ? Math.round((n/d)*100) : 0
+
+  const reportStatusCounts = {
+    new: reportBaseLeads.filter(l => (statuses[l.email] || 'new') === 'new').length,
+    contacted: reportBaseLeads.filter(l => (statuses[l.email] || 'new') === 'contacted').length,
+    inprogress: reportBaseLeads.filter(l => (statuses[l.email] || 'new') === 'inprogress').length,
+    booked: reportBaseLeads.filter(l => (statuses[l.email] || 'new') === 'booked').length,
+    nurture: reportBaseLeads.filter(l => (statuses[l.email] || 'new') === 'nurture').length,
+    lost: reportBaseLeads.filter(l => (statuses[l.email] || 'new') === 'lost').length,
+    dq: reportBaseLeads.filter(l => (statuses[l.email] || 'new') === 'dq').length,
+    na: reportBaseLeads.filter(l => (statuses[l.email] || 'new') === 'na').length,
+  }
+
+  const reportTotal = reportBaseLeads.length
+  const reportSqlCount = reportBaseLeads.filter(l => (details[l.email]?.sqlDq || '').toLowerCase() === 'yes').length
+  const reportSqoCount = reportBaseLeads.filter(l => (details[l.email]?.sqo || '').toLowerCase() === 'yes').length
+  const reportPipeline = reportBaseLeads.reduce((sum,l)=>sum + (parseInt(details[l.email]?.acv || '0') || 0), 0)
+
+  const reportSummaryText = `Generated ${reportTotal} MQLs, ${reportSqlCount} SQLs (${pct(reportSqlCount, reportTotal)}%), ${reportSqoCount} SQOs (${pct(reportSqoCount, reportSqlCount || reportTotal)}%), and $${reportPipeline.toLocaleString()} in pipeline.`
+
+  const reportRatioCards = [
+    { label:'New → Contacted', value:`${pct(reportStatusCounts.contacted, reportStatusCounts.new || reportStatusCounts.contacted)}%`, sub:`${reportStatusCounts.contacted} progressed` },
+    { label:'Contacted → In Progress', value:`${pct(reportStatusCounts.inprogress, reportStatusCounts.contacted || reportStatusCounts.inprogress)}%`, sub:`${reportStatusCounts.inprogress} progressed` },
+    { label:'In Progress → Booked', value:`${pct(reportStatusCounts.booked, reportStatusCounts.inprogress || reportStatusCounts.booked)}%`, sub:`${reportStatusCounts.booked} progressed` },
+    { label:'Booked → SQL', value:`${pct(reportSqlCount, reportStatusCounts.booked || reportSqlCount)}%`, sub:`${reportSqlCount} SQLs` },
+    { label:'SQL → SQO', value:`${pct(reportSqoCount, reportSqlCount || reportSqoCount)}%`, sub:`${reportSqoCount} SQOs` },
+    { label:'Lost %', value:`${pct(reportStatusCounts.lost, reportTotal)}%`, sub:`${reportStatusCounts.lost} lost` },
+    { label:'DQ %', value:`${pct(reportStatusCounts.dq, reportTotal)}%`, sub:`${reportStatusCounts.dq} DQ` },
+    { label:'Nurture Pool', value:`${pct(reportStatusCounts.nurture, reportTotal)}%`, sub:`${reportStatusCounts.nurture} in nurture` },
+  ]
+
   // ─────────────────────────────────────────────────────────────────────────────
   // ── Login screen ────────────────────────────────────────────────────────────
   if (!auth) return (
@@ -2038,38 +2070,6 @@ export default function Dashboard() {
           </div>
         </>)}
 
-
-  const reportBaseLeads = allLeads
-  const pct = (n:number,d:number)=> d>0 ? Math.round((n/d)*100) : 0
-
-  const reportStatusCounts = {
-    new: reportBaseLeads.filter(l => (statuses[l.email] || 'new') === 'new').length,
-    contacted: reportBaseLeads.filter(l => (statuses[l.email] || 'new') === 'contacted').length,
-    inprogress: reportBaseLeads.filter(l => (statuses[l.email] || 'new') === 'inprogress').length,
-    booked: reportBaseLeads.filter(l => (statuses[l.email] || 'new') === 'booked').length,
-    nurture: reportBaseLeads.filter(l => (statuses[l.email] || 'new') === 'nurture').length,
-    lost: reportBaseLeads.filter(l => (statuses[l.email] || 'new') === 'lost').length,
-    dq: reportBaseLeads.filter(l => (statuses[l.email] || 'new') === 'dq').length,
-    na: reportBaseLeads.filter(l => (statuses[l.email] || 'new') === 'na').length,
-  }
-
-  const reportTotal = reportBaseLeads.length
-  const reportSqlCount = reportBaseLeads.filter(l => (details[l.email]?.sqlDq || '').toLowerCase() === 'yes').length
-  const reportSqoCount = reportBaseLeads.filter(l => (details[l.email]?.sqo || '').toLowerCase() === 'yes').length
-  const reportPipeline = reportBaseLeads.reduce((sum,l)=>sum + (parseInt(details[l.email]?.acv || '0') || 0), 0)
-
-  const reportSummaryText = `Generated ${reportTotal} MQLs, ${reportSqlCount} SQLs (${pct(reportSqlCount, reportTotal)}%), ${reportSqoCount} SQOs (${pct(reportSqoCount, reportSqlCount || reportTotal)}%), and $${reportPipeline.toLocaleString()} in pipeline.`
-
-  const reportRatioCards = [
-    { label:'New → Contacted', value:`${pct(reportStatusCounts.contacted, reportStatusCounts.new || reportStatusCounts.contacted)}%`, sub:`${reportStatusCounts.contacted} progressed` },
-    { label:'Contacted → In Progress', value:`${pct(reportStatusCounts.inprogress, reportStatusCounts.contacted || reportStatusCounts.inprogress)}%`, sub:`${reportStatusCounts.inprogress} progressed` },
-    { label:'In Progress → Booked', value:`${pct(reportStatusCounts.booked, reportStatusCounts.inprogress || reportStatusCounts.booked)}%`, sub:`${reportStatusCounts.booked} progressed` },
-    { label:'Booked → SQL', value:`${pct(reportSqlCount, reportStatusCounts.booked || reportSqlCount)}%`, sub:`${reportSqlCount} SQLs` },
-    { label:'SQL → SQO', value:`${pct(reportSqoCount, reportSqlCount || reportSqoCount)}%`, sub:`${reportSqoCount} SQOs` },
-    { label:'Lost %', value:`${pct(reportStatusCounts.lost, reportTotal)}%`, sub:`${reportStatusCounts.lost} lost` },
-    { label:'DQ %', value:`${pct(reportStatusCounts.dq, reportTotal)}%`, sub:`${reportStatusCounts.dq} DQ` },
-    { label:'Nurture Pool', value:`${pct(reportStatusCounts.nurture, reportTotal)}%`, sub:`${reportStatusCounts.nurture} in nurture` },
-  ]
 
         {/* ══════════════════════════════════════════════════════
             REPORTING VIEW
