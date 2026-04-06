@@ -1740,6 +1740,98 @@ export default function Dashboard() {
   }
 
 
+
+  const reportExportPayload = {
+    generatedAt: new Date().toISOString(),
+    timeframe: reportTimeframe,
+    scope: reportScope,
+    reportType: reportType,
+    summary: {
+      totalMqls: reportTotal,
+      sqls: reportSqlCount,
+      sqlRate: pct(reportSqlCount, reportTotal),
+      sqos: reportSqoCount,
+      sqoRate: pct(reportSqoCount, reportSqlCount || reportTotal),
+      pipeline: reportPipeline,
+    },
+    trends: {
+      sqlRate: {
+        current: currentPeriodMetrics.sqlRate,
+        previous: previousPeriodMetrics.sqlRate,
+        delta: sqlTrend.delta,
+        arrow: sqlTrend.arrow,
+      },
+      sqoRate: {
+        current: currentPeriodMetrics.sqoRate,
+        previous: previousPeriodMetrics.sqoRate,
+        delta: sqoTrend.delta,
+        arrow: sqoTrend.arrow,
+      },
+      pipeline: {
+        current: currentPeriodMetrics.pipeline,
+        previous: previousPeriodMetrics.pipeline,
+        delta: pipelineTrend.delta,
+        arrow: pipelineTrend.arrow,
+      },
+    },
+    statusCounts: {
+      ...reportStatusCounts,
+      sql: reportSqlCount,
+      sqo: reportSqoCount,
+    },
+    ratios: reportRatioCards,
+    sourceBreakdown: reportSourceRows,
+    bdrBreakdown: reportBdrRows,
+    funnelInsights: {
+      biggestDropoff,
+      strongestStage,
+      mostCommonTerminal,
+      mostRecoverablePool,
+    },
+  }
+
+  const downloadBlobFile = (content:string, filename:string, mime:string) => {
+    const blob = new Blob([content], { type: mime })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const downloadReportTxt = () => {
+    const txt = [
+      reportCopyText,
+      '',
+      'Status Counts:',
+      `- New: ${reportStatusCounts.new}`,
+      `- Contacted: ${reportStatusCounts.contacted}`,
+      `- In Progress: ${reportStatusCounts.inprogress}`,
+      `- Booked: ${reportStatusCounts.booked}`,
+      `- Nurture: ${reportStatusCounts.nurture}`,
+      `- Lost: ${reportStatusCounts.lost}`,
+      `- DQ: ${reportStatusCounts.dq}`,
+      `- NA: ${reportStatusCounts.na}`,
+      `- SQL: ${reportSqlCount}`,
+      `- SQO: ${reportSqoCount}`,
+      '',
+      'Key Ratios:',
+      ...reportRatioCards.map(r => `- ${r.label}: ${r.value} (${r.sub})`),
+    ].join('\n')
+
+    downloadBlobFile(txt, `report-${reportTimeframe}.txt`, 'text/plain;charset=utf-8')
+  }
+
+  const downloadReportJson = () => {
+    downloadBlobFile(
+      JSON.stringify(reportExportPayload, null, 2),
+      `report-${reportTimeframe}.json`,
+      'application/json'
+    )
+  }
+
+
   // ─────────────────────────────────────────────────────────────────────────────
   // ── Login screen ────────────────────────────────────────────────────────────
   if (!auth) return (
@@ -2314,7 +2406,7 @@ export default function Dashboard() {
               </div>
             )}
 
-            <div style={{marginTop:14,display:'flex',gap:8,alignItems:'center'}}>
+            <div style={{marginTop:14,display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
               <button
                 onClick={()=>setReportGenerated(true)}
                 style={{fontSize:12,fontWeight:700,padding:'10px 14px',border:'none',borderRadius:10,background:C.green,color:'#06281d',cursor:'pointer'}}
@@ -2327,6 +2419,20 @@ export default function Dashboard() {
                 style={{fontSize:12,fontWeight:700,padding:'10px 14px',border:`1px solid ${C.border2}`,borderRadius:10,background:C.surface3,color:C.text,cursor:'pointer'}}
               >
                 Copy Summary
+              </button>
+
+              <button
+                onClick={downloadReportTxt}
+                style={{fontSize:12,fontWeight:700,padding:'10px 14px',border:`1px solid ${C.border2}`,borderRadius:10,background:C.surface3,color:C.text,cursor:'pointer'}}
+              >
+                Download TXT
+              </button>
+
+              <button
+                onClick={downloadReportJson}
+                style={{fontSize:12,fontWeight:700,padding:'10px 14px',border:`1px solid ${C.border2}`,borderRadius:10,background:C.surface3,color:C.text,cursor:'pointer'}}
+              >
+                Download JSON
               </button>
             </div>
           </div>
