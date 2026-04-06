@@ -1194,6 +1194,7 @@ export default function Dashboard() {
   const [stFilter,   setStFilter]   = useState<StatusFilter>('all')
   const [reportTimeframe, setReportTimeframe] = useState<ReportTimeframe>('quarterly')
   const [reportScope, setReportScope] = useState<ReportScope>('all_bdrs')
+  const [reportBdrId, setReportBdrId] = useState<string>('')
   const [reportType, setReportType] = useState<ReportType>('full_funnel')
   const [reportRangeStart, setReportRangeStart] = useState('')
   const [reportRangeEnd, setReportRangeEnd] = useState('')
@@ -1543,7 +1544,13 @@ export default function Dashboard() {
     background:active?'rgba(123,110,246,0.18)':'transparent',
   })
 
-  const reportBaseLeads = allLeads
+  const reportBaseLeads =
+  reportScope === 'individual_bdr' && reportBdrId
+    ? allLeads.filter(l => {
+        const rep = reps.find(r => r.id === reportBdrId)
+        return rep?.slackId && l.repSlackId === rep.slackId
+      })
+    : allLeads
   const pct = (n:number,d:number)=> d>0 ? Math.round((n/d)*100) : 0
 
   const reportStatusCounts = {
@@ -2365,6 +2372,22 @@ export default function Dashboard() {
                 >
                   <option value="all_bdrs">All BDRs</option>
                   <option value="individual_bdr">Individual BDR</option>
+</select>
+
+                {reportScope==='individual_bdr' && (
+                  <select
+                    value={reportBdrId}
+                    onChange={e=>setReportBdrId(e.target.value)}
+                    style={{marginTop:8,fontSize:12,padding:'8px 10px',borderRadius:8}}
+                  >
+                    <option value="">Select BDR</option>
+                    {reps.map(r=>(
+                      <option key={r.id} value={r.id}>{r.name}</option>
+                    ))}
+                  </select>
+                )}
+
+                <select
                 </select>
               </div>
 
