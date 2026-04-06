@@ -2037,6 +2037,124 @@ export default function Dashboard() {
             </div>
           </div>
         </>)}
+
+        {/* ══════════════════════════════════════════════════════
+            REPORTING VIEW
+        ══════════════════════════════════════════════════════ */}
+        {view==='reporting'&&(<>
+          <div style={{marginBottom:28}}>
+            <div style={{fontSize:26,fontWeight:800,letterSpacing:'-0.02em',lineHeight:1.15}}>Reporting<br/><span style={{color:C.green}}>Generator.</span></div>
+            <div style={{fontSize:12,color:C.text3,marginTop:4}}>Structured report generation · leadership-ready summaries</div>
+          </div>
+
+          <div style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:16,padding:16,marginBottom:20}}>
+            <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:14}}>
+              Report Generator
+            </div>
+
+            <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12}}>
+              <div>
+                <div style={{fontSize:12,fontWeight:600,color:C.text2,marginBottom:6}}>Timeframe</div>
+                <select
+                  value={reportTimeframe}
+                  onChange={e=>setReportTimeframe(e.target.value as ReportTimeframe)}
+                  style={{width:'100%',fontSize:12,padding:'10px 12px',border:`1px solid ${C.border2}`,borderRadius:8,background:C.surface3,color:C.text}}
+                >
+                  <option value="monthly">Monthly</option>
+                  <option value="quarterly">Quarterly</option>
+                  <option value="custom">Custom range</option>
+                </select>
+              </div>
+
+              <div>
+                <div style={{fontSize:12,fontWeight:600,color:C.text2,marginBottom:6}}>Scope</div>
+                <select
+                  value={reportScope}
+                  onChange={e=>setReportScope(e.target.value as ReportScope)}
+                  style={{width:'100%',fontSize:12,padding:'10px 12px',border:`1px solid ${C.border2}`,borderRadius:8,background:C.surface3,color:C.text}}
+                >
+                  <option value="all_bdrs">All BDRs</option>
+                  <option value="individual_bdr">Individual BDR</option>
+                </select>
+              </div>
+
+              <div>
+                <div style={{fontSize:12,fontWeight:600,color:C.text2,marginBottom:6}}>Report Type</div>
+                <select
+                  value={reportType}
+                  onChange={e=>setReportType(e.target.value as ReportType)}
+                  style={{width:'100%',fontSize:12,padding:'10px 12px',border:`1px solid ${C.border2}`,borderRadius:8,background:C.surface3,color:C.text}}
+                >
+                  <option value="full_funnel">Full Funnel Summary</option>
+                  <option value="pipeline_performance">Pipeline Performance</option>
+                  <option value="mql_quality">MQL Quality</option>
+                  <option value="conversion_analysis">Conversion Analysis</option>
+                </select>
+              </div>
+            </div>
+
+            {reportTimeframe==='custom'&&(
+              <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:12,marginTop:12}}>
+                <div>
+                  <div style={{fontSize:12,fontWeight:600,color:C.text2,marginBottom:6}}>Start date</div>
+                  <input
+                    type="date"
+                    value={reportRangeStart}
+                    onChange={e=>setReportRangeStart(e.target.value)}
+                    style={{width:'100%',fontSize:12,padding:'10px 12px',border:`1px solid ${C.border2}`,borderRadius:8,background:C.surface3,color:C.text}}
+                  />
+                </div>
+                <div>
+                  <div style={{fontSize:12,fontWeight:600,color:C.text2,marginBottom:6}}>End date</div>
+                  <input
+                    type="date"
+                    value={reportRangeEnd}
+                    onChange={e=>setReportRangeEnd(e.target.value)}
+                    style={{width:'100%',fontSize:12,padding:'10px 12px',border:`1px solid ${C.border2}`,borderRadius:8,background:C.surface3,color:C.text}}
+                  />
+                </div>
+              </div>
+            )}
+
+            <div style={{marginTop:14}}>
+              <button
+                onClick={()=>setReportGenerated(true)}
+                style={{fontSize:12,fontWeight:700,padding:'10px 14px',border:'none',borderRadius:10,background:C.green,color:'#06281d',cursor:'pointer'}}
+              >
+                Generate Report
+              </button>
+            </div>
+          </div>
+
+          <div style={{display:'grid',gridTemplateColumns:'1.2fr .8fr',gap:16}}>
+            <div style={card}>
+              <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:12}}>
+                Executive Summary
+              </div>
+              <div style={{fontSize:14,color:C.text2,lineHeight:1.65}}>
+                {reportGenerated
+                  ? 'Reporting shell generated. Next step will add full funnel summary metrics, conversion ratios, source quality, rep breakdowns, and narrative insights.'
+                  : 'Choose a timeframe, scope, and report type, then click Generate Report to create a structured leadership-style report.'}
+              </div>
+            </div>
+
+            <div style={card}>
+              <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:12}}>
+                Reporting Sections
+              </div>
+              <div style={{display:'grid',gap:8,fontSize:12,color:C.text2}}>
+                <div>• Full Funnel Summary</div>
+                <div>• Status Volume Summary</div>
+                <div>• Stage Conversion Ratios</div>
+                <div>• Leakage + Recovery Analysis</div>
+                <div>• Source Quality Breakdown</div>
+                <div>• BDR Performance Breakdown</div>
+                <div>• Period-over-Period Trends</div>
+                <div>• Funnel Insights</div>
+              </div>
+            </div>
+          </div>
+        </>)}
       </main>
 
       {/* ── Create Contact Modal ── */}
