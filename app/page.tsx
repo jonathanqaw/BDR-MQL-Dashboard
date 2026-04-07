@@ -1371,9 +1371,10 @@ export default function Dashboard() {
   useEffect(()=>{ setStatuses(getSt()); setDetails(getDetails()); fetchLeads() },[fetchLeads])
 
   // Load Edge Config data only when manager switches to a different rep
-  const prevRepId = useRef<string>('')
+  const prevRepId = useRef<string|null>(null)
   useEffect(()=>{
     if (!currentRep?.slackId) return
+    if (prevRepId.current === null) { prevRepId.current = currentRep.id; return }  // skip first load
     if (prevRepId.current === currentRep.id) return  // same rep, don't reload
     if (auth?.role !== 'manager') return  // only manager switches reps
     prevRepId.current = currentRep.id
