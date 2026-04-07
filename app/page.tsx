@@ -2743,7 +2743,7 @@ export default function Dashboard() {
                     @media print{body{padding:20px 24px}h1{font-size:22px}.card .val{font-size:18px}}
                   </style></head><body>
                     <h1>QA Wolf — BDR Report</h1>
-                    <div class="subtitle">${reportLabel} · ${reportScope==='all'?'All BDRs':currentRep?.name||'Jonathan Kim'} · Generated ${now}</div>
+                    <div class="subtitle">${reportLabel} · ${reportScope==='all_bdrs'?'All BDRs':currentRep?.name||'Jonathan Kim'} · Generated ${now}</div>
                     <div class="summary">${reportSummaryText}</div>
                     <h2>Executive Summary</h2>
                     <div class="grid4">
