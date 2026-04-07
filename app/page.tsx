@@ -216,7 +216,6 @@ const STATUS_CONFIG: Record<Status,{label:string;color:string;dim:string;border:
   dq:         {label:"DQ'd",        color:'#ff5c5c',                dim:'rgba(255,92,92,0.12)',   border:'rgba(255,92,92,0.35)'},
   closedwon:  {label:'Closed-Won', color:'#00e5a0', dim:'rgba(0,229,160,0.15)', border:'rgba(0,229,160,0.35)'},
   na:         {label:'N/A',         color:'rgba(255,255,255,0.25)', dim:'rgba(255,255,255,0.06)', border:'rgba(255,255,255,0.1)'},
-  closedwon:  {label:'Closed-Won', color:'#34d399', dim:'rgba(52,211,153,0.15)', border:'rgba(52,211,153,0.4)'},
 }
 const STRIPE: Record<Status,string> = {
   new:'#322e60', contacted:'#7b6ef6', inprogress:'#3b82f6', booked:'#00e5a0',
@@ -792,7 +791,7 @@ function BarChart({bars,title,statuses:stMap,details:dets,onViewLead}:{
   const [hovered,setHovered]=useState<number|null>(null)
   const [selected,setSelected]=useState<number|null>(null)
   const maxTotal=Math.max(...bars.map(b=>b.total),1)
-  const stOrder:Status[]=['new','contacted','closedwon','booked','nurture','lost','dq','na','closedwon']
+  const stOrder:Status[]=['new','contacted','inprogress','closedwon','booked','nurture','lost','dq','na']
 
   const selectedBar=selected!==null?bars[selected]:null
 
