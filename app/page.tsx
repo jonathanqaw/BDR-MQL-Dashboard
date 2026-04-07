@@ -2716,7 +2716,60 @@ export default function Dashboard() {
 
             <div style={{marginTop:14,display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
               <button
-                onClick={()=>setReportGenerated(true)}
+                onClick={()=>{
+                  setReportGenerated(true)
+                  const w=window.open('','_blank')
+                  if(!w)return
+                  const rc=reportStatusCounts
+                  const rows=reportRatioCards.map(c=>`<tr><td style="padding:8px 12px;border-bottom:1px solid #e2e8f0">${c.label}</td><td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;font-weight:700;text-align:right">${c.value}</td><td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;color:#64748b;font-size:12px">${c.sub}</td></tr>`).join('')
+                  const statusRows=[['New',rc.new],['Contacted',rc.contacted],['In Progress',rc.inprogress],['Booked',rc.booked],['Nurture',rc.nurture],['Lost',rc.lost],['DQ',rc.dq],['N/A',rc.na],['Closed-Won',rc.closedwon]].map(([s,n])=>`<tr><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0">${s}</td><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0;font-weight:700;text-align:right">${n}</td><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0;color:#64748b;text-align:right">${reportTotal?Math.round(Number(n)/reportTotal*100):0}%</td></tr>`).join('')
+                  const vel=velocityData
+                  const now=new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})
+                  w.document.write(`<!DOCTYPE html><html><head><title>QA Wolf BDR Report</title><style>
+                    *{margin:0;padding:0;box-sizing:border-box}
+                    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#1e293b;padding:40px 48px;max-width:900px;margin:0 auto;line-height:1.5}
+                    h1{font-size:28px;font-weight:800;margin-bottom:4px}
+                    h2{font-size:16px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#475569;margin:28px 0 12px;padding-bottom:6px;border-bottom:2px solid #e2e8f0}
+                    .subtitle{font-size:13px;color:#64748b;margin-bottom:24px}
+                    .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px}
+                    .card{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px}
+                    .card .label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#64748b;margin-bottom:6px}
+                    .card .val{font-size:22px;font-weight:800}
+                    .card .sub{font-size:11px;color:#94a3b8;margin-top:3px}
+                    table{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:16px}
+                    th{padding:8px 12px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#64748b;border-bottom:2px solid #cbd5e1}
+                    .summary{font-size:14px;line-height:1.7;color:#334155;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:16px;margin-bottom:24px}
+                    .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:24px}
+                    @media print{body{padding:20px 24px}h1{font-size:22px}.card .val{font-size:18px}}
+                  </style></head><body>
+                    <h1>QA Wolf — BDR Report</h1>
+                    <div class="subtitle">${reportLabel} · ${reportScope==='all'?'All BDRs':currentRep?.name||'Jonathan Kim'} · Generated ${now}</div>
+                    <div class="summary">${reportSummaryText}</div>
+                    <h2>Executive Summary</h2>
+                    <div class="grid4">
+                      <div class="card"><div class="label">Total Leads</div><div class="val">${reportTotal}</div></div>
+                      <div class="card"><div class="label">SQLs</div><div class="val">${reportSqlCount}</div><div class="sub">${pct(reportSqlCount,reportTotal)}% conversion</div></div>
+                      <div class="card"><div class="label">SQOs</div><div class="val">${reportSqoCount}</div><div class="sub">${pct(reportSqoCount,reportTotal)}% conversion</div></div>
+                      <div class="card"><div class="label">Pipeline</div><div class="val">$${reportPipeline.toLocaleString()}</div></div>
+                    </div>
+                    <div class="grid3">
+                      <div class="card"><div class="label">Avg Days to Connect</div><div class="val">${vel.connect.avg!==null?vel.connect.avg+'d':'N/A'}</div><div class="sub">${vel.connect.n} leads</div></div>
+                      <div class="card"><div class="label">Avg Days to Meeting</div><div class="val">${vel.meeting.avg!==null?vel.meeting.avg+'d':'N/A'}</div><div class="sub">${vel.meeting.n} leads</div></div>
+                      <div class="card"><div class="label">Avg Days to Close</div><div class="val">${vel.close.avg!==null?vel.close.avg+'d':'N/A'}</div><div class="sub">${vel.close.n} leads</div></div>
+                    </div>
+                    <h2>Status Volume</h2>
+                    <table><thead><tr><th>Status</th><th style="text-align:right">Count</th><th style="text-align:right">%</th></tr></thead><tbody>${statusRows}</tbody></table>
+                    <h2>Key Ratios</h2>
+                    <table><thead><tr><th>Metric</th><th style="text-align:right">Value</th><th>Detail</th></tr></thead><tbody>${rows}</tbody></table>
+                    <h2>Funnel Insights</h2>
+                    <div class="grid3" style="grid-template-columns:repeat(2,1fr)">
+                      <div class="card"><div class="label">Biggest Drop-off</div><div class="val" style="font-size:16px">${biggestDropoff.label}</div><div class="sub">${biggestDropoff.value}% conversion</div></div>
+                      <div class="card"><div class="label">Strongest Stage</div><div class="val" style="font-size:16px">${strongestStage.label}</div><div class="sub">${strongestStage.value}% conversion</div></div>
+                    </div>
+                  </body></html>`)
+                  w.document.close()
+                  setTimeout(()=>w.print(),500)
+                }}
                 style={{fontSize:12,fontWeight:700,padding:'10px 14px',border:'none',borderRadius:10,background:C.green,color:'#06281d',cursor:'pointer'}}
               >
                 Generate Report
