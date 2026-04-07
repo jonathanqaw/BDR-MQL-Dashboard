@@ -1490,7 +1490,7 @@ export default function Dashboard() {
       const d=new Date(l.receivedAt)
       if (chartFrom && d < new Date(chartFrom)) return
       if (chartTo   && d > new Date(chartTo+'T23:59:59')) return
-      const key=groupBy==='week'?getWeekLabel(d):groupBy==='quarter'?getQuarterLabel(d):getMonthLabel(d)
+      const key=groupBy==='week'?getWeekLabel(d):groupBy==='quarter'?getQuarterLabel(d.toISOString()):getMonthLabel(d)
       if (!groups.has(key)) groups.set(key,{label:key,date:d,byStatus:{new:0,contacted:0,inprogress:0,booked:0,nurture:0,lost:0,dq:0,na:0,closedwon:0},leads:[]})
       const s=statuses[l.email]||'new'
       groups.get(key)!.byStatus[s]++
