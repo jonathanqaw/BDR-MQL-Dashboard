@@ -214,11 +214,12 @@ const STATUS_CONFIG: Record<Status,{label:string;color:string;dim:string;border:
   nurture:    {label:'Nurture',     color:'#e879f9',                dim:'rgba(232,121,249,0.15)', border:'rgba(232,121,249,0.35)'},
   lost:       {label:'Lost',        color:'#ff5c5c',                dim:'rgba(255,92,92,0.12)',   border:'rgba(255,92,92,0.35)'},
   dq:         {label:"DQ'd",        color:'#ff5c5c',                dim:'rgba(255,92,92,0.12)',   border:'rgba(255,92,92,0.35)'},
+  closedwon:  {label:'Closed-Won', color:'#00e5a0', dim:'rgba(0,229,160,0.15)', border:'rgba(0,229,160,0.35)'},
   na:         {label:'N/A',         color:'rgba(255,255,255,0.25)', dim:'rgba(255,255,255,0.06)', border:'rgba(255,255,255,0.1)'},
+  closedwon:  {label:'Closed-Won', color:'#34d399', dim:'rgba(52,211,153,0.15)', border:'rgba(52,211,153,0.4)'},
 }
 const STRIPE: Record<Status,string> = {
   new:'#322e60', contacted:'#7b6ef6', inprogress:'#3b82f6', booked:'#00e5a0',
-  nurture:'#e879f9', lost:'#ff5c5c', dq:'#ff5c5c', na:'#1c1840', closedwon:'#34d399'
 }
 const C = {
   bg:'#13102a', surface:'#1c1840', surface2:'#231f4a', surface3:'#2a2654',
@@ -1489,7 +1490,7 @@ export default function Dashboard() {
       if (chartFrom && d < new Date(chartFrom)) return
       if (chartTo   && d > new Date(chartTo+'T23:59:59')) return
       const key=groupBy==='week'?getWeekLabel(d):getMonthLabel(d)
-      if (!groups.has(key)) groups.set(key,{label:key,date:d,byStatus:{new:0,contacted:0,inprogress:0,booked:0,nurture:0,lost:0,dq:0,na:0},leads:[]})
+      if (!groups.has(key)) groups.set(key,{label:key,date:d,byStatus:{new:0,contacted:0,inprogress:0,booked:0,nurture:0,lost:0,dq:0,na:0,closedwon:0},leads:[]})
       const s=statuses[l.email]||'new'
       groups.get(key)!.byStatus[s]++
       groups.get(key)!.leads.push(l)
