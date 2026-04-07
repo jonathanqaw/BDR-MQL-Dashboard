@@ -1759,11 +1759,11 @@ export default function Dashboard() {
   })
 
   const progressionRatios = [
-    { label:'New → Contacted', value:pct(reportStatusCounts.contacted, reportStatusCounts.new || reportStatusCounts.contacted) },
-    { label:'Contacted → In Progress', value:pct(reportStatusCounts.inprogress, reportStatusCounts.contacted || reportStatusCounts.inprogress) },
-    { label:'In Progress → Booked', value:pct(reportStatusCounts.booked, reportStatusCounts.inprogress || reportStatusCounts.booked) },
-    { label:'Booked → SQL', value:pct(reportSqlCount, reportStatusCounts.booked || reportSqlCount) },
-    { label:'SQL → SQO', value:pct(reportSqoCount, reportSqlCount || reportSqoCount) },
+    { label:'New → Contacted', value:Math.min(100,pct(reportStatusCounts.contacted, reportStatusCounts.new || reportStatusCounts.contacted)) },
+    { label:'Contacted → In Progress', value:Math.min(100,pct(reportStatusCounts.inprogress, reportStatusCounts.contacted || reportStatusCounts.inprogress)) },
+    { label:'In Progress → Booked', value:Math.min(100,pct(reportStatusCounts.booked, reportStatusCounts.inprogress || reportStatusCounts.booked)) },
+    { label:'Booked → SQL', value:Math.min(100,pct(reportSqlCount, reportStatusCounts.booked || reportSqlCount)) },
+    { label:'SQL → SQO', value:Math.min(100,pct(reportSqoCount, reportSqlCount || reportSqoCount)) },
   ]
 
   const biggestDropoff = progressionRatios.reduce((worst, r) => r.value < worst.value ? r : worst, progressionRatios[0])
