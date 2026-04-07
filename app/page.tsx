@@ -981,6 +981,19 @@ function MQLQualityChart({allLeads,statuses,details}:{allLeads:AppLead[];statuse
       label:d.date, dq:d.dq, hq:d.hq, lq:d.lq,
       isLive:d.isLive, isoStart:d.iso
     }))
+  } else if (groupBy==='quarter') {
+    const qMap = new Map<string,Bar>()
+    allDaysRaw.forEach(d=>{
+      const dt = new Date(d.iso+'T12:00:00')
+      const q = Math.floor(dt.getMonth()/3)+1
+      const y = dt.getFullYear()
+      const key = `Q${q} ${y}`
+      if (!qMap.has(key)) qMap.set(key, {label:`Q${q} ${y}`,dq:0,hq:0,lq:0,isLive:d.isLive,isoStart:d.iso})
+      const b = qMap.get(key)!
+      b.dq += d.dq; b.hq += d.hq; b.lq += d.lq
+      if (d.isLive) b.isLive = true
+    })
+    bars = [...qMap.values()]
   } else {
     // Group by Monday-anchored week
     const weekMap = new Map<string,Bar>()
@@ -1007,10 +1020,10 @@ function MQLQualityChart({allLeads,statuses,details}:{allLeads:AppLead[];statuse
       {/* Controls */}
       <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:14,flexWrap:'wrap'}}>
         <div style={{display:'flex',gap:4}}>
-          {(['week','day','quarter'] as const).map(g=>(
+          {(['week','quarter','day'] as const).map(g=>(
             <button key={g} onClick={()=>setGroupBy(g)}
                     style={{fontSize:11,fontWeight:600,padding:'4px 10px',borderRadius:6,cursor:'pointer',border:`1px solid ${groupBy===g?C.purple:C.border2}`,background:groupBy===g?'rgba(123,110,246,0.18)':'transparent',color:groupBy===g?C.purpleL:C.text3}}>
-              {g==='week'?'Weekly':g==='day'?'Daily':'Quarterly'}
+              {g==='week'?'Weekly':g==='quarter'?'Quarterly':'Daily'}
             </button>
           ))}
         </div>
