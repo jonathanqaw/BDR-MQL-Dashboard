@@ -1394,6 +1394,7 @@ export default function Dashboard() {
     saveSt(email,'new')
     setStatuses(p=>({...p,[email]:'new'}))
     setShowCreate(false)
+    syncToEdgeConfig()
   }
 
   // All leads = historical + manual + live (deduped by email AND domain)
