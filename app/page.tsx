@@ -1666,7 +1666,7 @@ export default function Dashboard() {
   const reportStatusCounts = {
     new: reportBaseLeads.filter(l => (statuses[l.email] || 'new') === 'new').length,
     contacted: reportBaseLeads.filter(l => (statuses[l.email] || 'new') === 'contacted').length,
-    inprogress: reportBaseLeads.filter(l => (statuses[l.email] || 'new') === 'closedwon').length,
+    closedwon: reportBaseLeads.filter(l => (statuses[l.email] || 'new') === 'closedwon').length,
     booked: reportBaseLeads.filter(l => (statuses[l.email] || 'new') === 'booked').length,
     nurture: reportBaseLeads.filter(l => (statuses[l.email] || 'new') === 'nurture').length,
     lost: reportBaseLeads.filter(l => (statuses[l.email] || 'new') === 'lost').length,
