@@ -1678,7 +1678,7 @@ export default function Dashboard() {
   const reportTotal = reportBaseLeads.length
   const reportSqlCount = reportBaseLeads.filter(l => (details[l.email]?.sqlDq || '').toLowerCase() === 'yes').length
   const reportSqoCount = reportBaseLeads.filter(l => (details[l.email]?.sqo || '').toLowerCase() === 'yes').length
-  const reportPipeline = reportBaseLeads.reduce((sum,l)=>sum + (parseInt(details[l.email]?.acv || '0') || 0), 0)
+  const reportPipeline = reportBaseLeads.reduce((sum,l)=>sum + parseAcv(details[l.email]?.acv), 0)
 
   const reportSummaryText = `Generated ${reportTotal} leads, ${reportSqlCount} SQLs (${pct(reportSqlCount, reportTotal)}%), ${reportSqoCount} SQOs (${pct(reportSqoCount, reportSqlCount || reportTotal)}%), and $${reportPipeline.toLocaleString()} in pipeline.`
 
@@ -1701,7 +1701,7 @@ export default function Dashboard() {
       acc[source].mqls += 1
       if ((details[lead.email]?.sqlDq || '').toLowerCase() === 'yes') acc[source].sqls += 1
       if ((details[lead.email]?.sqo || '').toLowerCase() === 'yes') acc[source].sqos += 1
-      acc[source].pipeline += parseInt(details[lead.email]?.acv || '0') || 0
+      acc[source].pipeline += parseAcv(details[lead.email]?.acv)
       return acc
     }, {} as Record<string,{mqls:number,sqls:number,sqos:number,pipeline:number}>)
   ).map(([source,vals])=>({
@@ -1719,7 +1719,7 @@ export default function Dashboard() {
 
     const sqls = repLeads.filter(l => (details[l.email]?.sqlDq || '').toLowerCase() === 'yes').length
     const sqos = repLeads.filter(l => (details[l.email]?.sqo || '').toLowerCase() === 'yes').length
-    const pipeline = repLeads.reduce((sum,l)=>sum + (parseInt(details[l.email]?.acv || '0') || 0), 0)
+    const pipeline = repLeads.reduce((sum,l)=>sum + parseAcv(details[l.email]?.acv), 0)
 
     return {
       name: rep.name,
@@ -1791,7 +1791,7 @@ export default function Dashboard() {
     const total = leads.length
     const sqls = leads.filter(l => (details[l.email]?.sqlDq || '').toLowerCase() === 'yes').length
     const sqos = leads.filter(l => (details[l.email]?.sqo || '').toLowerCase() === 'yes').length
-    const pipeline = leads.reduce((sum,l)=>sum + (parseInt(details[l.email]?.acv || '0') || 0), 0)
+    const pipeline = leads.reduce((sum,l)=>sum + parseAcv(details[l.email]?.acv), 0)
     return {
       total,
       sqls,
