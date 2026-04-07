@@ -936,7 +936,7 @@ const LIVE_QUALITY_START = '2026-04-02'
 
 function MQLQualityChart({allLeads,statuses,details}:{allLeads:AppLead[];statuses:Record<string,Status>;details:Record<string,LeadDetail>}) {
   const [hovered,  setHovered]  = useState<number|null>(null)
-  const [groupBy,  setGroupBy]  = useState<'day'|'week'>('week')
+  const [groupBy,  setGroupBy]  = useState<'day'|'week'|'quarter'>('week')
   const [fromDate, setFromDate] = useState('')
   const [toDate,   setToDate]   = useState('')
   const barH = 120
@@ -1007,10 +1007,10 @@ function MQLQualityChart({allLeads,statuses,details}:{allLeads:AppLead[];statuse
       {/* Controls */}
       <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:14,flexWrap:'wrap'}}>
         <div style={{display:'flex',gap:4}}>
-          {(['week','day'] as const).map(g=>(
+          {(['week','day','quarter'] as const).map(g=>(
             <button key={g} onClick={()=>setGroupBy(g)}
                     style={{fontSize:11,fontWeight:600,padding:'4px 10px',borderRadius:6,cursor:'pointer',border:`1px solid ${groupBy===g?C.purple:C.border2}`,background:groupBy===g?'rgba(123,110,246,0.18)':'transparent',color:groupBy===g?C.purpleL:C.text3}}>
-              {g==='week'?'Weekly':'Daily'}
+              {g==='week'?'Weekly':g==='day'?'Daily':'Quarterly'}
             </button>
           ))}
         </div>
@@ -1024,11 +1024,11 @@ function MQLQualityChart({allLeads,statuses,details}:{allLeads:AppLead[];statuse
           <button onClick={()=>{setFromDate('');setToDate('')}}
                   style={{fontSize:10,fontWeight:600,color:C.text3,background:'none',border:'none',cursor:'pointer',padding:'2px 6px'}}>✕ Clear</button>
         )}
-        <span style={{fontSize:10,color:C.text3,marginLeft:'auto'}}>{bars.length} {groupBy==='week'?'weeks':'days'} shown</span>
+        <span style={{fontSize:10,color:C.text3,marginLeft:'auto'}}>{bars.length} {groupBy==='week'?'weeks':groupBy==='quarter'?'quarters':'days'} shown</span>
       </div>
 
       {/* Bars */}
-      <div style={{display:'flex',alignItems:'flex-end',gap:groupBy==='week'?8:4,height:barH+40,position:'relative',overflowX:'hidden'}}>
+      <div style={{display:'flex',alignItems:'flex-end',gap:groupBy==='quarter'?12:groupBy==='week'?8:4,height:barH+40,position:'relative',overflowX:'hidden'}}>
         {bars.length===0&&(
           <div style={{fontSize:12,color:C.text3,padding:'40px 0'}}>No data for selected range</div>
         )}
@@ -1040,7 +1040,7 @@ function MQLQualityChart({allLeads,statuses,details}:{allLeads:AppLead[];statuse
           const lqH=Math.round((b.lq/maxTotal)*barH)
           return (
             <div key={i} onMouseEnter={()=>setHovered(i)} onMouseLeave={()=>setHovered(null)}
-                 style={{display:'flex',flexDirection:'column',alignItems:'center',flex:1,minWidth:groupBy==='week'?32:16,cursor:'default',transition:'opacity 0.15s',opacity:hovered!==null&&!isHov?0.4:1,position:'relative'}}>
+                 style={{display:'flex',flexDirection:'column',alignItems:'center',flex:1,minWidth:groupBy==='quarter'?60:groupBy==='week'?32:16,cursor:'default',transition:'opacity 0.15s',opacity:hovered!==null&&!isHov?0.4:1,position:'relative'}}>
               {isHov&&(
                 <div style={{position:'absolute',bottom:barH+10,left:'50%',transform:'translateX(-50%)',background:C.surface,border:`1px solid ${C.border2}`,borderRadius:6,padding:'6px 10px',zIndex:10,whiteSpace:'nowrap',boxShadow:'0 4px 12px rgba(0,0,0,0.4)'}}>
                   <div style={{fontSize:11,fontWeight:700,color:C.text,marginBottom:4}}>
@@ -1062,7 +1062,7 @@ function MQLQualityChart({allLeads,statuses,details}:{allLeads:AppLead[];statuse
                 {lqH>0&&<div style={{width:'100%',height:lqH,background:'#fb923c',flexShrink:0}}/>}
                 {hqH>0&&<div style={{width:'100%',height:hqH,background:C.amber,flexShrink:0}}/>}
               </div>
-              <span style={{fontSize:groupBy==='week'?9:7,color:isHov?(b.isLive?C.green:C.purpleL):C.text3,
+              <span style={{fontSize:groupBy==='quarter'?9:groupBy==='week'?9:7,color:isHov?(b.isLive?C.green:C.purpleL):C.text3,
                             whiteSpace:'nowrap',transform:'rotate(-35deg)',transformOrigin:'top center',
                             marginTop:4,display:'block',height:22,fontWeight:isHov?700:400}}>{b.label}</span>
             </div>
@@ -1490,7 +1490,7 @@ export default function Dashboard() {
       const d=new Date(l.receivedAt)
       if (chartFrom && d < new Date(chartFrom)) return
       if (chartTo   && d > new Date(chartTo+'T23:59:59')) return
-      const key=groupBy==='week'?getWeekLabel(d):getMonthLabel(d)
+      const key=groupBy==='week'?getWeekLabel(d):groupBy==='quarter'?getQuarterLabel(d):getMonthLabel(d)
       if (!groups.has(key)) groups.set(key,{label:key,date:d,byStatus:{new:0,contacted:0,inprogress:0,booked:0,nurture:0,lost:0,dq:0,na:0,closedwon:0},leads:[]})
       const s=statuses[l.email]||'new'
       groups.get(key)!.byStatus[s]++
@@ -2351,6 +2351,7 @@ export default function Dashboard() {
               {label:'SQOs',            value:sqoAllTime,                                                                                                color:'#c084fc', sub:'opp created'},
               {label:'Closed-Won',      value:allLeads.filter(l=>(details[l.email]?.closedWon||'')==='Yes'||(statuses[l.email]||'new')==='closedwon').length,                                     color:'#f59e0b', sub:'won accounts'},
               {label:'SQL rate',        value:`${allLeads.length?Math.round(sqlAllTime/allLeads.length*100):0}%`,                                        color:C.purpleL, sub:'SQL / total'},
+              {label:'SQO rate',        value:`${allLeads.length?Math.round(sqoAllTime/allLeads.length*100):0}%`,                                        color:'#c084fc', sub:'SQO / total'},
               {label:'Pipeline ACV',    value:`$${allLeads.reduce((s,l)=>{const d=details[l.email]; return s+((d?.sqo==='Yes'&&d?.acv)?parseAcv(d.acv):0)},0).toLocaleString()}`, color:C.amber, sub:'SQO accounts only'},
               {label:'Closed-Won ACV',  value:`$${allLeads.reduce((s,l)=>{const d=details[l.email]; return s+(((d?.closedWon==='Yes'||(statuses[l.email]||'new')==='closedwon')&&d?.acv)?parseAcv(d.acv):0)},0).toLocaleString()}`, color:'#f59e0b', sub:'won revenue'},
             ].map(s=>(
