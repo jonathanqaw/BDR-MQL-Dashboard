@@ -218,7 +218,7 @@ const STATUS_CONFIG: Record<Status,{label:string;color:string;dim:string;border:
   na:         {label:'N/A',         color:'rgba(255,255,255,0.25)', dim:'rgba(255,255,255,0.06)', border:'rgba(255,255,255,0.1)'},
 }
 const STRIPE: Record<Status,string> = {
-  new:'#322e60', contacted:'#7b6ef6', inprogress:'#3b82f6', booked:'#00e5a0',
+  new:'#322e60', contacted:'#7b6ef6', inprogress:'#3b82f6', booked:'#00e5a0', nurture:'#e879f9', lost:'#ff5c5c', dq:'#ff5c5c', na:'#1c1840', closedwon:'#00e5a0'
 }
 const C = {
   bg:'#13102a', surface:'#1c1840', surface2:'#231f4a', surface3:'#2a2654',
