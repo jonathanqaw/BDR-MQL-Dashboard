@@ -1384,7 +1384,7 @@ export default function Dashboard() {
     })
   },[currentRep?.id, auth?.role])
 
-  const updateStatus=(email:string,v:Status)=>{ saveSt(email,v); setStatuses(p=>({...p,[email]:v})); saveSnapshot('status'); syncToEdgeConfig() }
+  const updateStatus=(email:string,v:Status)=>{ saveSt(email,v); setStatuses(p=>({...p,[email]:v})); if(v==='closedwon'){const d={...(getDetails()[email]||EMPTY_DETAIL),closedWon:'Yes'};saveDetail(email,d);setDetails(p=>({...p,[email]:d}))} saveSnapshot('status'); syncToEdgeConfig() }
   const updateDetail=(email:string,d:LeadDetail)=>{ saveDetail(email,d); setDetails(p=>({...p,[email]:d})); saveSnapshot('detail'); syncToEdgeConfig() }
   const copyEmail=(email:string)=>{ navigator.clipboard.writeText(email).then(()=>{ setCopied(email); setTimeout(()=>setCopied(null),2000) }) }
 
@@ -1695,6 +1695,18 @@ export default function Dashboard() {
     { label:'DQ %', value:`${pct(reportStatusCounts.dq, reportTotal)}%`, sub:`${reportStatusCounts.dq} disqualified` },
     { label:'Nurture Pool', value:`${pct(reportStatusCounts.nurture, reportTotal)}%`, sub:`${reportStatusCounts.nurture} in nurture` },
   ]
+
+  const velocityData = (()=>{
+    const vc:number[]=[], vm:number[]=[], vw:number[]=[]
+    reportBaseLeads.forEach(l=>{
+      const d=details[l.email]; const r=new Date(l.receivedAt||l.date)
+      if(d?.connectedDate){const dy=Math.round((new Date(d.connectedDate).getTime()-r.getTime())/864e5);if(dy>=0&&dy<365)vc.push(dy)}
+      if(d?.meetingDate){const dy=Math.round((new Date(d.meetingDate).getTime()-r.getTime())/864e5);if(dy>=0&&dy<365)vm.push(dy)}
+      if(d?.closedWonDate&&(d?.closedWon==='Yes'||(statuses[l.email]||'new')==='closedwon')){const dy=Math.round((new Date(d.closedWonDate).getTime()-r.getTime())/864e5);if(dy>=0&&dy<730)vw.push(dy)}
+    })
+    const avg=(a:number[])=>a.length?Math.round(a.reduce((s,n)=>s+n,0)/a.length):null
+    return {connect:{avg:avg(vc),n:vc.length},meeting:{avg:avg(vm),n:vm.length},close:{avg:avg(vw),n:vw.length}}
+  })()
 
 
   const reportSourceRows = Object.entries(
@@ -2337,10 +2349,10 @@ export default function Dashboard() {
               {label:'Booked',          value:allLeads.filter(l=>(statuses[l.email]||'new')==='booked').length,                                          color:C.green,   sub:'meetings set'},
               {label:'SQLs',            value:sqlAllTime,                                                                                                color:'#60d4f4', sub:'SQL / DQ = Yes'},
               {label:'SQOs',            value:sqoAllTime,                                                                                                color:'#c084fc', sub:'opp created'},
-              {label:'Closed-Won',      value:allLeads.filter(l=>(details[l.email]?.closedWon||'')==='Yes').length,                                     color:'#f59e0b', sub:'won accounts'},
+              {label:'Closed-Won',      value:allLeads.filter(l=>(details[l.email]?.closedWon||'')==='Yes'||(statuses[l.email]||'new')==='closedwon').length,                                     color:'#f59e0b', sub:'won accounts'},
               {label:'SQL rate',        value:`${allLeads.length?Math.round(sqlAllTime/allLeads.length*100):0}%`,                                        color:C.purpleL, sub:'SQL / total'},
               {label:'Pipeline ACV',    value:`$${allLeads.reduce((s,l)=>{const d=details[l.email]; return s+((d?.sqo==='Yes'&&d?.acv)?parseAcv(d.acv):0)},0).toLocaleString()}`, color:C.amber, sub:'SQO accounts only'},
-              {label:'Closed-Won ACV',  value:`$${allLeads.reduce((s,l)=>{const d=details[l.email]; return s+((d?.closedWon==='Yes'&&d?.acv)?parseAcv(d.acv):0)},0).toLocaleString()}`, color:'#f59e0b', sub:'won revenue'},
+              {label:'Closed-Won ACV',  value:`$${allLeads.reduce((s,l)=>{const d=details[l.email]; return s+(((d?.closedWon==='Yes'||(statuses[l.email]||'new')==='closedwon')&&d?.acv)?parseAcv(d.acv):0)},0).toLocaleString()}`, color:'#f59e0b', sub:'won revenue'},
             ].map(s=>(
               <div key={s.label} style={card}>
                 <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:8}}>{s.label}</div>
@@ -2485,7 +2497,7 @@ export default function Dashboard() {
                 data={allLeads
                   .filter(l => {
                     const d = details[l.email]
-                    return d?.closedWon === 'Yes' && parseAcv(d?.acv) > 0
+                    return (d?.closedWon === 'Yes' || (statuses[l.email]||'new')==='closedwon') && parseAcv(d?.acv) > 0
                   })
                   .sort((a,b) => parseAcv(details[b.email]?.acv) - parseAcv(details[a.email]?.acv))
                   .slice(0,8)
@@ -2501,7 +2513,7 @@ export default function Dashboard() {
               />
               <div style={{fontSize:11,color:C.text3,marginTop:12}}>
                 Total closed-won ACV: $
-                {allLeads.reduce((s,l)=>{const d=details[l.email]; return s+((d?.closedWon==='Yes'&&d?.acv)?parseAcv(d.acv):0)},0).toLocaleString()}
+                {allLeads.reduce((s,l)=>{const d=details[l.email]; return s+(((d?.closedWon==='Yes'||(statuses[l.email]||'new')==='closedwon')&&d?.acv)?parseAcv(d.acv):0)},0).toLocaleString()}
               </div>
             </div>
           </div>
@@ -2596,12 +2608,12 @@ export default function Dashboard() {
             </div>
             <div style={card}>
               <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:8}}>Closed-Won Count</div>
-              <div style={{fontSize:24,fontWeight:800,color:'#f59e0b'}}>{allLeads.filter(l=>(details[l.email]?.closedWon||'')==='Yes').length}</div>
+              <div style={{fontSize:24,fontWeight:800,color:'#f59e0b'}}>{allLeads.filter(l=>(details[l.email]?.closedWon||'')==='Yes'||(statuses[l.email]||'new')==='closedwon').length}</div>
               <div style={{fontSize:11,color:C.text3,marginTop:5}}>won accounts</div>
             </div>
             <div style={card}>
               <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:8}}>Closed-Won ACV</div>
-              <div style={{fontSize:24,fontWeight:800,color:'#f59e0b'}}>${allLeads.reduce((s,l)=>{const d=details[l.email]; return s+((d?.closedWon==='Yes'&&d?.acv)?parseAcv(d.acv):0)},0).toLocaleString()}</div>
+              <div style={{fontSize:24,fontWeight:800,color:'#f59e0b'}}>${allLeads.reduce((s,l)=>{const d=details[l.email]; return s+(((d?.closedWon==='Yes'||(statuses[l.email]||'new')==='closedwon')&&d?.acv)?parseAcv(d.acv):0)},0).toLocaleString()}</div>
               <div style={{fontSize:11,color:C.text3,marginTop:5}}>won revenue</div>
             </div>
           </div>
@@ -2837,36 +2849,18 @@ export default function Dashboard() {
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
               <div style={card}>
                 <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:12}}>
-                  Trend Comparison
+                  Velocity Summary
                 </div>
                 <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12}}>
                   {[
-                    {
-                      label:'SQL Rate',
-                      current:`${currentPeriodMetrics.sqlRate}%`,
-                      prev:`${previousPeriodMetrics.sqlRate}% prev`,
-                      trend: sqlTrend
-                    },
-                    {
-                      label:'SQO Conversion',
-                      current:`${currentPeriodMetrics.sqoRate}%`,
-                      prev:`${previousPeriodMetrics.sqoRate}% prev`,
-                      trend: sqoTrend
-                    },
-                    {
-                      label:'Pipeline',
-                      current:`$${currentPeriodMetrics.pipeline.toLocaleString()}`,
-                      prev:`$${previousPeriodMetrics.pipeline.toLocaleString()} prev`,
-                      trend: pipelineTrend
-                    },
-                  ].map(card=>(
-                    <div key={card.label} style={{background:C.surface3,border:`1px solid ${C.border}`,borderRadius:10,padding:12}}>
-                      <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:8}}>{card.label}</div>
-                      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8}}>
-                        <div style={{fontSize:18,fontWeight:800,color:C.text}}>{card.current}</div>
-                        <div style={{fontSize:16,fontWeight:800,color:card.trend.color}}>{card.trend.arrow} {Math.abs(card.trend.delta)}</div>
-                      </div>
-                      <div style={{fontSize:11,color:C.text3,marginTop:4}}>{card.prev}</div>
+                    {label:'Avg Days to Connect',value:velocityData.connect.avg,n:velocityData.connect.n},
+                    {label:'Avg Days to Meeting',value:velocityData.meeting.avg,n:velocityData.meeting.n},
+                    {label:'Avg Days to Close',value:velocityData.close.avg,n:velocityData.close.n},
+                  ].map(c=>(
+                    <div key={c.label} style={{background:C.surface3,border:`1px solid ${C.border}`,borderRadius:10,padding:12}}>
+                      <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:8}}>{c.label}</div>
+                      <div style={{fontSize:18,fontWeight:800,color:c.value!==null?C.green:C.text3}}>{c.value!==null?`${c.value}d`:'N/A'}</div>
+                      <div style={{fontSize:11,color:C.text3,marginTop:4}}>{c.n} lead{c.n!==1?'s':''} measured</div>
                     </div>
                   ))}
                 </div>
