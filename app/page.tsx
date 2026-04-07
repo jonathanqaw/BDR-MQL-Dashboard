@@ -22,7 +22,7 @@ const MANAGER_PASSCODE = 'johnnywolfpack2026'
 type AuthState = { role: 'manager' } | { role: 'rep'; repId: string } | null
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type Status       = 'new' | 'contacted' | 'booked' | 'nurture' | 'lost' | 'na' | 'dq' | 'inprogress'
+type Status       = 'new' | 'contacted' | 'booked' | 'nurture' | 'lost' | 'na' | 'dq' | 'inprogress' | 'closedwon'
 type View         = 'pipeline' | 'analytics' | 'reporting'
 type PeriodFilter = 'week' | 'month' | 'quarter' | 'all'
 type WorkedFilter = 'all' | 'worked' | 'untouched'
@@ -92,12 +92,12 @@ const HISTORICAL_LEADS: AppLead[] = [
 // Historical default statuses & details
 const HISTORICAL_STATUSES: Record<string,Status> = {
   'logicmonitor@historical':      'booked',
-  'kenanadvantage@historical':    'inprogress',
-  'evoke@historical':             'inprogress',
-  'gatewayticketing@historical':  'inprogress',
+  'kenanadvantage@historical':    'inprogress' | 'closedwon',
+  'evoke@historical':             'inprogress' | 'closedwon',
+  'gatewayticketing@historical':  'inprogress' | 'closedwon',
   'trackunit@historical':         'booked',
   'harrys@historical':            'booked',
-  'decisionresources@historical': 'inprogress',
+  'decisionresources@historical': 'inprogress' | 'closedwon',
   'everydayhealth@historical':    'booked',
   'tradera@historical':           'dq',
   'vidmob@historical':            'booked',
@@ -112,7 +112,7 @@ const HISTORICAL_STATUSES: Record<string,Status> = {
   'yassir@historical':            'lost',
   'westjet@historical':           'nurture',
   'robbinsresearch@historical':   'lost',
-  'cradle@historical':            'inprogress',
+  'cradle@historical':            'inprogress' | 'closedwon',
   'onephase@historical':          'booked',
   'novemberfive@historical':      'nurture',
   'north@historical':             'booked',
@@ -120,9 +120,9 @@ const HISTORICAL_STATUSES: Record<string,Status> = {
   'nuqleous@historical':          'booked',
   'playtech@historical':          'booked',
   'azets@historical':             'nurture',
-  'jpmorganchase@historical':     'inprogress',
-  'pex@historical':               'inprogress',
-  'productleague@historical':     'inprogress',
+  'jpmorganchase@historical':     'inprogress' | 'closedwon',
+  'pex@historical':               'inprogress' | 'closedwon',
+  'productleague@historical':     'inprogress' | 'closedwon',
 }
 
 const HISTORICAL_DETAILS: Record<string,Partial<LeadDetail>> = {
@@ -206,7 +206,8 @@ const LIVE_PROSPECT_NAMES: Record<string,string> = {
   'alice.porcu@check24.de':                  'Alice Porcu',
   'jochen@norento.com':                      'Jochen Norento',
 }
-const STATUS_CONFIG: Record<Status,{label:string;color:string;dim:string;border:string}> = {
+const STATUS_CONFIG: Record<Status,{label:string;color:string;dim:string;border:string  closedwon: {label:'Closed-Won', color:'#34d399', dim:'rgba(52,211,153,0.15)', border:'rgba(52,211,153,0.4)'},
+}> = {
   new:        {label:'New',         color:'rgba(255,255,255,0.38)', dim:'#2a2654',               border:'rgba(255,255,255,0.13)'},
   contacted:  {label:'Contacted',   color:'#a89cf8',                dim:'rgba(123,110,246,0.18)', border:'rgba(123,110,246,0.4)'},
   inprogress: {label:'In Progress', color:'#60a5fa',                dim:'rgba(96,165,250,0.15)',  border:'rgba(96,165,250,0.35)'},
@@ -791,7 +792,7 @@ function BarChart({bars,title,statuses:stMap,details:dets,onViewLead}:{
   const [hovered,setHovered]=useState<number|null>(null)
   const [selected,setSelected]=useState<number|null>(null)
   const maxTotal=Math.max(...bars.map(b=>b.total),1)
-  const stOrder:Status[]=['new','contacted','inprogress','booked','nurture','lost','dq','na']
+  const stOrder:Status[]=['new','contacted','inprogress' | 'closedwon','booked','nurture','lost','dq','na','closedwon']
 
   const selectedBar=selected!==null?bars[selected]:null
 
@@ -1666,7 +1667,7 @@ export default function Dashboard() {
   const reportStatusCounts = {
     new: reportBaseLeads.filter(l => (statuses[l.email] || 'new') === 'new').length,
     contacted: reportBaseLeads.filter(l => (statuses[l.email] || 'new') === 'contacted').length,
-    inprogress: reportBaseLeads.filter(l => (statuses[l.email] || 'new') === 'inprogress').length,
+    inprogress: reportBaseLeads.filter(l => (statuses[l.email] || 'new') === 'inprogress' | 'closedwon').length,
     booked: reportBaseLeads.filter(l => (statuses[l.email] || 'new') === 'booked').length,
     nurture: reportBaseLeads.filter(l => (statuses[l.email] || 'new') === 'nurture').length,
     lost: reportBaseLeads.filter(l => (statuses[l.email] || 'new') === 'lost').length,
@@ -2406,7 +2407,7 @@ export default function Dashboard() {
                   leads,
                   total: leads.length,
                   values: [
-                    { status:'inprogress' as const, count: leads.filter(l => { const d = details[l.email]; const s = statuses[l.email]||'new'; return d?.closedWon!=='Yes' && s!=='lost' && s!=='dq' }).length },
+                    { status:'inprogress' | 'closedwon' as const, count: leads.filter(l => { const d = details[l.email]; const s = statuses[l.email]||'new'; return d?.closedWon!=='Yes' && s!=='lost' && s!=='dq' }).length },
                     { status:'lost' as const, count: leads.filter(l => { const d = details[l.email]; const s = statuses[l.email]||'new'; return d?.closedWon!=='Yes' && (s==='lost' || s==='dq') }).length },
                     { status:'booked' as const, count: leads.filter(l => (details[l.email]?.closedWon||'')==='Yes').length },
                   ]
