@@ -1699,7 +1699,7 @@ export default function Dashboard() {
   const velocityData = (()=>{
     const vc:number[]=[], vm:number[]=[], vw:number[]=[]
     reportBaseLeads.forEach(l=>{
-      const d=details[l.email]; const r=new Date(l.receivedAt||l.date)
+      const d=details[l.email]; const r=new Date(l.receivedAt||l.date||Date.now())
       if(d?.connectedDate){const dy=Math.round((new Date(d.connectedDate).getTime()-r.getTime())/864e5);if(dy>=0&&dy<365)vc.push(dy)}
       if(d?.meetingDate){const dy=Math.round((new Date(d.meetingDate).getTime()-r.getTime())/864e5);if(dy>=0&&dy<365)vm.push(dy)}
       if(d?.closedWonDate&&(d?.closedWon==='Yes'||(statuses[l.email]||'new')==='closedwon')){const dy=Math.round((new Date(d.closedWonDate).getTime()-r.getTime())/864e5);if(dy>=0&&dy<730)vw.push(dy)}
