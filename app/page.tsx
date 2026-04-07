@@ -1684,14 +1684,14 @@ export default function Dashboard() {
   const workedLeads = reportBaseLeads.filter(l => (statuses[l.email] || 'new') !== 'new')
   const meetingLeads = reportBaseLeads.filter(l => ['booked','closedwon'].includes(statuses[l.email] || 'new') || (details[l.email]?.sqlDq || '').toLowerCase() === 'yes')
   const reportRatioCards = [
-    { label:'Contact Rate', value:, sub: },
-    { label:'Meeting Rate', value:, sub: },
-    { label:'SQL Rate', value:, sub: },
-    { label:'SQO Rate', value:, sub: },
-    { label:'Win Rate', value:, sub: },
-    { label:'Lost %', value:, sub: },
-    { label:'DQ %', value:, sub: },
-    { label:'Nurture Pool', value:, sub: },
+    { label:'Contact Rate', value:`${pct(workedLeads.length, reportTotal)}%`, sub:`${workedLeads.length} of ${reportTotal} leads touched` },
+    { label:'Meeting Rate', value:`${pct(meetingLeads.length, reportTotal)}%`, sub:`${meetingLeads.length} meetings or SQLs` },
+    { label:'SQL Rate', value:`${pct(reportSqlCount, reportTotal)}%`, sub:`${reportSqlCount} SQLs from ${reportTotal} leads` },
+    { label:'SQO Rate', value:`${pct(reportSqoCount, reportTotal)}%`, sub:`${reportSqoCount} SQOs created` },
+    { label:'Win Rate', value:`${pct(reportStatusCounts.closedwon, reportTotal)}%`, sub:`${reportStatusCounts.closedwon} closed-won` },
+    { label:'Lost %', value:`${pct(reportStatusCounts.lost, reportTotal)}%`, sub:`${reportStatusCounts.lost} lost` },
+    { label:'DQ %', value:`${pct(reportStatusCounts.dq, reportTotal)}%`, sub:`${reportStatusCounts.dq} disqualified` },
+    { label:'Nurture Pool', value:`${pct(reportStatusCounts.nurture, reportTotal)}%`, sub:`${reportStatusCounts.nurture} in nurture` },
   ]
 
 
