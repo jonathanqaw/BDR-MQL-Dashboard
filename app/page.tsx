@@ -206,8 +206,7 @@ const LIVE_PROSPECT_NAMES: Record<string,string> = {
   'alice.porcu@check24.de':                  'Alice Porcu',
   'jochen@norento.com':                      'Jochen Norento',
 }
-const STATUS_CONFIG: Record<Status,{label:string;color:string;dim:string;border:string  closedwon: {label:'Closed-Won', color:'#34d399', dim:'rgba(52,211,153,0.15)', border:'rgba(52,211,153,0.4)'},
-}> = {
+const STATUS_CONFIG: Record<Status,{label:string;color:string;dim:string;border:string}> = {
   new:        {label:'New',         color:'rgba(255,255,255,0.38)', dim:'#2a2654',               border:'rgba(255,255,255,0.13)'},
   contacted:  {label:'Contacted',   color:'#a89cf8',                dim:'rgba(123,110,246,0.18)', border:'rgba(123,110,246,0.4)'},
   inprogress: {label:'In Progress', color:'#60a5fa',                dim:'rgba(96,165,250,0.15)',  border:'rgba(96,165,250,0.35)'},
@@ -219,7 +218,7 @@ const STATUS_CONFIG: Record<Status,{label:string;color:string;dim:string;border:
 }
 const STRIPE: Record<Status,string> = {
   new:'#322e60', contacted:'#7b6ef6', inprogress:'#3b82f6', booked:'#00e5a0',
-  nurture:'#e879f9', lost:'#ff5c5c', dq:'#ff5c5c', na:'#1c1840'
+  nurture:'#e879f9', lost:'#ff5c5c', dq:'#ff5c5c', na:'#1c1840', closedwon:'#34d399'
 }
 const C = {
   bg:'#13102a', surface:'#1c1840', surface2:'#231f4a', surface3:'#2a2654',
