@@ -22,7 +22,7 @@ const MANAGER_PASSCODE = 'johnnywolfpack2026'
 type AuthState = { role: 'manager' } | { role: 'rep'; repId: string } | null
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type Status       = 'new' | 'contacted' | 'booked' | 'nurture' | 'lost' | 'na' | 'dq' | 'closedwon'
+type Status       = 'new' | 'contacted' | 'inprogress' | 'booked' | 'nurture' | 'lost' | 'na' | 'dq' | 'closedwon'
 type View         = 'pipeline' | 'analytics' | 'reporting'
 type PeriodFilter = 'week' | 'month' | 'quarter' | 'all'
 type WorkedFilter = 'all' | 'worked' | 'untouched'
