@@ -1020,7 +1020,7 @@ function MQLQualityChart({allLeads,statuses,details}:{allLeads:AppLead[];statuse
       {/* Controls */}
       <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:14,flexWrap:'wrap'}}>
         <div style={{display:'flex',gap:4}}>
-          {(['week','quarter','day'] as const).map(g=>(
+          {(['quarter','week','day'] as const).map(g=>(
             <button key={g} onClick={()=>setGroupBy(g)}
                     style={{fontSize:11,fontWeight:600,padding:'4px 10px',borderRadius:6,cursor:'pointer',border:`1px solid ${groupBy===g?C.purple:C.border2}`,background:groupBy===g?'rgba(123,110,246,0.18)':'transparent',color:groupBy===g?C.purpleL:C.text3}}>
               {g==='week'?'Weekly':g==='quarter'?'Quarterly':'Daily'}
