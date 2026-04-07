@@ -1681,16 +1681,17 @@ export default function Dashboard() {
   const reportPipeline = reportBaseLeads.reduce((sum,l)=>sum + parseAcv(details[l.email]?.acv), 0)
 
   const reportSummaryText = `Generated ${reportTotal} leads, ${reportSqlCount} SQLs (${pct(reportSqlCount, reportTotal)}%), ${reportSqoCount} SQOs (${pct(reportSqoCount, reportSqlCount || reportTotal)}%), and $${reportPipeline.toLocaleString()} in pipeline.`
-
+  const workedLeads = reportBaseLeads.filter(l => (statuses[l.email] || 'new') !== 'new')
+  const meetingLeads = reportBaseLeads.filter(l => ['booked','closedwon'].includes(statuses[l.email] || 'new') || (details[l.email]?.sqlDq || '').toLowerCase() === 'yes')
   const reportRatioCards = [
-    { label:'New → Contacted', value:`${pct(reportStatusCounts.contacted, reportStatusCounts.new || reportStatusCounts.contacted)}%`, sub:`${reportStatusCounts.contacted} progressed` },
-    { label:'Contacted → In Progress', value:`${pct(reportStatusCounts.inprogress, reportStatusCounts.contacted || reportStatusCounts.inprogress)}%`, sub:`${reportStatusCounts.inprogress} progressed` },
-    { label:'In Progress → Booked', value:`${pct(reportStatusCounts.booked, reportStatusCounts.inprogress || reportStatusCounts.booked)}%`, sub:`${reportStatusCounts.booked} progressed` },
-    { label:'Booked → SQL', value:`${pct(reportSqlCount, reportStatusCounts.booked || reportSqlCount)}%`, sub:`${reportSqlCount} SQLs` },
-    { label:'SQL → SQO', value:`${pct(reportSqoCount, reportSqlCount || reportSqoCount)}%`, sub:`${reportSqoCount} SQOs` },
-    { label:'Lost %', value:`${pct(reportStatusCounts.lost, reportTotal)}%`, sub:`${reportStatusCounts.lost} lost` },
-    { label:'DQ %', value:`${pct(reportStatusCounts.dq, reportTotal)}%`, sub:`${reportStatusCounts.dq} DQ` },
-    { label:'Nurture Pool', value:`${pct(reportStatusCounts.nurture, reportTotal)}%`, sub:`${reportStatusCounts.nurture} in nurture` },
+    { label:'Contact Rate', value:, sub: },
+    { label:'Meeting Rate', value:, sub: },
+    { label:'SQL Rate', value:, sub: },
+    { label:'SQO Rate', value:, sub: },
+    { label:'Win Rate', value:, sub: },
+    { label:'Lost %', value:, sub: },
+    { label:'DQ %', value:, sub: },
+    { label:'Nurture Pool', value:, sub: },
   ]
 
 
