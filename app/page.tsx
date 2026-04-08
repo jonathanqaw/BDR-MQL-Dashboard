@@ -2090,13 +2090,6 @@ export default function Dashboard() {
         ))}
         <div style={{height:1,background:C.border,margin:'10px 0'}}/>
         <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.1em',padding:'6px 20px 4px'}}>{currentRep.name}</div>
-
-
-
-
-
-
-        </div>
         <div style={{height:1,background:C.border,margin:'10px 0'}}/>
         <div style={{padding:'8px 20px'}}>
           <button onClick={fetchLeads} disabled={loading} style={{display:'flex',alignItems:'center',gap:7,fontSize:12,fontWeight:700,color:C.bg,background:C.green,border:'none',borderRadius:7,padding:'8px 14px',cursor:loading?'default':'pointer',opacity:loading?0.6:1,width:'100%',justifyContent:'center'}}>
