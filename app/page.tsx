@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import React from 'react'
 import type { Lead } from '@/lib/slack'
-import SalesforceWidget from './components/SalesforceWidget'
+
 
 // ─── Rep Registry ─────────────────────────────────────────────────────────────
 // Manager edits these in-dashboard. Stored in Edge Config under 'rep_registry'.
@@ -590,44 +590,44 @@ function DetailPanel({lead,detail,onSave,onClose}:{lead:AppLead;detail:LeadDetai
               <div style={{fontSize:11,color:C.text3}}>
                 {lead.isHistorical?'Historical record':lead.email}
                 {(lead.sfUrl||d.sfLink)&&<a href={lead.sfUrl||d.sfLink} target="_blank" rel="noopener noreferrer" style={{color:C.green,textDecoration:'none',marginLeft:8}}>↗ Open in SF</a>}
-                <button
-                  onClick={async()=>{
-                    const url = lead.sfUrl || d.sfLink
-                    if (!url) {
-                      alert('Add a Salesforce link first.')
-                      return
-                    }
-                    try {
-                      setHydrating(true)
-                      const res = await fetch('http://localhost:3030/hydrate', {
-                        method:'POST',
-                        headers:{'Content-Type':'application/json'},
-                        body: JSON.stringify({ url })
-                      })
-                      const json = await res.json()
-                      if (!json?.success || !json?.data) {
-                        alert('Hydration failed.')
-                        return
-                      }
-                      const data = json.data
-                      setD(prev => ({
-                        ...prev,
-                        prospectName: data.name || prev.prospectName,
-                        title: data.title || prev.title,
-                        sfLink: data.url || url,
-                        sqlDate: toDateInputValue(data.sqlDate || prev.sqlDate),
-                        connectedDate: toDateInputValue(data.mqlDate || prev.connectedDate),
-                        meetingDate: toDateInputValue(data.meetingBookedDate || prev.meetingDate),
-                      }))
-                    } catch {
-                      alert('Could not reach local Salesforce agent.')
-                    } finally {
-                      setHydrating(false)
-                    }
-                  }}
-                  style={{marginLeft:8,fontSize:11,fontWeight:600,padding:'4px 10px',borderRadius:999,border:`1px solid ${C.purple}`,background:'rgba(123,110,246,0.14)',color:C.purpleL,cursor:'pointer'}}
-                >
-                  {hydrating ? 'Hydrating…' : 'Hydrate from SF'}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
                 </button>
               </div>
             </div>
@@ -2129,12 +2129,12 @@ export default function Dashboard() {
         ))}
         <div style={{height:1,background:C.border,margin:'10px 0'}}/>
         <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.1em',padding:'6px 20px 4px'}}>{currentRep.name}</div>
-        <div style={{display:'flex',alignItems:'center',gap:10,padding:'8px 20px'}}>
-          <div style={{width:26,height:26,borderRadius:6,background:C.surface3,display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:700,color:C.text3,flexShrink:0}}>SF</div>
-          <div>
-            <div style={{fontSize:12,fontWeight:500,color:C.text2}}>Salesforce</div>
-            <div style={{fontSize:11,color:C.text3}}>qawolf1.my.salesforce.com</div>
-          </div>
+
+
+
+
+
+
         </div>
         <div style={{height:1,background:C.border,margin:'10px 0'}}/>
         <div style={{padding:'8px 20px'}}>
@@ -2274,7 +2274,7 @@ export default function Dashboard() {
             ))}
           </div>
 
-          <SalesforceWidget />
+
 
           {/* Status breakdown — clickable */}
           <div style={{...card,marginBottom:20}}>
