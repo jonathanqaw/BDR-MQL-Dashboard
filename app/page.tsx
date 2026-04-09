@@ -1267,6 +1267,7 @@ export default function Dashboard() {
   const [nameOverrides,setNameOverrides]=useState<Record<string,string>>({})
   const [deletedEmails,setDeletedEmails]=useState<Set<string>>(new Set())
   const [showHistory,setShowHistory]=useState(false)
+  const [expandedMonth,setExpandedMonth]=useState<string|null>(null)
 
   const getManualLeads=():AppLead[]=>{ try { return JSON.parse(localStorage.getItem('mql-manual')||'[]') } catch { return [] } }
   const saveManualLeads=(leads:AppLead[])=>{ localStorage.setItem('mql-manual',JSON.stringify(leads)) }
@@ -3038,9 +3039,6 @@ export default function Dashboard() {
             const data = buildRepCommissions(repLeads)
             return { rep, ...data }
           }) : []
-
-          // Expanded month for lead attribution
-          const [expandedMonth, setExpandedMonth] = React.useState<string|null>(null)
 
           return (<>
           <div style={{marginBottom:28}}>
