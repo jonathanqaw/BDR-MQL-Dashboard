@@ -1366,17 +1366,35 @@ export default function Dashboard() {
 
   useEffect(()=>{ setStatuses(getSt()); setDetails(getDetails()); fetchLeads() },[fetchLeads])
 
-  // Load Edge Config data only when manager switches to a different rep
+  // Load Edge Config data on initial auth AND when manager switches reps
   const prevRepId = useRef<string|null>(null)
+  const initialEcLoaded = useRef(false)
   useEffect(()=>{
     if (!currentRep?.slackId) return
-    if (prevRepId.current === null) { prevRepId.current = currentRep.id; return }  // skip first load
-    if (prevRepId.current === currentRep.id) return  // same rep, don't reload
-    if (auth?.role !== 'manager') return  // only manager switches reps
+
+    const isFirstAuth = !initialEcLoaded.current && auth
+    const isRepSwitch = prevRepId.current !== null && prevRepId.current !== currentRep.id && auth?.role === 'manager'
+
+    if (!isFirstAuth && !isRepSwitch) {
+      if (prevRepId.current === null) prevRepId.current = currentRep.id
+      return
+    }
+
     prevRepId.current = currentRep.id
+    if (isFirstAuth) initialEcLoaded.current = true
+
     loadFromEdgeConfig(currentRep.slackId).then(()=>{
-      setStatuses(getSt()); setDetails(getDetails())
-      setManualLeads(getManualLeads()); setDeletedEmails(getDeletedEmails())
+      // Re-seed historical entries on top of Edge Config data
+      const st=getSt(); const dt=getDetails()
+      HISTORICAL_LEADS.forEach(l=>{
+        if (!st[l.email]) st[l.email]=HISTORICAL_STATUSES[l.email]||'new'
+        if (!dt[l.email]) dt[l.email]={...EMPTY_DETAIL,...(HISTORICAL_DETAILS[l.email]||{})}
+      })
+      localStorage.setItem('mql-st',JSON.stringify(st))
+      localStorage.setItem('mql-dt',JSON.stringify(dt))
+      setStatuses(st); setDetails(dt)
+      setManualLeads(getManualLeads()); setNameOverrides(getNameOverrides())
+      setDeletedEmails(getDeletedEmails())
     })
   },[currentRep?.id, auth?.role])
 
