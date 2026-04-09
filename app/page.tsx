@@ -23,7 +23,10 @@ type AuthState = { role: 'manager' } | { role: 'rep'; repId: string } | null
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Status       = 'new' | 'contacted' | 'inprogress' | 'booked' | 'nurture' | 'lost' | 'na' | 'dq' | 'closedwon'
-type View         = 'pipeline' | 'analytics' | 'reporting' | 'commissions'
+type View         = 'pipeline' | 'analytics' | 'reporting' | 'commissions' | 'leaderboard'
+type LbMetric     = 'meetings' | 'meetings_held' | 'sqls' | 'sqos'
+type LbPeriod     = 'today' | 'week' | 'month' | 'quarter' | 'year' | 'all'
+interface Spiff { id:string; title:string; description:string; metric:LbMetric; target:number; reward:string; startDate:string; endDate:string; createdBy:string; active:boolean }
 type PeriodFilter = 'week' | 'month' | 'quarter' | 'all'
 type WorkedFilter = 'all' | 'worked' | 'untouched'
 type StatusFilter = 'all' | Status
@@ -1143,10 +1146,21 @@ export default function Dashboard() {
       const a:AuthState = { role:'rep', repId: repParam }
       setAuth(a); sessionStorage.setItem('mql-auth', JSON.stringify(a))
     }
+    // Public leaderboard access via ?view=leaderboard
+    const viewParam = params.get('view')
+    if (viewParam === 'leaderboard') {
+      setView('leaderboard')
+      if (!saved && !repParam) {
+        const a:AuthState = { role:'rep', repId: 'jonathan' }
+        setAuth(a); sessionStorage.setItem('mql-auth', JSON.stringify(a))
+      }
+    }
     // Load rep registry from Edge Config
     fetch('/api/rep-data?repId=__registry__').then(r=>r.json()).then(({data})=>{
       if (data?.reps) setReps(data.reps)
     }).catch(()=>{})
+    // Load spiffs from localStorage
+    try { const s=JSON.parse(localStorage.getItem('mql-spiffs')||'[]'); if(Array.isArray(s)) setSpiffs(s) } catch {}
   },[])
 
   const handleLogin=()=>{
@@ -1194,6 +1208,7 @@ export default function Dashboard() {
         names:    localStorage.getItem('mql-names'),
         manual:   localStorage.getItem('mql-manual'),
         deleted:  localStorage.getItem('mql-deleted'),
+        spiffs:   localStorage.getItem('mql-spiffs'),
         savedAt:  new Date().toISOString(),
       }
       await fetch('/api/rep-data', {
@@ -1268,6 +1283,11 @@ export default function Dashboard() {
   const [deletedEmails,setDeletedEmails]=useState<Set<string>>(new Set())
   const [showHistory,setShowHistory]=useState(false)
   const [expandedMonth,setExpandedMonth]=useState<string|null>(null)
+  const [lbMetric,setLbMetric]=useState<LbMetric>('meetings')
+  const [lbPeriod,setLbPeriod]=useState<LbPeriod>('month')
+  const [spiffs,setSpiffs]=useState<Spiff[]>([])
+  const [showSpiffModal,setShowSpiffModal]=useState(false)
+  const [editingSpiff,setEditingSpiff]=useState<Spiff|null>(null)
 
   const getManualLeads=():AppLead[]=>{ try { return JSON.parse(localStorage.getItem('mql-manual')||'[]') } catch { return [] } }
   const saveManualLeads=(leads:AppLead[])=>{ localStorage.setItem('mql-manual',JSON.stringify(leads)) }
@@ -2081,6 +2101,7 @@ export default function Dashboard() {
           ['analytics','📈','Analytics','Charts · trends · breakdown'],
           ...(auth?.role==='manager' ? [['reporting','🧾','Reporting','Generated summaries · leadership-ready'] as const] : []),
           ['commissions','💲','Commissions','Bonus tracking · payouts'] as const,
+          ['leaderboard','🏆','Leaderboard','Rep rankings · spiffs'] as const,
         ] as const).map(([v,icon,label,sub])=>(
           <div key={v} style={navBtn(view===v as View)} onClick={()=>setView(v as View)}>
             <div style={{width:26,height:26,borderRadius:6,background:view===v?C.purple:C.surface3,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,color:view===v?'#fff':C.text3,flexShrink:0}}>{icon}</div>
@@ -3240,6 +3261,352 @@ export default function Dashboard() {
           )}
           </>)
         })()}
+
+
+        {/* ══════════════════════════════════════════════════════
+            LEADERBOARD VIEW
+        ══════════════════════════════════════════════════════ */}
+        {view==='leaderboard'&&(()=>{
+          const LB_METRIC_LABELS: Record<LbMetric,string> = { meetings:'Meetings Booked', meetings_held:'Meetings Held', sqls:'SQLs', sqos:'SQOs' }
+          const LB_PERIOD_LABELS: Record<LbPeriod,string> = { today:'Today', week:'This Week', month:'This Month', quarter:'This Quarter', year:'This Year', all:'All Time' }
+
+          // Period range
+          const now = new Date()
+          const getPeriodRange = (p: LbPeriod): { start: Date; end: Date } => {
+            const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59)
+            let start = new Date('2020-01-01')
+            if (p === 'today') { start = new Date(now.getFullYear(), now.getMonth(), now.getDate()) }
+            else if (p === 'week') { start = new Date(now); start.setDate(now.getDate() - now.getDay()); start.setHours(0,0,0,0) }
+            else if (p === 'month') { start = new Date(now.getFullYear(), now.getMonth(), 1) }
+            else if (p === 'quarter') { start = new Date(now.getFullYear(), Math.floor(now.getMonth()/3)*3, 1) }
+            else if (p === 'year') { start = new Date(now.getFullYear(), 0, 1) }
+            return { start, end }
+          }
+
+          const { start: lbStart, end: lbEnd } = getPeriodRange(lbPeriod)
+          const inLbRange = (dateStr: string | undefined) => {
+            if (!dateStr) return false
+            const d = new Date(dateStr)
+            return !isNaN(d.getTime()) && d >= lbStart && d <= lbEnd
+          }
+
+          // Count metric for a set of leads
+          const countMetric = (leads: AppLead[], metric: LbMetric): number => {
+            switch (metric) {
+              case 'meetings':
+                return leads.filter(l => {
+                  const det = details[l.email]
+                  return det?.meetingDate && inLbRange(det.meetingDate)
+                }).length
+              case 'meetings_held':
+                return leads.filter(l => {
+                  const det = details[l.email]
+                  if (!det?.meetingDate || !inLbRange(det.meetingDate)) return false
+                  const md = new Date(det.meetingDate)
+                  if (md > now) return false
+                  const s = statuses[l.email] || 'new'
+                  return ['booked','inprogress','closedwon'].includes(s) || (det.sqlDq||'').toLowerCase()==='yes'
+                }).length
+              case 'sqls':
+                return leads.filter(l => {
+                  const det = details[l.email]
+                  return (det?.sqlDq||'').toLowerCase()==='yes' && det?.sqlDate && inLbRange(det.sqlDate)
+                }).length
+              case 'sqos':
+                return leads.filter(l => {
+                  const det = details[l.email]
+                  return (det?.sqo||'').toLowerCase()==='yes' && det?.sqoDate && inLbRange(det.sqoDate)
+                }).length
+            }
+          }
+
+          // Build leaderboard rows for all reps
+          // Use all data (historical + live + manual) unfiltered by current rep
+          const allLeadsUnfiltered: AppLead[] = [
+            ...HISTORICAL_LEADS,
+            ...manualLeads.filter(l => !HISTORICAL_LEADS.some(h => h.email === l.email)),
+            ...liveLeads.filter(l => !HISTORICAL_LEADS.some(h => h.email === l.email) && !manualLeads.some(m => m.email === l.email) && !new Set(HISTORICAL_LEADS.map(h=>h.domain)).has(l.domain)),
+          ].filter(l => !deletedEmails.has(l.email))
+
+          const lbRows = reps
+            .filter(r => r.slackId)
+            .map(rep => {
+              const repLeads = rep.id === 'jonathan'
+                ? allLeadsUnfiltered.filter(l => !l.repSlackId || l.repSlackId === rep.slackId)
+                : allLeadsUnfiltered.filter(l => l.repSlackId === rep.slackId)
+              const count = countMetric(repLeads, lbMetric)
+              return { rep, count }
+            })
+            .sort((a, b) => b.count - a.count)
+
+          const maxCount = Math.max(1, ...lbRows.map(r => r.count))
+          const medalColors = ['#FFD700', '#C0C0C0', '#CD7F32']
+          const currentRepId = auth?.role === 'rep' ? (auth as {role:'rep';repId:string}).repId : null
+
+          // Active spiff
+          const todayStr = now.toISOString().split('T')[0]
+          const activeSpiff = spiffs.find(s => s.active && s.startDate <= todayStr && s.endDate >= todayStr) || null
+
+          // Spiff save helper
+          const saveSpiffs = (updated: Spiff[]) => {
+            setSpiffs(updated)
+            localStorage.setItem('mql-spiffs', JSON.stringify(updated))
+            syncToEdgeConfig()
+          }
+
+          // Spiff progress per rep
+          const spiffLeaderProgress = activeSpiff ? lbRows
+            .map(r => {
+              const repLeads = r.rep.id === 'jonathan'
+                ? allLeadsUnfiltered.filter(l => !l.repSlackId || l.repSlackId === r.rep.slackId)
+                : allLeadsUnfiltered.filter(l => l.repSlackId === r.rep.slackId)
+              // Use spiff date range
+              const spiffStart = new Date(activeSpiff.startDate)
+              const spiffEnd = new Date(activeSpiff.endDate + 'T23:59:59')
+              const inSpiffRange = (dateStr: string | undefined) => {
+                if (!dateStr) return false
+                const d = new Date(dateStr)
+                return !isNaN(d.getTime()) && d >= spiffStart && d <= spiffEnd
+              }
+              let count = 0
+              const m = activeSpiff.metric
+              if (m === 'meetings') count = repLeads.filter(l => { const det=details[l.email]; return det?.meetingDate && inSpiffRange(det.meetingDate) }).length
+              else if (m === 'meetings_held') count = repLeads.filter(l => { const det=details[l.email]; if(!det?.meetingDate||!inSpiffRange(det.meetingDate)) return false; const md=new Date(det.meetingDate); if(md>now) return false; const s=statuses[l.email]||'new'; return ['booked','inprogress','closedwon'].includes(s)||(det.sqlDq||'').toLowerCase()==='yes' }).length
+              else if (m === 'sqls') count = repLeads.filter(l => { const det=details[l.email]; return (det?.sqlDq||'').toLowerCase()==='yes'&&det?.sqlDate&&inSpiffRange(det.sqlDate) }).length
+              else if (m === 'sqos') count = repLeads.filter(l => { const det=details[l.email]; return (det?.sqo||'').toLowerCase()==='yes'&&det?.sqoDate&&inSpiffRange(det.sqoDate) }).length
+              return { rep: r.rep, count }
+            })
+            .sort((a,b) => b.count - a.count)
+            : []
+
+          return (<>
+            <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:16,marginBottom:activeSpiff?0:28}}>
+              <div>
+                <div style={{fontSize:26,fontWeight:800,letterSpacing:'-0.02em',lineHeight:1.15}}>Leaderboard<br/><span style={{color:C.green}}>Rankings.</span></div>
+                <div style={{fontSize:12,color:C.text3,marginTop:4}}>Rep performance rankings · spiff challenges</div>
+              </div>
+              {auth?.role==='manager'&&(
+                <button onClick={()=>{setEditingSpiff(null);setShowSpiffModal(true)}} style={{fontSize:11,fontWeight:700,padding:'8px 14px',borderRadius:8,border:`1px solid ${C.border2}`,background:C.surface,color:C.text2,cursor:'pointer'}}>
+                  Manage Spiffs
+                </button>
+              )}
+            </div>
+
+            {/* ── Active Spiff Banner ── */}
+            {activeSpiff&&(
+              <div style={{background:'linear-gradient(135deg, rgba(123,110,246,0.25) 0%, rgba(96,165,250,0.2) 100%)',border:`1px solid rgba(123,110,246,0.35)`,borderRadius:14,padding:'18px 22px',marginBottom:20,marginTop:16}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:10}}>
+                  <div>
+                    <div style={{fontSize:14,fontWeight:800,color:C.text,display:'flex',alignItems:'center',gap:6}}>🎯 {activeSpiff.title}</div>
+                    <div style={{fontSize:12,color:C.text2,marginTop:3}}>{activeSpiff.description}</div>
+                  </div>
+                  <div style={{textAlign:'right',flexShrink:0}}>
+                    <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em'}}>Reward</div>
+                    <div style={{fontSize:14,fontWeight:800,color:C.green,marginTop:2}}>{activeSpiff.reward}</div>
+                  </div>
+                </div>
+                <div style={{display:'flex',gap:16,alignItems:'center',fontSize:11,color:C.text3,marginBottom:10}}>
+                  <span>{LB_METRIC_LABELS[activeSpiff.metric]} · Target: <strong style={{color:C.text}}>{activeSpiff.target}</strong></span>
+                  <span>{new Date(activeSpiff.startDate).toLocaleDateString('en-US',{month:'short',day:'numeric'})} – {new Date(activeSpiff.endDate).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}</span>
+                </div>
+                {/* Leader progress */}
+                {spiffLeaderProgress.length>0&&(
+                  <div style={{display:'grid',gap:5}}>
+                    {spiffLeaderProgress.slice(0,4).map((r,i)=>{
+                      const pctDone = Math.min(100, r.count / activeSpiff.target * 100)
+                      const isCurrentUser = r.rep.id === currentRepId
+                      return (
+                        <div key={r.rep.id} style={{display:'flex',alignItems:'center',gap:10}}>
+                          <div style={{width:80,fontSize:11,fontWeight:isCurrentUser?700:500,color:isCurrentUser?C.green:C.text2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{i===0?'👑 ':''}{r.rep.name.split(' ')[0]}</div>
+                          <div style={{flex:1,height:6,borderRadius:3,background:'rgba(255,255,255,0.08)'}}>
+                            <div style={{height:6,borderRadius:3,background:i===0?C.green:isCurrentUser?C.purpleL:C.purple,width:`${pctDone}%`,transition:'width 0.4s ease'}}/>
+                          </div>
+                          <div style={{width:50,fontSize:11,fontWeight:600,color:i===0?C.green:C.text2,textAlign:'right'}}>{r.count}/{activeSpiff.target}</div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── Metric Tabs ── */}
+            <div style={{display:'flex',gap:6,marginBottom:14,flexWrap:'wrap'}}>
+              {(['meetings','meetings_held','sqls','sqos'] as LbMetric[]).map(m=>(
+                <div key={m} style={filterPill(lbMetric===m)} onClick={()=>setLbMetric(m)}>{LB_METRIC_LABELS[m]}</div>
+              ))}
+            </div>
+
+            {/* ── Period Toggles ── */}
+            <div style={{display:'flex',gap:6,marginBottom:20,flexWrap:'wrap'}}>
+              {(['today','week','month','quarter','year','all'] as LbPeriod[]).map(p=>(
+                <div key={p} style={filterPill(lbPeriod===p,C.green)} onClick={()=>setLbPeriod(p)}>{LB_PERIOD_LABELS[p]}</div>
+              ))}
+            </div>
+
+            {/* ── Leaderboard Table ── */}
+            <div style={card}>
+              <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
+                <thead>
+                  <tr style={{borderBottom:`2px solid ${C.border2}`}}>
+                    <th style={{padding:'10px 12px',textAlign:'left',fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',width:50}}>Rank</th>
+                    <th style={{padding:'10px 12px',textAlign:'left',fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em'}}>Rep</th>
+                    <th style={{padding:'10px 12px',textAlign:'right',fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',width:80}}>{LB_METRIC_LABELS[lbMetric]}</th>
+                    <th style={{padding:'10px 12px',fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',width:'40%'}}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {lbRows.map((row,i)=>{
+                    const rank = i + 1
+                    const isCurrentUser = row.rep.id === currentRepId
+                    const medalColor = rank<=3 ? medalColors[rank-1] : undefined
+                    return (
+                      <tr key={row.rep.id} style={{
+                        borderBottom:`1px solid ${C.border}`,
+                        background: isCurrentUser ? 'rgba(123,110,246,0.12)' : rank===1 ? 'rgba(255,215,0,0.04)' : 'transparent',
+                        transition: 'background 0.3s ease',
+                      }}>
+                        <td style={{padding:'12px',fontWeight:800,fontSize:16,color:medalColor||C.text3,textAlign:'center'}}>
+                          {rank===1?'👑 ':''}{rank<=3?<span style={{color:medalColor}}>#{rank}</span>:<span>#{rank}</span>}
+                        </td>
+                        <td style={{padding:'12px',fontWeight:isCurrentUser?700:500,color:isCurrentUser?C.purpleL:C.text}}>
+                          {row.rep.name}
+                          {isCurrentUser&&<span style={{fontSize:9,color:C.purpleL,marginLeft:6,background:'rgba(123,110,246,0.15)',padding:'1px 5px',borderRadius:4}}>you</span>}
+                        </td>
+                        <td style={{padding:'12px',textAlign:'right',fontWeight:800,fontSize:18,color:rank===1?'#FFD700':rank===2?'#C0C0C0':rank===3?'#CD7F32':C.text}}>{row.count}</td>
+                        <td style={{padding:'12px 16px'}}>
+                          <div style={{height:8,borderRadius:4,background:C.surface3,overflow:'hidden'}}>
+                            <div style={{
+                              height:8,borderRadius:4,
+                              background: rank===1?'linear-gradient(90deg,#FFD700,#f5a623)':rank===2?'linear-gradient(90deg,#C0C0C0,#a0a0a0)':rank===3?'linear-gradient(90deg,#CD7F32,#b06c2a)':C.purple,
+                              width:`${maxCount>0?(row.count/maxCount*100):0}%`,
+                              transition:'width 0.4s ease',
+                            }}/>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                  {lbRows.length===0&&(
+                    <tr><td colSpan={4} style={{padding:'24px',textAlign:'center',color:C.text3,fontSize:12}}>No reps with Slack IDs configured. Add reps in manager mode to see rankings.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </>)
+        })()}
+
+        {/* ── Spiff Management Modal ── */}
+        {showSpiffModal&&auth?.role==='manager'&&(
+          <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',zIndex:200,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={()=>{setShowSpiffModal(false);setEditingSpiff(null)}}>
+            <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:28,width:480,maxHeight:'85vh',overflowY:'auto'}} onClick={e=>e.stopPropagation()}>
+              <div style={{fontSize:16,fontWeight:800,marginBottom:20}}>Manage Spiff Challenges</div>
+
+              {/* Existing spiffs list */}
+              {spiffs.length>0&&!editingSpiff&&(
+                <div style={{marginBottom:16}}>
+                  {spiffs.map(s=>(
+                    <div key={s.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 12px',background:C.surface2,border:`1px solid ${C.border}`,borderRadius:8,marginBottom:6}}>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:13,fontWeight:600,color:C.text,display:'flex',alignItems:'center',gap:6}}>
+                          {s.title}
+                          <span style={{fontSize:9,fontWeight:700,padding:'1px 5px',borderRadius:4,
+                            background:s.active&&s.startDate<=new Date().toISOString().split('T')[0]&&s.endDate>=new Date().toISOString().split('T')[0]?'rgba(0,229,160,0.15)':s.active?'rgba(245,166,35,0.15)':'rgba(255,255,255,0.06)',
+                            color:s.active&&s.startDate<=new Date().toISOString().split('T')[0]&&s.endDate>=new Date().toISOString().split('T')[0]?C.green:s.active?C.amber:C.text3,
+                            border:`1px solid ${s.active?'rgba(0,229,160,0.3)':'rgba(255,255,255,0.1)'}`,
+                          }}>{s.active&&s.startDate<=new Date().toISOString().split('T')[0]&&s.endDate>=new Date().toISOString().split('T')[0]?'LIVE':s.active?'SCHEDULED':'INACTIVE'}</span>
+                        </div>
+                        <div style={{fontSize:11,color:C.text3,marginTop:2}}>{s.startDate} → {s.endDate} · {s.reward}</div>
+                      </div>
+                      <div style={{display:'flex',gap:4,flexShrink:0}}>
+                        <button onClick={()=>setEditingSpiff({...s})} style={{fontSize:10,fontWeight:600,padding:'4px 8px',borderRadius:5,border:`1px solid ${C.border2}`,background:'transparent',color:C.purpleL,cursor:'pointer'}}>Edit</button>
+                        <button onClick={()=>{
+                          const updated = spiffs.map(x=>x.id===s.id?{...x,active:!x.active}:x)
+                          setSpiffs(updated); localStorage.setItem('mql-spiffs',JSON.stringify(updated)); syncToEdgeConfig()
+                        }} style={{fontSize:10,fontWeight:600,padding:'4px 8px',borderRadius:5,border:`1px solid ${C.border2}`,background:'transparent',color:s.active?C.amber:C.green,cursor:'pointer'}}>{s.active?'Deactivate':'Activate'}</button>
+                        <button onClick={()=>{
+                          if(!window.confirm(`Delete "${s.title}"?`)) return
+                          const updated = spiffs.filter(x=>x.id!==s.id)
+                          setSpiffs(updated); localStorage.setItem('mql-spiffs',JSON.stringify(updated)); syncToEdgeConfig()
+                        }} style={{fontSize:10,fontWeight:600,padding:'4px 8px',borderRadius:5,border:`1px solid ${C.red}`,background:'transparent',color:C.red,cursor:'pointer'}}>Delete</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Create / Edit form */}
+              {editingSpiff!==null?(()=>{
+                const sp = editingSpiff!
+                const isNew = !spiffs.some(s=>s.id===sp.id)
+                return (
+                  <div>
+                    <div style={{fontSize:13,fontWeight:700,marginBottom:12,color:C.text2}}>{isNew?'New Spiff':'Edit Spiff'}</div>
+                    {([
+                      ['Title','title','text','Q2 SQL Sprint'] as const,
+                      ['Description','description','text','First to hit target wins!'] as const,
+                      ['Reward','reward','text','$200 Amazon gift card'] as const,
+                    ]).map(([label,field,type,placeholder])=>(
+                      <div key={field} style={{marginBottom:10}}>
+                        <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:4}}>{label}</div>
+                        <input value={(sp as any)[field]} onChange={e=>setEditingSpiff({...sp,[field]:e.target.value})} placeholder={placeholder} type={type}
+                          style={{width:'100%',padding:'8px 10px',borderRadius:6,border:`1px solid ${C.border2}`,background:C.surface2,color:C.text,fontSize:12,outline:'none',boxSizing:'border-box'}}/>
+                      </div>
+                    ))}
+                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10}}>
+                      <div>
+                        <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:4}}>Metric</div>
+                        <select value={sp.metric} onChange={e=>setEditingSpiff({...sp,metric:e.target.value as LbMetric})}
+                          style={{width:'100%',padding:'8px 10px',borderRadius:6,border:`1px solid ${C.border2}`,background:C.surface2,color:C.text,fontSize:12,outline:'none',appearance:'none' as const}}>
+                          <option value="meetings">Meetings Booked</option>
+                          <option value="meetings_held">Meetings Held</option>
+                          <option value="sqls">SQLs</option>
+                          <option value="sqos">SQOs</option>
+                        </select>
+                      </div>
+                      <div>
+                        <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:4}}>Target Number</div>
+                        <input type="number" value={sp.target||''} onChange={e=>setEditingSpiff({...sp,target:parseInt(e.target.value)||0})} placeholder="5"
+                          style={{width:'100%',padding:'8px 10px',borderRadius:6,border:`1px solid ${C.border2}`,background:C.surface2,color:C.text,fontSize:12,outline:'none',boxSizing:'border-box'}}/>
+                      </div>
+                    </div>
+                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:16}}>
+                      <div>
+                        <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:4}}>Start Date</div>
+                        <input type="date" value={sp.startDate} onChange={e=>setEditingSpiff({...sp,startDate:e.target.value})}
+                          style={{width:'100%',padding:'8px 10px',borderRadius:6,border:`1px solid ${C.border2}`,background:C.surface2,color:C.text,fontSize:12,outline:'none',colorScheme:'dark',boxSizing:'border-box'}}/>
+                      </div>
+                      <div>
+                        <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:4}}>End Date</div>
+                        <input type="date" value={sp.endDate} onChange={e=>setEditingSpiff({...sp,endDate:e.target.value})}
+                          style={{width:'100%',padding:'8px 10px',borderRadius:6,border:`1px solid ${C.border2}`,background:C.surface2,color:C.text,fontSize:12,outline:'none',colorScheme:'dark',boxSizing:'border-box'}}/>
+                      </div>
+                    </div>
+                    <div style={{display:'flex',gap:8}}>
+                      <button onClick={()=>{
+                        const updated = isNew ? [...spiffs, {...sp, active:true}] : spiffs.map(s=>s.id===sp.id?sp:s)
+                        setSpiffs(updated); localStorage.setItem('mql-spiffs',JSON.stringify(updated)); syncToEdgeConfig()
+                        setEditingSpiff(null)
+                      }} style={{flex:1,padding:'8px',borderRadius:6,border:'none',background:C.green,color:C.bg,fontSize:12,fontWeight:700,cursor:'pointer'}}>
+                        {isNew?'Create Spiff':'Save Changes'}
+                      </button>
+                      <button onClick={()=>setEditingSpiff(null)} style={{padding:'8px 14px',borderRadius:6,border:`1px solid ${C.border2}`,background:'transparent',color:C.text3,fontSize:12,cursor:'pointer'}}>Cancel</button>
+                    </div>
+                  </div>
+                )
+              })():(
+                <button onClick={()=>setEditingSpiff({id:`spiff-${Date.now()}`,title:'',description:'',metric:'sqls',target:5,reward:'',startDate:'',endDate:'',createdBy:currentRep?.id||'',active:true})}
+                  style={{width:'100%',padding:'10px',borderRadius:8,border:`1px dashed ${C.border2}`,background:'transparent',color:C.purpleL,fontSize:12,fontWeight:600,cursor:'pointer'}}>
+                  + Create New Spiff
+                </button>
+              )}
+
+              <div style={{marginTop:16,display:'flex',justifyContent:'flex-end'}}>
+                <button onClick={()=>{setShowSpiffModal(false);setEditingSpiff(null)}} style={{padding:'8px 16px',borderRadius:6,border:`1px solid ${C.border2}`,background:'transparent',color:C.text3,fontSize:12,cursor:'pointer'}}>Close</button>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
 
       {/* ── Create Contact Modal ── */}
