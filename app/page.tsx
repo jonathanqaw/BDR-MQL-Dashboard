@@ -1337,7 +1337,6 @@ export default function Dashboard() {
   // Seed historical statuses & details — NEVER overwrite existing user data
   const DATA_VERSION='v5'
   useEffect(()=>{
-    const seeded=localStorage.getItem('mql-seeded-version')
     const st=getSt(); const dt=getDetails()
     // Only fill in MISSING entries — never overwrite what the user has set
     HISTORICAL_LEADS.forEach(l=>{
@@ -1347,6 +1346,8 @@ export default function Dashboard() {
     localStorage.setItem('mql-st',JSON.stringify(st))
     localStorage.setItem('mql-dt',JSON.stringify(dt))
     localStorage.setItem('mql-seeded-version',DATA_VERSION)
+    setStatuses(st)
+    setDetails(dt)
     setManualLeads(getManualLeads())
     setNameOverrides(getNameOverrides())
     setDeletedEmails(getDeletedEmails())
