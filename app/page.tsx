@@ -23,7 +23,7 @@ type AuthState = { role: 'manager' } | { role: 'rep'; repId: string } | null
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Status       = 'new' | 'contacted' | 'inprogress' | 'booked' | 'nurture' | 'lost' | 'na' | 'dq' | 'closedwon'
-type View         = 'pipeline' | 'analytics' | 'reporting'
+type View         = 'pipeline' | 'analytics' | 'reporting' | 'commissions'
 type PeriodFilter = 'week' | 'month' | 'quarter' | 'all'
 type WorkedFilter = 'all' | 'worked' | 'untouched'
 type StatusFilter = 'all' | Status
@@ -2078,7 +2078,8 @@ export default function Dashboard() {
         {([
           ['pipeline','📊','Pipeline','Lead tracking · expandable'],
           ['analytics','📈','Analytics','Charts · trends · breakdown'],
-          ...(auth?.role==='manager' ? [['reporting','🧾','Reporting','Generated summaries · leadership-ready'] as const] : [])
+          ...(auth?.role==='manager' ? [['reporting','🧾','Reporting','Generated summaries · leadership-ready'] as const] : []),
+          ['commissions','💲','Commissions','Bonus tracking · payouts'] as const,
         ] as const).map(([v,icon,label,sub])=>(
           <div key={v} style={navBtn(view===v as View)} onClick={()=>setView(v as View)}>
             <div style={{width:26,height:26,borderRadius:6,background:view===v?C.purple:C.surface3,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,color:view===v?'#fff':C.text3,flexShrink:0}}>{icon}</div>
@@ -2909,6 +2910,338 @@ export default function Dashboard() {
             </div>
           </div>
         </>)}
+
+
+        {/* ══════════════════════════════════════════════════════
+            COMMISSIONS VIEW
+        ══════════════════════════════════════════════════════ */}
+        {view==='commissions'&&(()=>{
+          // ── Commission constants ────────────────────────────
+          const MEETING_BONUS = 150
+          const SQL_BONUS = 620
+          const SQL_ACCELERATOR = 930
+          const SQL_ACCELERATOR_THRESHOLD = 3
+          const ANNUAL_SQL_CAP = 22320
+          const ANNUAL_MEETING_CAP = 18000
+
+          // ── Helper: is lead ICP (A/B/E tier = hq quality or approved E) ──
+          const isIcp = (email: string): boolean => {
+            const q = details[email]?.mqlQuality || ''
+            return q === 'hq'
+          }
+
+          // ── Build per-rep commission data ────────────────────
+          type CommissionMonth = {
+            key: string       // 'YYYY-MM'
+            label: string     // 'Jan 2026'
+            meetings: { email: string; account: string; date: string; amount: number }[]
+            sqls: { email: string; account: string; date: string; amount: number; accelerated: boolean }[]
+            meetingTotal: number
+            sqlTotal: number
+            acceleratorTotal: number
+            total: number
+            payoutMonth: string  // 'Feb 2026' etc
+          }
+
+          const buildRepCommissions = (repLeads: AppLead[]) => {
+            // Gather all meeting events and SQL events with their months
+            const meetingEvents: { email: string; account: string; month: string; date: string }[] = []
+            const sqlEvents: { email: string; account: string; month: string; date: string }[] = []
+
+            repLeads.forEach(l => {
+              const det = details[l.email]
+              if (!det) return
+              const displayName = nameOverrides[l.email] || l.account || formatDomain(l.domain) || l.email
+
+              // Meeting: needs meetingDate and must be ICP
+              if (det.meetingDate && isIcp(l.email)) {
+                const d = new Date(det.meetingDate)
+                if (!isNaN(d.getTime())) {
+                  meetingEvents.push({ email: l.email, account: displayName, month: `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`, date: det.meetingDate })
+                }
+              }
+
+              // SQL: needs sqlDq === 'Yes' and sqlDate, and must be ICP
+              if ((det.sqlDq || '').toLowerCase() === 'yes' && det.sqlDate && isIcp(l.email)) {
+                const d = new Date(det.sqlDate)
+                if (!isNaN(d.getTime())) {
+                  sqlEvents.push({ email: l.email, account: displayName, month: `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`, date: det.sqlDate })
+                }
+              }
+            })
+
+            // Collect all months
+            const allMonthKeys = new Set<string>()
+            meetingEvents.forEach(e => allMonthKeys.add(e.month))
+            sqlEvents.forEach(e => allMonthKeys.add(e.month))
+            const sortedMonths = Array.from(allMonthKeys).sort()
+
+            // Build monthly breakdown
+            const months: CommissionMonth[] = sortedMonths.map(mk => {
+              const mMeetings = meetingEvents.filter(e => e.month === mk)
+              const mSqls = sqlEvents.filter(e => e.month === mk)
+
+              // Calculate SQL bonuses with accelerator
+              const sqlItems = mSqls.map((s, i) => {
+                const accelerated = i >= SQL_ACCELERATOR_THRESHOLD
+                return { ...s, amount: accelerated ? SQL_ACCELERATOR : SQL_BONUS, accelerated }
+              })
+
+              const meetingItems = mMeetings.map(m => ({ ...m, amount: MEETING_BONUS }))
+              const meetingTotal = meetingItems.reduce((s, m) => s + m.amount, 0)
+              const sqlBase = sqlItems.filter(s => !s.accelerated).reduce((s, x) => s + x.amount, 0)
+              const acceleratorTotal = sqlItems.filter(s => s.accelerated).reduce((s, x) => s + x.amount, 0)
+              const sqlTotal = sqlBase + acceleratorTotal
+
+              // Payout month: following month, 2nd half
+              const [y, m] = mk.split('-').map(Number)
+              const payoutDate = new Date(y, m, 1) // month is already 0-indexed + 1 = next month
+              const payoutMonth = payoutDate.toLocaleString('en-US', { month: 'short', year: 'numeric' })
+
+              return {
+                key: mk,
+                label: new Date(y, m - 1, 1).toLocaleString('en-US', { month: 'short', year: 'numeric' }),
+                meetings: meetingItems,
+                sqls: sqlItems,
+                meetingTotal,
+                sqlTotal,
+                acceleratorTotal,
+                total: meetingTotal + sqlTotal,
+                payoutMonth: `${payoutMonth} (2nd half)`,
+              }
+            })
+
+            // YTD: group by year
+            const currentYear = new Date().getFullYear()
+            const ytdMonths = months.filter(m => m.key.startsWith(String(currentYear)))
+            const ytdMeetingTotal = ytdMonths.reduce((s, m) => s + m.meetingTotal, 0)
+            const ytdSqlTotal = ytdMonths.reduce((s, m) => s + (m.sqlTotal - m.acceleratorTotal), 0)
+            const ytdAcceleratorTotal = ytdMonths.reduce((s, m) => s + m.acceleratorTotal, 0)
+            const ytdGrandTotal = ytdMonths.reduce((s, m) => s + m.total, 0)
+
+            return { months, ytdMeetingTotal, ytdSqlTotal, ytdAcceleratorTotal, ytdGrandTotal }
+          }
+
+          // Current month key
+          const now = new Date()
+          const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`
+
+          // Build for current rep
+          const commData = buildRepCommissions(allLeads)
+          const currentMonth = commData.months.find(m => m.key === currentMonthKey)
+
+          // For manager view: build per-rep
+          const managerRepData = auth?.role === 'manager' ? reps.map(rep => {
+            const repLeads = rep.id === 'jonathan'
+              ? allLeads
+              : allLeads.filter(l => l.repSlackId && l.repSlackId === rep.slackId)
+            const data = buildRepCommissions(repLeads)
+            return { rep, ...data }
+          }) : []
+
+          // Expanded month for lead attribution
+          const [expandedMonth, setExpandedMonth] = React.useState<string|null>(null)
+
+          return (<>
+          <div style={{marginBottom:28}}>
+            <div style={{fontSize:26,fontWeight:800,letterSpacing:'-0.02em',lineHeight:1.15}}>Commissions<br/><span style={{color:C.green}}>Tracker.</span></div>
+            <div style={{fontSize:12,color:C.text3,marginTop:4}}>ICP meeting bonuses · SQL payouts · accelerators</div>
+          </div>
+
+          {/* ── Monthly Summary Cards ── */}
+          <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:12,marginBottom:20}}>
+            <div style={card}>
+              <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:8}}>Meetings Booked</div>
+              <div style={{fontSize:24,fontWeight:800,color:C.green}}>{currentMonth?.meetings.length ?? 0}</div>
+              <div style={{fontSize:13,fontWeight:700,color:C.text2,marginTop:4}}>${(currentMonth?.meetingTotal ?? 0).toLocaleString()}</div>
+              <div style={{fontSize:10,color:C.text3,marginTop:2}}>@ $150/meeting</div>
+            </div>
+            <div style={card}>
+              <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:8}}>SQLs</div>
+              <div style={{fontSize:24,fontWeight:800,color:'#c084fc'}}>{currentMonth?.sqls.length ?? 0}</div>
+              <div style={{fontSize:13,fontWeight:700,color:C.text2,marginTop:4}}>${((currentMonth?.sqlTotal ?? 0) - (currentMonth?.acceleratorTotal ?? 0)).toLocaleString()}</div>
+              <div style={{fontSize:10,color:C.text3,marginTop:2}}>@ $620/SQL</div>
+            </div>
+            <div style={card}>
+              <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:8}}>Accelerator</div>
+              <div style={{fontSize:24,fontWeight:800,color:C.amber}}>{currentMonth ? Math.max(0, currentMonth.sqls.length - SQL_ACCELERATOR_THRESHOLD) : 0}</div>
+              <div style={{fontSize:13,fontWeight:700,color:C.text2,marginTop:4}}>${(currentMonth?.acceleratorTotal ?? 0).toLocaleString()}</div>
+              <div style={{fontSize:10,color:C.text3,marginTop:2}}>{currentMonth && currentMonth.sqls.length > SQL_ACCELERATOR_THRESHOLD ? `${currentMonth.sqls.length - SQL_ACCELERATOR_THRESHOLD} SQL(s) @ $930` : '>3 SQLs triggers $930/SQL'}</div>
+            </div>
+            <div style={card}>
+              <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:8}}>Total Commission</div>
+              <div style={{fontSize:24,fontWeight:800,color:C.text}}>${(currentMonth?.total ?? 0).toLocaleString()}</div>
+              <div style={{fontSize:10,color:C.text3,marginTop:6}}>
+                {now.toLocaleString('en-US',{month:'long',year:'numeric'})}
+              </div>
+            </div>
+            <div style={card}>
+              <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:8}}>Payout Date</div>
+              <div style={{fontSize:16,fontWeight:700,color:C.purpleL,marginTop:6}}>{currentMonth?.payoutMonth ?? '—'}</div>
+              <div style={{fontSize:10,color:C.text3,marginTop:4}}>2nd half pay cycle</div>
+            </div>
+          </div>
+
+          {/* ── Monthly Breakdown Table ── */}
+          <div style={{...card,marginBottom:20}}>
+            <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:14}}>Monthly Breakdown</div>
+            <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+              <thead>
+                <tr style={{borderBottom:`2px solid ${C.border2}`}}>
+                  {['Month','Meetings','Meeting $','SQLs','SQL $','Accel $','Total','Cap Status','Payout'].map(h=>(
+                    <th key={h} style={{padding:'8px 10px',textAlign:h==='Month'?'left':'right',fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em'}}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {[...commData.months].reverse().map(m=>{
+                  const isExpanded = expandedMonth === m.key
+                  return (
+                    <React.Fragment key={m.key}>
+                      <tr
+                        style={{borderBottom:`1px solid ${C.border}`,cursor:'pointer',background:isExpanded?'rgba(123,110,246,0.08)':m.key===currentMonthKey?'rgba(0,229,160,0.06)':'transparent'}}
+                        onClick={()=>setExpandedMonth(p=>p===m.key?null:m.key)}
+                      >
+                        <td style={{padding:'10px',fontWeight:m.key===currentMonthKey?700:500,color:m.key===currentMonthKey?C.green:C.text}}>
+                          {isExpanded?'▼':'▶'} {m.label}
+                          {m.key===currentMonthKey&&<span style={{fontSize:9,color:C.green,marginLeft:6,background:'rgba(0,229,160,0.15)',padding:'1px 5px',borderRadius:4}}>current</span>}
+                        </td>
+                        <td style={{padding:'10px',textAlign:'right',color:C.text}}>{m.meetings.length}</td>
+                        <td style={{padding:'10px',textAlign:'right',color:C.green,fontWeight:600}}>${m.meetingTotal.toLocaleString()}</td>
+                        <td style={{padding:'10px',textAlign:'right',color:C.text}}>{m.sqls.length}</td>
+                        <td style={{padding:'10px',textAlign:'right',color:'#c084fc',fontWeight:600}}>${(m.sqlTotal - m.acceleratorTotal).toLocaleString()}</td>
+                        <td style={{padding:'10px',textAlign:'right',color:m.acceleratorTotal>0?C.amber:C.text3,fontWeight:m.acceleratorTotal>0?600:400}}>{m.acceleratorTotal>0?`$${m.acceleratorTotal.toLocaleString()}`:'—'}</td>
+                        <td style={{padding:'10px',textAlign:'right',fontWeight:700,color:C.text}}>${m.total.toLocaleString()}</td>
+                        <td style={{padding:'10px',textAlign:'right',fontSize:10,color:C.text3}}>—</td>
+                        <td style={{padding:'10px',textAlign:'right',fontSize:11,color:C.text2}}>{m.payoutMonth}</td>
+                      </tr>
+                      {/* ── Lead Attribution (expanded) ── */}
+                      {isExpanded&&(
+                        <tr><td colSpan={9} style={{padding:0}}>
+                          <div style={{background:C.surface2,padding:'12px 16px',borderBottom:`1px solid ${C.border}`}}>
+                            {m.meetings.length>0&&(
+                              <div style={{marginBottom:m.sqls.length>0?12:0}}>
+                                <div style={{fontSize:10,fontWeight:700,color:C.green,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:6}}>Meetings Booked ({m.meetings.length})</div>
+                                {m.meetings.map((mt,i)=>(
+                                  <div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'5px 8px',background:C.surface3,borderRadius:6,marginBottom:3,border:`1px solid ${C.border}`}}>
+                                    <div>
+                                      <span style={{fontSize:12,color:C.text,fontWeight:500}}>{mt.account}</span>
+                                      <span style={{fontSize:10,color:C.text3,marginLeft:8}}>{new Date(mt.date).toLocaleDateString('en-US',{month:'short',day:'numeric'})}</span>
+                                    </div>
+                                    <span style={{fontSize:12,fontWeight:700,color:C.green}}>${mt.amount}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            {m.sqls.length>0&&(
+                              <div>
+                                <div style={{fontSize:10,fontWeight:700,color:'#c084fc',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:6}}>SQLs ({m.sqls.length})</div>
+                                {m.sqls.map((sq,i)=>(
+                                  <div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'5px 8px',background:C.surface3,borderRadius:6,marginBottom:3,border:`1px solid ${C.border}`}}>
+                                    <div>
+                                      <span style={{fontSize:12,color:C.text,fontWeight:500}}>{sq.account}</span>
+                                      <span style={{fontSize:10,color:C.text3,marginLeft:8}}>{new Date(sq.date).toLocaleDateString('en-US',{month:'short',day:'numeric'})}</span>
+                                      {sq.accelerated&&<span style={{fontSize:9,color:C.amber,marginLeft:6,background:'rgba(245,166,35,0.15)',padding:'1px 5px',borderRadius:4,border:'1px solid rgba(245,166,35,0.3)'}}>ACCEL</span>}
+                                    </div>
+                                    <span style={{fontSize:12,fontWeight:700,color:sq.accelerated?C.amber:'#c084fc'}}>${sq.amount}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            {m.meetings.length===0&&m.sqls.length===0&&(
+                              <div style={{fontSize:11,color:C.text3}}>No commission events this month.</div>
+                            )}
+                          </div>
+                        </td></tr>
+                      )}
+                    </React.Fragment>
+                  )
+                })}
+                {commData.months.length===0&&(
+                  <tr><td colSpan={9} style={{padding:'20px 10px',textAlign:'center',color:C.text3,fontSize:12}}>No commission data yet. Meetings and SQLs will appear here as they are recorded.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* ── YTD Totals ── */}
+          <div style={{...card,marginBottom:20}}>
+            <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:14}}>Year-to-Date · {now.getFullYear()}</div>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12}}>
+              <div style={{background:C.surface3,border:`1px solid ${C.border}`,borderRadius:10,padding:14}}>
+                <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:8}}>Meeting Bonuses</div>
+                <div style={{fontSize:22,fontWeight:800,color:C.green}}>${commData.ytdMeetingTotal.toLocaleString()}</div>
+                <div style={{marginTop:6}}>
+                  <div style={{display:'flex',justifyContent:'space-between',fontSize:10,color:C.text3,marginBottom:3}}>
+                    <span>{pct(commData.ytdMeetingTotal, ANNUAL_MEETING_CAP)}% of cap</span>
+                    <span>${ANNUAL_MEETING_CAP.toLocaleString()}</span>
+                  </div>
+                  <div style={{height:4,borderRadius:2,background:C.surface}}>
+                    <div style={{height:4,borderRadius:2,background:C.green,width:`${Math.min(100, commData.ytdMeetingTotal / ANNUAL_MEETING_CAP * 100)}%`,transition:'width 0.3s'}}/>
+                  </div>
+                </div>
+              </div>
+              <div style={{background:C.surface3,border:`1px solid ${C.border}`,borderRadius:10,padding:14}}>
+                <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:8}}>SQL Bonuses</div>
+                <div style={{fontSize:22,fontWeight:800,color:'#c084fc'}}>${commData.ytdSqlTotal.toLocaleString()}</div>
+                <div style={{marginTop:6}}>
+                  <div style={{display:'flex',justifyContent:'space-between',fontSize:10,color:C.text3,marginBottom:3}}>
+                    <span>{pct(commData.ytdSqlTotal + commData.ytdAcceleratorTotal, ANNUAL_SQL_CAP)}% of cap</span>
+                    <span>${ANNUAL_SQL_CAP.toLocaleString()}</span>
+                  </div>
+                  <div style={{height:4,borderRadius:2,background:C.surface}}>
+                    <div style={{height:4,borderRadius:2,background:'#c084fc',width:`${Math.min(100, (commData.ytdSqlTotal + commData.ytdAcceleratorTotal) / ANNUAL_SQL_CAP * 100)}%`,transition:'width 0.3s'}}/>
+                  </div>
+                </div>
+              </div>
+              <div style={{background:C.surface3,border:`1px solid ${C.border}`,borderRadius:10,padding:14}}>
+                <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:8}}>Accelerator Bonuses</div>
+                <div style={{fontSize:22,fontWeight:800,color:C.amber}}>${commData.ytdAcceleratorTotal.toLocaleString()}</div>
+                <div style={{fontSize:10,color:C.text3,marginTop:6}}>from months with &gt;3 SQLs</div>
+              </div>
+              <div style={{background:C.surface3,border:`1px solid ${C.border}`,borderRadius:10,padding:14}}>
+                <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:8}}>Grand Total</div>
+                <div style={{fontSize:22,fontWeight:800,color:C.text}}>${commData.ytdGrandTotal.toLocaleString()}</div>
+                <div style={{fontSize:10,color:C.text3,marginTop:6}}>all commission YTD</div>
+              </div>
+            </div>
+          </div>
+
+          {/* ── Manager View: All Reps Comparison ── */}
+          {auth?.role==='manager'&&(
+            <div style={{...card,marginBottom:20}}>
+              <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:14}}>Manager View · All Reps</div>
+              <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+                <thead>
+                  <tr style={{borderBottom:`2px solid ${C.border2}`}}>
+                    {['Rep','MTD Meetings','MTD Meeting $','MTD SQLs','MTD SQL $','MTD Total','YTD Total','YTD Meeting Cap','YTD SQL Cap'].map(h=>(
+                      <th key={h} style={{padding:'8px 10px',textAlign:h==='Rep'?'left':'right',fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em'}}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {managerRepData.map(({rep, months, ytdMeetingTotal, ytdSqlTotal, ytdAcceleratorTotal, ytdGrandTotal})=>{
+                    const cm = months.find(m => m.key === currentMonthKey)
+                    return (
+                      <tr key={rep.id} style={{borderBottom:`1px solid ${C.border}`}}>
+                        <td style={{padding:'10px',fontWeight:600,color:C.text}}>{rep.name}</td>
+                        <td style={{padding:'10px',textAlign:'right',color:C.text}}>{cm?.meetings.length ?? 0}</td>
+                        <td style={{padding:'10px',textAlign:'right',color:C.green,fontWeight:600}}>${(cm?.meetingTotal ?? 0).toLocaleString()}</td>
+                        <td style={{padding:'10px',textAlign:'right',color:C.text}}>{cm?.sqls.length ?? 0}</td>
+                        <td style={{padding:'10px',textAlign:'right',color:'#c084fc',fontWeight:600}}>${(cm?.sqlTotal ?? 0).toLocaleString()}</td>
+                        <td style={{padding:'10px',textAlign:'right',fontWeight:700,color:C.text}}>${(cm?.total ?? 0).toLocaleString()}</td>
+                        <td style={{padding:'10px',textAlign:'right',fontWeight:700,color:C.amber}}>${ytdGrandTotal.toLocaleString()}</td>
+                        <td style={{padding:'10px',textAlign:'right',fontSize:11,color:ytdMeetingTotal>=ANNUAL_MEETING_CAP?C.red:C.text3}}>{pct(ytdMeetingTotal,ANNUAL_MEETING_CAP)}%</td>
+                        <td style={{padding:'10px',textAlign:'right',fontSize:11,color:(ytdSqlTotal+ytdAcceleratorTotal)>=ANNUAL_SQL_CAP?C.red:C.text3}}>{pct(ytdSqlTotal+ytdAcceleratorTotal,ANNUAL_SQL_CAP)}%</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+          </>)
+        })()}
       </main>
 
       {/* ── Create Contact Modal ── */}
