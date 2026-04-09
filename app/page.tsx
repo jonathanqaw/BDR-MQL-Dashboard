@@ -1283,8 +1283,8 @@ export default function Dashboard() {
   const [deletedEmails,setDeletedEmails]=useState<Set<string>>(new Set())
   const [showHistory,setShowHistory]=useState(false)
   const [expandedMonth,setExpandedMonth]=useState<string|null>(null)
-  const [lbMetric,setLbMetric]=useState<LbMetric>('meetings')
-  const [lbPeriod,setLbPeriod]=useState<LbPeriod>('month')
+  const [lbMetrics,setLbMetrics]=useState<Set<LbMetric>>(new Set(['meetings','meetings_held','sqls','sqos']))
+  const [lbPeriod,setLbPeriod]=useState<LbPeriod>('week')
   const [spiffs,setSpiffs]=useState<Spiff[]>([])
   const [showSpiffModal,setShowSpiffModal]=useState(false)
   const [editingSpiff,setEditingSpiff]=useState<Spiff|null>(null)
@@ -3328,18 +3328,21 @@ export default function Dashboard() {
             ...liveLeads.filter(l => !HISTORICAL_LEADS.some(h => h.email === l.email) && !manualLeads.some(m => m.email === l.email) && !new Set(HISTORICAL_LEADS.map(h=>h.domain)).has(l.domain)),
           ].filter(l => !deletedEmails.has(l.email))
 
+          const activeMetrics = Array.from(lbMetrics)
           const lbRows = reps
             .filter(r => r.slackId)
             .map(rep => {
               const repLeads = rep.id === 'jonathan'
                 ? allLeadsUnfiltered.filter(l => !l.repSlackId || l.repSlackId === rep.slackId)
                 : allLeadsUnfiltered.filter(l => l.repSlackId === rep.slackId)
-              const count = countMetric(repLeads, lbMetric)
-              return { rep, count }
+              const perMetric: Record<LbMetric, number> = { meetings:0, meetings_held:0, sqls:0, sqos:0 }
+              for (const m of activeMetrics) perMetric[m] = countMetric(repLeads, m)
+              const total = activeMetrics.reduce((s, m) => s + perMetric[m], 0)
+              return { rep, perMetric, total }
             })
-            .sort((a, b) => b.count - a.count)
+            .sort((a, b) => b.total - a.total)
 
-          const maxCount = Math.max(1, ...lbRows.map(r => r.count))
+          const maxCount = Math.max(1, ...lbRows.map(r => r.total))
           const medalColors = ['#FFD700', '#C0C0C0', '#CD7F32']
           const currentRepId = auth?.role === 'rep' ? (auth as {role:'rep';repId:string}).repId : null
 
@@ -3430,10 +3433,14 @@ export default function Dashboard() {
               </div>
             )}
 
-            {/* ── Metric Tabs ── */}
+            {/* ── Metric Tabs (multi-select) ── */}
             <div style={{display:'flex',gap:6,marginBottom:14,flexWrap:'wrap'}}>
               {(['meetings','meetings_held','sqls','sqos'] as LbMetric[]).map(m=>(
-                <div key={m} style={filterPill(lbMetric===m)} onClick={()=>setLbMetric(m)}>{LB_METRIC_LABELS[m]}</div>
+                <div key={m} style={filterPill(lbMetrics.has(m))} onClick={()=>setLbMetrics(prev=>{
+                  const next=new Set(prev)
+                  if(next.has(m)){ if(next.size>1) next.delete(m) } else next.add(m)
+                  return next
+                })}>{LB_METRIC_LABELS[m]}</div>
               ))}
             </div>
 
@@ -3451,8 +3458,11 @@ export default function Dashboard() {
                   <tr style={{borderBottom:`2px solid ${C.border2}`}}>
                     <th style={{padding:'10px 12px',textAlign:'left',fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',width:50}}>Rank</th>
                     <th style={{padding:'10px 12px',textAlign:'left',fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em'}}>Rep</th>
-                    <th style={{padding:'10px 12px',textAlign:'right',fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',width:80}}>{LB_METRIC_LABELS[lbMetric]}</th>
-                    <th style={{padding:'10px 12px',fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',width:'40%'}}></th>
+                    {activeMetrics.map(m=>(
+                      <th key={m} style={{padding:'10px 12px',textAlign:'right',fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',width:80}}>{LB_METRIC_LABELS[m]}</th>
+                    ))}
+                    {activeMetrics.length>1&&<th style={{padding:'10px 12px',textAlign:'right',fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',width:70}}>Total</th>}
+                    <th style={{padding:'10px 12px',fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',width:'30%'}}></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -3473,13 +3483,16 @@ export default function Dashboard() {
                           {row.rep.name}
                           {isCurrentUser&&<span style={{fontSize:9,color:C.purpleL,marginLeft:6,background:'rgba(123,110,246,0.15)',padding:'1px 5px',borderRadius:4}}>you</span>}
                         </td>
-                        <td style={{padding:'12px',textAlign:'right',fontWeight:800,fontSize:18,color:rank===1?'#FFD700':rank===2?'#C0C0C0':rank===3?'#CD7F32':C.text}}>{row.count}</td>
+                        {activeMetrics.map(m=>(
+                          <td key={m} style={{padding:'12px',textAlign:'right',fontWeight:activeMetrics.length===1?800:600,fontSize:activeMetrics.length===1?18:14,color:activeMetrics.length===1?(rank===1?'#FFD700':rank===2?'#C0C0C0':rank===3?'#CD7F32':C.text):C.text2}}>{row.perMetric[m]}</td>
+                        ))}
+                        {activeMetrics.length>1&&<td style={{padding:'12px',textAlign:'right',fontWeight:800,fontSize:18,color:rank===1?'#FFD700':rank===2?'#C0C0C0':rank===3?'#CD7F32':C.text}}>{row.total}</td>}
                         <td style={{padding:'12px 16px'}}>
                           <div style={{height:8,borderRadius:4,background:C.surface3,overflow:'hidden'}}>
                             <div style={{
                               height:8,borderRadius:4,
                               background: rank===1?'linear-gradient(90deg,#FFD700,#f5a623)':rank===2?'linear-gradient(90deg,#C0C0C0,#a0a0a0)':rank===3?'linear-gradient(90deg,#CD7F32,#b06c2a)':C.purple,
-                              width:`${maxCount>0?(row.count/maxCount*100):0}%`,
+                              width:`${maxCount>0?(row.total/maxCount*100):0}%`,
                               transition:'width 0.4s ease',
                             }}/>
                           </div>
@@ -3488,7 +3501,7 @@ export default function Dashboard() {
                     )
                   })}
                   {lbRows.length===0&&(
-                    <tr><td colSpan={4} style={{padding:'24px',textAlign:'center',color:C.text3,fontSize:12}}>No reps with Slack IDs configured. Add reps in manager mode to see rankings.</td></tr>
+                    <tr><td colSpan={3+activeMetrics.length+(activeMetrics.length>1?1:0)} style={{padding:'24px',textAlign:'center',color:C.text3,fontSize:12}}>No reps with Slack IDs configured. Add reps in manager mode to see rankings.</td></tr>
                   )}
                 </tbody>
               </table>
