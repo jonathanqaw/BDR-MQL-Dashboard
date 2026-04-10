@@ -19,11 +19,11 @@ const DEFAULT_REPS: Rep[] = [
 
 const MANAGER_PASSCODE = 'johnnywolfpack2026'
 
-type AuthState = { role: 'manager' } | { role: 'rep'; repId: string } | null
+type AuthState = { role: 'manager' } | { role: 'rep'; repId: string } | { role: 'revops' } | null
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Status       = 'new' | 'contacted' | 'inprogress' | 'booked' | 'nurture' | 'lost' | 'na' | 'dq' | 'closedwon'
-type View         = 'pipeline' | 'analytics' | 'reporting' | 'commissions' | 'leaderboard'
+type View         = 'pipeline' | 'analytics' | 'reporting' | 'commissions' | 'leaderboard' | 'revops_commissions'
 type LbMetric     = 'meetings' | 'meetings_held' | 'sqls' | 'sqos'
 type LbPeriod     = 'today' | 'week' | 'month' | 'quarter' | 'year' | 'all'
 interface Spiff { id:string; title:string; description:string; metric:LbMetric; target:number; reward:string; startDate:string; endDate:string; createdBy:string; active:boolean }
@@ -1271,6 +1271,12 @@ export default function Dashboard() {
         setAuth(a); sessionStorage.setItem('mql-auth', JSON.stringify(a))
       }
     }
+    // RevOps access via ?view=revops
+    if (viewParam === 'revops') {
+      const a:AuthState = { role:'revops' }
+      setAuth(a); sessionStorage.setItem('mql-auth', JSON.stringify(a))
+      setView('revops_commissions')
+    }
     // Load rep registry from Edge Config
     fetch('/api/rep-data?repId=__registry__').then(r=>r.json()).then(({data})=>{
       if (data?.reps) setReps(data.reps)
@@ -1307,7 +1313,7 @@ export default function Dashboard() {
   }
 
   // Which rep's data are we currently viewing?
-  const currentRep = auth?.role==='manager'
+  const currentRep = auth?.role==='manager'||auth?.role==='revops'
     ? (reps.find(r=>r.id===activeRepId) || reps[0])
     : auth?.role==='rep'
     ? (reps.find(r=>r.id===auth.repId) || reps[0])
@@ -1410,6 +1416,7 @@ export default function Dashboard() {
   const [scFrom,setScFrom]=useState('')
   const [scTo,setScTo]=useState('')
   const [scCompare,setScCompare]=useState<'week'|'month'|'quarter'|'year'|null>(null)
+  const [revopsSelectedRep,setRevopsSelectedRep]=useState('all')
   const [spiffs,setSpiffs]=useState<Spiff[]>([])
   const [showSpiffModal,setShowSpiffModal]=useState(false)
   const [editingSpiff,setEditingSpiff]=useState<Spiff|null>(null)
@@ -2177,12 +2184,29 @@ export default function Dashboard() {
           {auth.role==='manager'&&(
             <div title="Manager" style={{fontSize:10,fontWeight:700,color:C.amber,background:'rgba(245,166,35,0.15)',borderRadius:5,padding:'2px 6px',border:'1px solid rgba(245,166,35,0.3)',flexShrink:0}}>MGR</div>
           )}
-          <button onClick={()=>{setAuth(null);sessionStorage.removeItem('mql-auth')}} title="Sign out" style={{background:'none',border:'none',color:C.text3,cursor:'pointer',fontSize:14,padding:2,flexShrink:0}}
+          {auth.role==='revops'&&(
+            <div title="RevOps" style={{fontSize:10,fontWeight:700,color:'#60d4f4',background:'rgba(96,212,244,0.15)',borderRadius:5,padding:'2px 6px',border:'1px solid rgba(96,212,244,0.3)',flexShrink:0}}>REVOPS</div>
+          )}
+          <button onClick={()=>{setAuth(null);sessionStorage.removeItem('mql-auth');window.location.href='/'}} title="Sign out" style={{background:'none',border:'none',color:C.text3,cursor:'pointer',fontSize:14,padding:2,flexShrink:0}}
             onMouseEnter={e=>(e.currentTarget.style.color=C.red)} onMouseLeave={e=>(e.currentTarget.style.color=C.text3)}>⎋</button>
         </div>
 
-        {/* Manager rep switcher + editor */}
-        {auth.role==='manager'&&(
+        {/* RevOps restricted sidebar */}
+        {auth.role==='revops'&&(
+          <>
+          <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.1em',padding:'6px 20px 4px'}}>RevOps</div>
+          <div style={navBtn(view==='revops_commissions')} onClick={()=>setView('revops_commissions')}>
+            <div style={{width:26,height:26,borderRadius:6,background:view==='revops_commissions'?C.purple:C.surface3,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,color:view==='revops_commissions'?'#fff':C.text3,flexShrink:0}}>💲</div>
+            <div>
+              <div style={{fontSize:12,fontWeight:view==='revops_commissions'?600:500,color:view==='revops_commissions'?C.text:C.text2}}>Commissions</div>
+              <div style={{fontSize:11,color:C.text3}}>Verify attribution · process payouts</div>
+            </div>
+          </div>
+          </>
+        )}
+
+        {/* Manager rep switcher + editor — hidden in revops mode */}
+        {auth.role!=='revops'&&auth.role==='manager'&&(
           <div style={{padding:'0 20px 12px'}}>
             <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:6,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
               Reps
@@ -2269,7 +2293,7 @@ export default function Dashboard() {
           </div>
         )}
 
-        <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.1em',padding:'6px 20px 4px'}}>Views</div>
+        {auth.role!=='revops'&&<><div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.1em',padding:'6px 20px 4px'}}>Views</div>
         {([
           ['pipeline','📊','Pipeline','Lead tracking · expandable'],
           ['analytics','📈','Analytics','Charts · trends · breakdown'],
@@ -2373,6 +2397,7 @@ export default function Dashboard() {
             }}/>
           </label>
         </div>
+        </>}
       </aside>
 
       {/* ── Main ── */}
@@ -4062,6 +4087,216 @@ export default function Dashboard() {
             </div>
           </div>
         )}
+
+
+        {/* ══════════════════════════════════════════════════════
+            REVOPS COMMISSIONS VIEW
+        ══════════════════════════════════════════════════════ */}
+        {view==='revops_commissions'&&(()=>{
+          const MEETING_BONUS = 150
+          const SQL_BONUS = 620
+          const SQL_ACCELERATOR = 930
+          const SQL_ACCELERATOR_THRESHOLD = 3
+          const ANNUAL_SQL_CAP = 22320
+          const ANNUAL_MEETING_CAP = 18000
+          const isIcp = (email: string): boolean => (details[email]?.mqlQuality || '') === 'hq'
+
+          // Use ALL leads unfiltered (revops needs full picture)
+          const allLeadsUnfiltered: AppLead[] = [
+            ...HISTORICAL_LEADS,
+            ...manualLeads.filter(l => !HISTORICAL_LEADS.some(h => h.email === l.email)),
+            ...liveLeads.filter(l => !HISTORICAL_LEADS.some(h => h.email === l.email) && !manualLeads.some(m => m.email === l.email) && !new Set(HISTORICAL_LEADS.map(h=>h.domain)).has(l.domain)),
+          ].filter(l => !deletedEmails.has(l.email))
+
+          // Build per-rep data
+          const repData = reps.filter(r=>r.slackId).map(rep => {
+            const repLeads = rep.id === 'jonathan'
+              ? allLeadsUnfiltered.filter(l => !l.repSlackId || l.repSlackId === rep.slackId)
+              : allLeadsUnfiltered.filter(l => l.repSlackId === rep.slackId)
+
+            // Gather events
+            const events: { email:string; account:string; meetingDate:string|null; sqlDate:string|null; sqoDate:string|null; mqlQuality:string; sourceChannel:string; ae:string; acv:string; isMeeting:boolean; isSql:boolean }[] = []
+
+            repLeads.forEach(l => {
+              const det = details[l.email]
+              if (!det) return
+              const displayName = nameOverrides[l.email] || l.account || formatDomain(l.domain) || l.email
+              const hasMeeting = !!(det.meetingDate && isIcp(l.email))
+              const hasSql = (det.sqlDq||'').toLowerCase()==='yes' && !!det.sqlDate && isIcp(l.email)
+              if (hasMeeting || hasSql) {
+                events.push({
+                  email: l.email, account: displayName,
+                  meetingDate: det.meetingDate||null, sqlDate: det.sqlDate||null, sqoDate: det.sqoDate||null,
+                  mqlQuality: det.mqlQuality||'', sourceChannel: det.sourceChannel||'', ae: det.ae||'', acv: det.acv||'',
+                  isMeeting: hasMeeting, isSql: hasSql,
+                })
+              }
+            })
+
+            // Monthly totals
+            const monthMap = new Map<string,{meetings:number;sqls:number;meetingAmt:number;sqlAmt:number;accelAmt:number}>()
+            events.forEach(e => {
+              if (e.isMeeting && e.meetingDate) {
+                const d = new Date(e.meetingDate)
+                const mk = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
+                if (!monthMap.has(mk)) monthMap.set(mk,{meetings:0,sqls:0,meetingAmt:0,sqlAmt:0,accelAmt:0})
+                const m=monthMap.get(mk)!; m.meetings++; m.meetingAmt+=MEETING_BONUS
+              }
+              if (e.isSql && e.sqlDate) {
+                const d = new Date(e.sqlDate)
+                const mk = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
+                if (!monthMap.has(mk)) monthMap.set(mk,{meetings:0,sqls:0,meetingAmt:0,sqlAmt:0,accelAmt:0})
+                const m=monthMap.get(mk)!; m.sqls++
+                const bonus = m.sqls > SQL_ACCELERATOR_THRESHOLD ? SQL_ACCELERATOR : SQL_BONUS
+                if (m.sqls > SQL_ACCELERATOR_THRESHOLD) m.accelAmt += SQL_ACCELERATOR
+                else m.sqlAmt += SQL_BONUS
+              }
+            })
+
+            const currentYear = new Date().getFullYear()
+            const ytdMeetings = events.filter(e=>e.isMeeting&&e.meetingDate&&new Date(e.meetingDate).getFullYear()===currentYear).length
+            const ytdSqls = events.filter(e=>e.isSql&&e.sqlDate&&new Date(e.sqlDate).getFullYear()===currentYear).length
+            const ytdMeetingAmt = ytdMeetings * MEETING_BONUS
+            let ytdSqlAmt = 0; let ytdAccelAmt = 0
+            // Recalc SQL amounts per month for accuracy
+            Array.from(monthMap.entries()).filter(([k])=>k.startsWith(String(currentYear))).forEach(([,m])=>{
+              ytdSqlAmt += m.sqlAmt; ytdAccelAmt += m.accelAmt
+            })
+            const ytdTotal = ytdMeetingAmt + ytdSqlAmt + ytdAccelAmt
+
+            return { rep, events, monthMap, ytdMeetings, ytdSqls, ytdMeetingAmt, ytdSqlAmt, ytdAccelAmt, ytdTotal }
+          })
+
+          const filteredRepData = revopsSelectedRep === 'all' ? repData : repData.filter(r => r.rep.id === revopsSelectedRep)
+
+          // All events for the detail table
+          const allEvents = filteredRepData.flatMap(r => r.events.map(e => ({ ...e, repName: r.rep.name, repId: r.rep.id })))
+            .sort((a, b) => {
+              const da = a.meetingDate || a.sqlDate || ''
+              const db = b.meetingDate || b.sqlDate || ''
+              return db.localeCompare(da)
+            })
+
+          return (<>
+            <div style={{marginBottom:28}}>
+              <div style={{fontSize:26,fontWeight:800,letterSpacing:'-0.02em',lineHeight:1.15}}>RevOps<br/><span style={{color:'#60d4f4'}}>Commissions.</span></div>
+              <div style={{fontSize:12,color:C.text3,marginTop:4}}>Commission verification · rep attribution · payout processing</div>
+            </div>
+
+            {/* Rep filter */}
+            <div style={{display:'flex',gap:5,marginBottom:20,flexWrap:'wrap'}}>
+              <button onClick={()=>setRevopsSelectedRep('all')} style={filterPill(revopsSelectedRep==='all','#60d4f4')}>All Reps</button>
+              {reps.filter(r=>r.slackId).map(r=>(
+                <button key={r.id} onClick={()=>setRevopsSelectedRep(r.id)} style={filterPill(revopsSelectedRep===r.id,'#60d4f4')}>{r.name}</button>
+              ))}
+            </div>
+
+            {/* YTD Summary per rep */}
+            <div style={{...card,marginBottom:20}}>
+              <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:14}}>YTD Commission Summary · {new Date().getFullYear()}</div>
+              <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+                <thead>
+                  <tr style={{borderBottom:`2px solid ${C.border2}`}}>
+                    {['Rep','Meetings','Meeting $','SQLs','SQL $','Accel $','Total','Mtg Cap %','SQL Cap %'].map(h=>(
+                      <th key={h} style={{padding:'8px 10px',textAlign:h==='Rep'?'left':'right',fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em'}}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredRepData.map(r=>(
+                    <tr key={r.rep.id} style={{borderBottom:`1px solid ${C.border}`}}>
+                      <td style={{padding:'10px',fontWeight:600,color:C.text}}>{r.rep.name}</td>
+                      <td style={{padding:'10px',textAlign:'right',color:C.text}}>{r.ytdMeetings}</td>
+                      <td style={{padding:'10px',textAlign:'right',color:C.green,fontWeight:600}}>${r.ytdMeetingAmt.toLocaleString()}</td>
+                      <td style={{padding:'10px',textAlign:'right',color:C.text}}>{r.ytdSqls}</td>
+                      <td style={{padding:'10px',textAlign:'right',color:'#c084fc',fontWeight:600}}>${r.ytdSqlAmt.toLocaleString()}</td>
+                      <td style={{padding:'10px',textAlign:'right',color:r.ytdAccelAmt>0?C.amber:C.text3,fontWeight:r.ytdAccelAmt>0?600:400}}>{r.ytdAccelAmt>0?`$${r.ytdAccelAmt.toLocaleString()}`:'—'}</td>
+                      <td style={{padding:'10px',textAlign:'right',fontWeight:800,color:C.text}}>${r.ytdTotal.toLocaleString()}</td>
+                      <td style={{padding:'10px',textAlign:'right',fontSize:11,color:r.ytdMeetingAmt>=ANNUAL_MEETING_CAP?C.red:C.text3}}>{Math.round(r.ytdMeetingAmt/ANNUAL_MEETING_CAP*100)}%</td>
+                      <td style={{padding:'10px',textAlign:'right',fontSize:11,color:(r.ytdSqlAmt+r.ytdAccelAmt)>=ANNUAL_SQL_CAP?C.red:C.text3}}>{Math.round((r.ytdSqlAmt+r.ytdAccelAmt)/ANNUAL_SQL_CAP*100)}%</td>
+                    </tr>
+                  ))}
+                  {filteredRepData.length>1&&(
+                    <tr style={{borderTop:`2px solid ${C.border2}`,background:C.surface2}}>
+                      <td style={{padding:'10px',fontWeight:800,color:C.text}}>Total</td>
+                      <td style={{padding:'10px',textAlign:'right',fontWeight:700,color:C.text}}>{filteredRepData.reduce((s,r)=>s+r.ytdMeetings,0)}</td>
+                      <td style={{padding:'10px',textAlign:'right',fontWeight:700,color:C.green}}>${filteredRepData.reduce((s,r)=>s+r.ytdMeetingAmt,0).toLocaleString()}</td>
+                      <td style={{padding:'10px',textAlign:'right',fontWeight:700,color:C.text}}>{filteredRepData.reduce((s,r)=>s+r.ytdSqls,0)}</td>
+                      <td style={{padding:'10px',textAlign:'right',fontWeight:700,color:'#c084fc'}}>${filteredRepData.reduce((s,r)=>s+r.ytdSqlAmt,0).toLocaleString()}</td>
+                      <td style={{padding:'10px',textAlign:'right',fontWeight:700,color:C.amber}}>${filteredRepData.reduce((s,r)=>s+r.ytdAccelAmt,0).toLocaleString()}</td>
+                      <td style={{padding:'10px',textAlign:'right',fontWeight:800,color:C.text}}>${filteredRepData.reduce((s,r)=>s+r.ytdTotal,0).toLocaleString()}</td>
+                      <td/><td/>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Detailed attribution table */}
+            <div style={{...card,marginBottom:20}}>
+              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
+                <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em'}}>Commission Event Detail · {allEvents.length} events</div>
+              </div>
+              <div style={{overflowX:'auto'}}>
+                <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
+                  <thead>
+                    <tr style={{borderBottom:`2px solid ${C.border2}`}}>
+                      {['Rep','Account','Source','AE','Quality','Meeting Date','SQL Date','SQO Date','ACV','Type','Amount'].map(h=>(
+                        <th key={h} style={{padding:'7px 8px',textAlign:['ACV','Amount'].includes(h)?'right':'left',fontSize:9,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',whiteSpace:'nowrap'}}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {allEvents.map((e,i)=>{
+                      const types: string[] = []
+                      let amount = 0
+                      if (e.isMeeting) { types.push('Meeting'); amount += MEETING_BONUS }
+                      if (e.isSql) { types.push('SQL'); amount += SQL_BONUS }
+                      const qualityColor = e.mqlQuality==='hq'?C.amber:e.mqlQuality==='lq'?'#fb923c':C.text3
+                      return (
+                        <tr key={`${e.email}-${i}`} style={{borderBottom:`1px solid ${C.border}`}}>
+                          <td style={{padding:'7px 8px',fontWeight:500,color:C.text2,whiteSpace:'nowrap'}}>{e.repName}</td>
+                          <td style={{padding:'7px 8px',fontWeight:600,color:C.text,maxWidth:160,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{e.account}</td>
+                          <td style={{padding:'7px 8px',color:C.text3,fontSize:10}}>{e.sourceChannel||'—'}</td>
+                          <td style={{padding:'7px 8px',color:C.text2}}>{e.ae||'—'}</td>
+                          <td style={{padding:'7px 8px'}}><span style={{fontSize:9,fontWeight:700,color:qualityColor,background:`${qualityColor}18`,padding:'1px 5px',borderRadius:3}}>{e.mqlQuality==='hq'?'HQ':e.mqlQuality==='lq'?'LQ':e.mqlQuality||'—'}</span></td>
+                          <td style={{padding:'7px 8px',color:e.meetingDate?C.text2:C.text3,whiteSpace:'nowrap'}}>{e.meetingDate?new Date(e.meetingDate).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'2-digit'}):'—'}</td>
+                          <td style={{padding:'7px 8px',color:e.sqlDate?'#c084fc':C.text3,whiteSpace:'nowrap'}}>{e.sqlDate?new Date(e.sqlDate).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'2-digit'}):'—'}</td>
+                          <td style={{padding:'7px 8px',color:e.sqoDate?C.amber:C.text3,whiteSpace:'nowrap'}}>{e.sqoDate?new Date(e.sqoDate).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'2-digit'}):'—'}</td>
+                          <td style={{padding:'7px 8px',textAlign:'right',color:e.acv?C.text2:C.text3}}>{e.acv?`$${parseAcv(e.acv).toLocaleString()}`:'—'}</td>
+                          <td style={{padding:'7px 8px'}}>
+                            {types.map(t=>(
+                              <span key={t} style={{fontSize:9,fontWeight:700,padding:'1px 5px',borderRadius:3,marginRight:3,
+                                background:t==='Meeting'?'rgba(0,229,160,0.15)':'rgba(192,132,252,0.15)',
+                                color:t==='Meeting'?C.green:'#c084fc',
+                                border:`1px solid ${t==='Meeting'?'rgba(0,229,160,0.3)':'rgba(192,132,252,0.3)'}`,
+                              }}>{t}</span>
+                            ))}
+                          </td>
+                          <td style={{padding:'7px 8px',textAlign:'right',fontWeight:700,color:C.text}}>${amount.toLocaleString()}</td>
+                        </tr>
+                      )
+                    })}
+                    {allEvents.length===0&&(
+                      <tr><td colSpan={11} style={{padding:'20px',textAlign:'center',color:C.text3}}>No commission events found for the selected rep(s).</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Commission rules reference */}
+            <div style={{...card,opacity:0.7}}>
+              <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:10}}>Commission Structure Reference</div>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12,fontSize:11,color:C.text2}}>
+                <div><strong style={{color:C.text}}>Meeting Booked:</strong> $150/ICP meeting (A/B/E tier)</div>
+                <div><strong style={{color:C.text}}>SQL:</strong> $620/SQL · $930 accelerator if &gt;3/month</div>
+                <div><strong style={{color:C.text}}>Caps:</strong> Meeting $18K/yr · SQL $22.3K/yr</div>
+              </div>
+              <div style={{fontSize:10,color:C.text3,marginTop:8}}>Payout: following month, 2nd half pay cycle. Meeting + SQL can stack on the same account.</div>
+            </div>
+          </>)
+        })()}
       </main>
 
       {/* ── Create Contact Modal ── */}
