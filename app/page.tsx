@@ -2490,10 +2490,13 @@ export default function Dashboard() {
               else segStart=new Date(now.getFullYear(),0,1)
 
               // Summary: scoped to current segment period (respecting custom date range override)
-              const summaryLeads=fromDate||toDate?filteredLeads:filteredLeads.filter(l=>{
+              // If no leads in current period, fall back to all filtered leads so the section isn't empty
+              const periodLeads=filteredLeads.filter(l=>{
                 const dateStr=getLeadActivityDate(l)
                 return dateStr?new Date(dateStr)>=segStart:false
               })
+              const hasPeriodData=periodLeads.some(l=>getChannel(l)!=='')
+              const summaryLeads=fromDate||toDate?filteredLeads:hasPeriodData?periodLeads:filteredLeads
 
               const channels=knownChannels.filter(c=>c)
               const channelStats=channels.map(ch=>{
@@ -2507,7 +2510,8 @@ export default function Dashboard() {
                 }
               }).filter(c=>c.total>0)
 
-              const summaryLabel=fromDate||toDate?'custom range':seg==='day'?'today':seg==='week'?'this week':seg==='month'?'this month':seg==='quarter'?'this quarter':'this year'
+              const periodLabel=seg==='day'?'today':seg==='week'?'this week':seg==='month'?'this month':seg==='quarter'?'this quarter':'this year'
+              const summaryLabel=fromDate||toDate?'custom range':hasPeriodData?periodLabel:'all time'
 
               // Time-segmented table
               const segMap=new Map<string,{key:string;label:string;channels:Record<string,{total:number;meetings:number;sqls:number}>}>()
