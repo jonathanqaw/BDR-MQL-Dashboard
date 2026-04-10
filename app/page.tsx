@@ -1464,17 +1464,17 @@ export default function Dashboard() {
   // For period checks, consider the lead date AND any activity dates (connected, meeting, SQL, SQO)
   // so a lead with recent activity in its details still appears in the relevant period.
   const periodStart=getPeriodStart(period)
-  const getLeadDate=(l:AppLead):Date|null=>{
-    const d=l.date||l.receivedAt
-    return d?new Date(d):null
-  }
   const hasActivityInPeriod=(l:AppLead,start:Date):boolean=>{
-    const leadDate=getLeadDate(l)
-    if (leadDate&&leadDate>=start) return true
     const det=details[l.email]
-    if (!det) return false
-    const dates=[det.connectedDate,det.meetingDate,det.sqlDate,det.sqoDate,det.closedWonDate].filter(Boolean)
-    return dates.some(d=>new Date(d)>=start)
+    // Use detail activity dates as the primary grouping dates
+    const activityDates=[det?.connectedDate,det?.meetingDate,det?.sqlDate,det?.sqoDate,det?.closedWonDate].filter(Boolean)
+    if (activityDates.length>0) {
+      // Lead has activity dates — use those for period matching
+      return activityDates.some(d=>new Date(d)>=start)
+    }
+    // No activity dates recorded yet — fall back to the lead's creation date
+    const fallback=l.date||l.receivedAt
+    return fallback?new Date(fallback)>=start:false
   }
   const pipelineLeads=allLeads.filter(l=>{
     if (!l.date&&!l.receivedAt) return false
