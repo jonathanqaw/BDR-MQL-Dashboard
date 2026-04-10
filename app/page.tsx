@@ -1460,16 +1460,30 @@ export default function Dashboard() {
 ].filter(l=>!deletedEmails.has(l.email))
 
   // ── Pipeline filters ────────────────────────────────────────────────────────
+  // Use the lead's business date (date field) for period filtering, not the Slack message timestamp.
+  // For period checks, consider the lead date AND any activity dates (connected, meeting, SQL, SQO)
+  // so a lead with recent activity in its details still appears in the relevant period.
   const periodStart=getPeriodStart(period)
+  const getLeadDate=(l:AppLead):Date|null=>{
+    const d=l.date||l.receivedAt
+    return d?new Date(d):null
+  }
+  const hasActivityInPeriod=(l:AppLead,start:Date):boolean=>{
+    const leadDate=getLeadDate(l)
+    if (leadDate&&leadDate>=start) return true
+    const det=details[l.email]
+    if (!det) return false
+    const dates=[det.connectedDate,det.meetingDate,det.sqlDate,det.sqoDate,det.closedWonDate].filter(Boolean)
+    return dates.some(d=>new Date(d)>=start)
+  }
   const pipelineLeads=allLeads.filter(l=>{
-    if (!l.receivedAt) return false
-    if (new Date(l.receivedAt)<periodStart) return false
+    if (!l.date&&!l.receivedAt) return false
+    if (period!=='all'&&!hasActivityInPeriod(l,periodStart)) return false
     const s=statuses[l.email]||'new'
     if (worked==='worked'&&s==='new') return false
     if (worked==='untouched'&&s!=='new') return false
     if (stFilter!=='all'&&s!==stFilter) return false
     const det=details[l.email]
-    if (detailFilter==='sql'&&(det?.sqlDq||'')==='Yes'===false) return false
     if (detailFilter==='sql'&&(det?.sqlDq||'')!=='Yes') return false
     if (detailFilter==='sqo'&&(det?.sqo||'')!=='Yes') return false
     return true
@@ -1477,7 +1491,8 @@ export default function Dashboard() {
 
   const pCounts=(Object.keys(STATUS_CONFIG) as Status[]).reduce((acc,s)=>{
     acc[s]=allLeads.filter(l=>{
-      if (!l.receivedAt||new Date(l.receivedAt)<periodStart) return false
+      if (!l.date&&!l.receivedAt) return false
+      if (period!=='all'&&!hasActivityInPeriod(l,periodStart)) return false
       return (statuses[l.email]||'new')===s
     }).length
     return acc
@@ -1485,11 +1500,13 @@ export default function Dashboard() {
 
   // SQL and SQO counts — driven by detail fields, scoped to period
   const sqlCount=allLeads.filter(l=>{
-    if (!l.receivedAt||new Date(l.receivedAt)<periodStart) return false
+    if (!l.date&&!l.receivedAt) return false
+    if (period!=='all'&&!hasActivityInPeriod(l,periodStart)) return false
     return (details[l.email]?.sqlDq||'')==='Yes'
   }).length
   const sqoCount=allLeads.filter(l=>{
-    if (!l.receivedAt||new Date(l.receivedAt)<periodStart) return false
+    if (!l.date&&!l.receivedAt) return false
+    if (period!=='all'&&!hasActivityInPeriod(l,periodStart)) return false
     return (details[l.email]?.sqo||'')==='Yes'
   }).length
   const sqlAllTime=allLeads.filter(l=>(details[l.email]?.sqlDq||'')==='Yes').length
