@@ -2471,32 +2471,28 @@ export default function Dashboard() {
               toDate:string,setToDate:(v:string)=>void,
               palette:Record<string,string>,
             )=>{
-              // Filter leads by custom date range
+              // Current segment period range
+              const now=new Date()
+              let segStart:Date, segEnd:Date
+              if(seg==='day'){ segStart=new Date(now.getFullYear(),now.getMonth(),now.getDate()); segEnd=new Date(now.getFullYear(),now.getMonth(),now.getDate(),23,59,59) }
+              else if(seg==='week'){ segStart=new Date(now);segStart.setDate(now.getDate()-now.getDay());segStart.setHours(0,0,0,0); segEnd=new Date(segStart);segEnd.setDate(segStart.getDate()+6);segEnd.setHours(23,59,59) }
+              else if(seg==='month'){ segStart=new Date(now.getFullYear(),now.getMonth(),1); segEnd=new Date(now.getFullYear(),now.getMonth()+1,0,23,59,59) }
+              else if(seg==='quarter'){ const qm=Math.floor(now.getMonth()/3)*3; segStart=new Date(now.getFullYear(),qm,1); segEnd=new Date(now.getFullYear(),qm+3,0,23,59,59) }
+              else { segStart=new Date(now.getFullYear(),0,1); segEnd=new Date(now.getFullYear(),11,31,23,59,59) }
+
+              // Use custom date range if provided, otherwise scope to current period
+              const useCustomRange=!!(fromDate||toDate)
+              const rangeStart=useCustomRange&&fromDate?new Date(fromDate):segStart
+              const rangeEnd=useCustomRange&&toDate?new Date(toDate+'T23:59:59'):useCustomRange?new Date('2099-01-01'):segEnd
+
               const filteredLeads=allLeads.filter(l=>{
                 const dateStr=getLeadActivityDate(l)
                 if(!dateStr) return false
-                if(fromDate&&new Date(dateStr)<new Date(fromDate)) return false
-                if(toDate&&new Date(dateStr)>new Date(toDate+'T23:59:59')) return false
-                return true
+                const d=new Date(dateStr)
+                return d>=rangeStart&&d<=rangeEnd
               })
 
-              // Current segment period range (for summary cards)
-              const now=new Date()
-              let segStart:Date
-              if(seg==='day') segStart=new Date(now.getFullYear(),now.getMonth(),now.getDate())
-              else if(seg==='week'){segStart=new Date(now);segStart.setDate(now.getDate()-now.getDay());segStart.setHours(0,0,0,0)}
-              else if(seg==='month') segStart=new Date(now.getFullYear(),now.getMonth(),1)
-              else if(seg==='quarter') segStart=new Date(now.getFullYear(),Math.floor(now.getMonth()/3)*3,1)
-              else segStart=new Date(now.getFullYear(),0,1)
-
-              // Summary: scoped to current segment period (respecting custom date range override)
-              // If no leads in current period, fall back to all filtered leads so the section isn't empty
-              const periodLeads=filteredLeads.filter(l=>{
-                const dateStr=getLeadActivityDate(l)
-                return dateStr?new Date(dateStr)>=segStart:false
-              })
-              const hasPeriodData=periodLeads.some(l=>getChannel(l)!=='')
-              const summaryLeads=fromDate||toDate?filteredLeads:hasPeriodData?periodLeads:filteredLeads
+              const summaryLeads=filteredLeads
 
               const channels=knownChannels.filter(c=>c)
               const channelStats=channels.map(ch=>{
@@ -2510,8 +2506,7 @@ export default function Dashboard() {
                 }
               }).filter(c=>c.total>0)
 
-              const periodLabel=seg==='day'?'today':seg==='week'?'this week':seg==='month'?'this month':seg==='quarter'?'this quarter':'this year'
-              const summaryLabel=fromDate||toDate?'custom range':hasPeriodData?periodLabel:'all time'
+              const summaryLabel=fromDate||toDate?'custom range':seg==='day'?'today':seg==='week'?'this week':seg==='month'?'this month':seg==='quarter'?'this quarter':'this year'
 
               // Time-segmented table
               const segMap=new Map<string,{key:string;label:string;channels:Record<string,{total:number;meetings:number;sqls:number}>}>()
@@ -2578,8 +2573,8 @@ export default function Dashboard() {
                     </>
                   )}
 
-                  {/* Breakdown table */}
-                  {segRows.length>0?(
+                  {/* Breakdown table — only show when multiple periods exist (custom date range) */}
+                  {segRows.length>1?(
                     <div style={{overflowX:'auto'}}>
                       <div style={{fontSize:10,color:C.text3,marginBottom:8,fontWeight:600,textTransform:'uppercase',letterSpacing:'.06em'}}>breakdown by {SEG_LABELS[seg].toLowerCase()}</div>
                       <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
