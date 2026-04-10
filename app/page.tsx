@@ -231,7 +231,8 @@ const C = {
 }
 
 // ─── Dropdown options ─────────────────────────────────────────────────────────
-const SOURCE_CHANNELS  = ['','#growth-wins','#leads-bot','leads-platform waitlist','gated-content','QA Wolf inbox','webinar','AE assist','gen OB','Other']
+const SOURCE_CHANNELS  = ['','#growth-wins','#leads-bot','leads-platform waitlist','gated-content','QA Wolf inbox','webinar','AE assist','gen OB','Swan','leads-lonescale','Other']
+const OUTBOUND_SOURCES = new Set(['Swan','gen OB','AE assist','leads-lonescale'])
 const OUTREACH_CH      = ['','Email','LinkedIn','Call','Other']
 const NEXT_STEPS       = ['','Discovery Call','Demo','Sample Tests','Reconnect','Other']
 const NEXT_STEP_STATUS = ['','In Progress','Discovery Held','Waiting for AE','TBD - Evaluation','Scheduled']
@@ -1384,6 +1385,7 @@ export default function Dashboard() {
   const [oppTo,setOppTo]=useState('')
   const [mqlView,setMqlView]=useState<'daily'|'quarterly'>('daily')
   const [detailFilter,setDetailFilter]=useState<'none'|'sql'|'sqo'>('none')
+  const [pipelineDir,setPipelineDir]=useState<'all'|'inbound'|'outbound'>('all')
   const [loading,    setLoading]    = useState(true)
   const [error,      setError]      = useState<string|null>(null)
   const [fetchedAt,  setFetchedAt]  = useState<string|null>(null)
@@ -1599,9 +1601,14 @@ export default function Dashboard() {
     const fallback=l.date||l.receivedAt
     return fallback?new Date(fallback)>=start:false
   }
+  // Inbound / Outbound direction filter
+  const isOutbound=(l:AppLead):boolean=>OUTBOUND_SOURCES.has(details[l.email]?.sourceChannel||'')
+  const dirFilter=(l:AppLead):boolean=>pipelineDir==='all'?true:pipelineDir==='outbound'?isOutbound(l):!isOutbound(l)
+
   const pipelineLeads=allLeads.filter(l=>{
     if (!l.date&&!l.receivedAt) return false
     if (period!=='all'&&!hasActivityInPeriod(l,periodStart)) return false
+    if (!dirFilter(l)) return false
     const s=statuses[l.email]||'new'
     if (worked==='worked'&&s==='new') return false
     if (worked==='untouched'&&s!=='new') return false
@@ -1616,6 +1623,7 @@ export default function Dashboard() {
     acc[s]=allLeads.filter(l=>{
       if (!l.date&&!l.receivedAt) return false
       if (period!=='all'&&!hasActivityInPeriod(l,periodStart)) return false
+      if (!dirFilter(l)) return false
       return (statuses[l.email]||'new')===s
     }).length
     return acc
@@ -1625,11 +1633,13 @@ export default function Dashboard() {
   const sqlCount=allLeads.filter(l=>{
     if (!l.date&&!l.receivedAt) return false
     if (period!=='all'&&!hasActivityInPeriod(l,periodStart)) return false
+    if (!dirFilter(l)) return false
     return (details[l.email]?.sqlDq||'')==='Yes'
   }).length
   const sqoCount=allLeads.filter(l=>{
     if (!l.date&&!l.receivedAt) return false
     if (period!=='all'&&!hasActivityInPeriod(l,periodStart)) return false
+    if (!dirFilter(l)) return false
     return (details[l.email]?.sqo||'')==='Yes'
   }).length
   const sqlAllTime=allLeads.filter(l=>(details[l.email]?.sqlDq||'')==='Yes').length
@@ -2375,9 +2385,16 @@ export default function Dashboard() {
           <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:16,marginBottom:24}}>
             <div>
               <div style={{fontSize:26,fontWeight:800,letterSpacing:'-0.02em',lineHeight:1.15}}>Pipeline<br/><span style={{color:C.green}}>Overview.</span></div>
-              <div style={{fontSize:12,color:C.text3,marginTop:4}}>{currentRep.name} · {allLeads.length} total leads · click any row to expand{ecSaving&&<span style={{color:C.amber,marginLeft:8}}>↑ syncing…</span>}</div>
+              <div style={{fontSize:12,color:C.text3,marginTop:4}}>{currentRep.name} · {pipelineDir==='all'?`${allLeads.length} total`:pipelineDir==='inbound'?'inbound':'outbound'} leads · click any row to expand{ecSaving&&<span style={{color:C.amber,marginLeft:8}}>↑ syncing…</span>}</div>
             </div>
             <div style={{display:'flex',flexDirection:'column',gap:8,alignItems:'flex-end'}}>
+              <div style={{display:'flex',gap:5}}>
+                {(['all','inbound','outbound'] as const).map(d=>(
+                  <button key={d} onClick={()=>setPipelineDir(d)} style={filterPill(pipelineDir===d,d==='inbound'?'#60d4f4':d==='outbound'?'#e879f9':C.purple)}>
+                    {{all:'All Leads',inbound:'⬇ Inbound',outbound:'⬆ Outbound'}[d]}
+                  </button>
+                ))}
+              </div>
               <div style={{display:'flex',gap:5}}>
                 {(['all','week','month','quarter'] as PeriodFilter[]).map(p=>(
                   <button key={p} onClick={()=>{setPeriod(p);setStFilter('all')}} style={filterPill(period===p)}>{{all:'All Time',week:'This Week',month:'This Month',quarter:'This Quarter'}[p]}</button>
