@@ -2300,6 +2300,7 @@ export default function Dashboard() {
           ...(auth?.role==='manager' ? [['reporting','🧾','Reporting','Generated summaries · leadership-ready'] as const] : []),
           ['commissions','💲','Commissions','Bonus tracking · payouts'] as const,
           ['leaderboard','🏆','Leaderboard','Rep rankings · spiffs'] as const,
+          ...(auth?.role==='manager' ? [['revops_commissions','📋','RevOps','Commission verification · payouts'] as const] : []),
         ] as const).map(([v,icon,label,sub])=>(
           <div key={v} style={navBtn(view===v as View)} onClick={()=>setView(v as View)}>
             <div style={{width:26,height:26,borderRadius:6,background:view===v?C.purple:C.surface3,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,color:view===v?'#fff':C.text3,flexShrink:0}}>{icon}</div>
