@@ -451,6 +451,121 @@ function AECombobox({value,onChange}:{value:string;onChange:(v:string)=>void}) {
   )
 }
 
+// ─── Editable Combobox — generic add/edit/delete dropdown (same UX as AE) ────
+const SC_STORAGE_KEY = 'mql-source-ch-opts'
+function getStoredSourceChannels(): string[] {
+  try {
+    const stored = JSON.parse(localStorage.getItem(SC_STORAGE_KEY)||'null')
+    if (Array.isArray(stored)) return stored
+  } catch {}
+  return SOURCE_CHANNELS.filter(c=>c)
+}
+
+function EditableCombobox({value,onChange,storageKey,defaults,placeholder}:{value:string;onChange:(v:string)=>void;storageKey:string;defaults:string[];placeholder?:string}) {
+  const [open,setOpen]=useState(false)
+  const [opts,setOpts]=useState<string[]>(()=>{try{const s=JSON.parse(localStorage.getItem(storageKey)||'null');if(Array.isArray(s))return s}catch{}return defaults})
+  const [inputVal,setInputVal]=useState(value)
+  const [hoveredIdx,setHoveredIdx]=useState<number|null>(null)
+  const [confirmDelete,setConfirmDelete]=useState<string|null>(null)
+  const ref=React.useRef<HTMLDivElement>(null)
+
+  useEffect(()=>setInputVal(value),[value])
+
+  useEffect(()=>{
+    const handler=(e:MouseEvent)=>{ if (ref.current&&!ref.current.contains(e.target as Node)){setOpen(false);setConfirmDelete(null)} }
+    document.addEventListener('mousedown',handler)
+    return ()=>document.removeEventListener('mousedown',handler)
+  },[])
+
+  const save=(updated:string[])=>{
+    const sorted=updated.slice().sort()
+    setOpts(sorted)
+    localStorage.setItem(storageKey,JSON.stringify(sorted))
+  }
+
+  const filtered=opts.filter(o=>o.toLowerCase().includes(inputVal.toLowerCase()))
+  const showAdd=inputVal.trim()&&!opts.some(o=>o.toLowerCase()===inputVal.trim().toLowerCase())
+
+  const select=(v:string)=>{ onChange(v); setInputVal(v); setOpen(false); setConfirmDelete(null) }
+
+  const addNew=()=>{
+    const v=inputVal.trim()
+    if (!v) return
+    save([...opts,v])
+    select(v)
+  }
+
+  const deleteOpt=(name:string,e:React.MouseEvent)=>{
+    e.preventDefault(); e.stopPropagation()
+    if (confirmDelete===name) {
+      save(opts.filter(o=>o!==name))
+      if (value===name) onChange('')
+      setConfirmDelete(null)
+    } else {
+      setConfirmDelete(name)
+    }
+  }
+
+  return (
+    <div ref={ref} style={{position:'relative'}} onClick={e=>e.stopPropagation()}>
+      <input
+        value={inputVal}
+        onChange={e=>{setInputVal(e.target.value);onChange(e.target.value);setOpen(true);setConfirmDelete(null)}}
+        onFocus={()=>setOpen(true)}
+        onMouseDown={e=>e.stopPropagation()}
+        onKeyDown={e=>{e.stopPropagation();if(e.key==='Escape'){setOpen(false);setConfirmDelete(null)}}}
+        onKeyUp={e=>e.stopPropagation()}
+        placeholder={placeholder||'Select or type…'}
+        style={{...inputStyle,paddingRight:28}}
+        onClick={e=>e.stopPropagation()}
+      />
+      <span onClick={e=>{e.stopPropagation();setOpen(p=>!p);setConfirmDelete(null)}}
+            style={{position:'absolute',right:8,top:'50%',transform:'translateY(-50%)',fontSize:9,color:C.text3,cursor:'pointer',userSelect:'none'}}>▼</span>
+      {open&&(
+        <div style={{position:'absolute',top:'100%',left:0,right:0,zIndex:100,background:C.surface,border:`1px solid ${C.border2}`,borderRadius:6,boxShadow:'0 8px 24px rgba(0,0,0,0.4)',maxHeight:220,overflowY:'auto',marginTop:2}}>
+          {filtered.length===0&&!showAdd&&<div style={{padding:'8px 10px',fontSize:11,color:C.text3}}>No matches</div>}
+          {filtered.map((o,i)=>{
+            const isConfirming=confirmDelete===o
+            return (
+              <div key={o}
+                   onMouseEnter={()=>setHoveredIdx(i)}
+                   onMouseLeave={()=>setHoveredIdx(null)}
+                   style={{display:'flex',alignItems:'center',padding:'0 6px 0 10px',background:hoveredIdx===i&&!isConfirming?C.surface2:isConfirming?'rgba(255,92,92,0.1)':'transparent',transition:'background 0.1s'}}>
+                <div
+                  onMouseDown={e=>{e.preventDefault();if(!isConfirming)select(o);else setConfirmDelete(null)}}
+                  style={{flex:1,padding:'7px 0',fontSize:12,color:isConfirming?C.red:C.text2,cursor:'pointer',fontWeight:isConfirming?600:400}}
+                >
+                  {isConfirming?`Delete "${o}"?`:o}
+                </div>
+                {(hoveredIdx===i||isConfirming)&&(
+                  <div style={{display:'flex',gap:4,flexShrink:0,paddingLeft:6}}>
+                    {isConfirming&&(
+                      <button
+                        onMouseDown={e=>{e.preventDefault();setConfirmDelete(null)}}
+                        style={{fontSize:10,fontWeight:600,padding:'2px 7px',borderRadius:4,border:`1px solid ${C.border2}`,background:'transparent',color:C.text3,cursor:'pointer'}}
+                      >Cancel</button>
+                    )}
+                    <button
+                      onMouseDown={e=>deleteOpt(o,e)}
+                      style={{fontSize:10,fontWeight:600,padding:'2px 7px',borderRadius:4,border:`1px solid ${isConfirming?C.red:C.border2}`,background:isConfirming?'rgba(255,92,92,0.15)':'transparent',color:isConfirming?C.red:C.text3,cursor:'pointer'}}
+                    >{isConfirming?'Confirm':'✕'}</button>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+          {showAdd&&(
+            <div onMouseDown={e=>{e.preventDefault();addNew()}}
+                 style={{padding:'7px 10px',fontSize:12,color:C.green,cursor:'pointer',borderTop:`1px solid ${C.border}`,display:'flex',alignItems:'center',gap:6}}>
+              <span style={{fontSize:14,fontWeight:700}}>+</span> Add &ldquo;{inputVal.trim()}&rdquo;
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Date input wrapper — prevents calendar icon from disappearing ────────────
 function toDateInputValue(value:string) {
   if (!value) return ''
@@ -605,7 +720,7 @@ function DetailPanel({lead,detail,onSave,onClose}:{lead:AppLead;detail:LeadDetai
             <Field label="Prospect Name"><Inp value={d.prospectName} onChange={setVal('prospectName')} placeholder="Full name"/></Field>
             <Field label="Title"><Inp value={d.title} onChange={setVal('title')} placeholder="Job title"/></Field>
             <Field label="AE"><AECombobox value={d.ae} onChange={setVal('ae')}/></Field>
-            <Field label="Source Channel"><Sel value={d.sourceChannel} onChange={setVal('sourceChannel')} opts={SOURCE_CHANNELS}/></Field>
+            <Field label="Source Channel"><EditableCombobox value={d.sourceChannel} onChange={setVal('sourceChannel')} storageKey={SC_STORAGE_KEY} defaults={SOURCE_CHANNELS.filter(c=>c)} placeholder="Select or type source…"/></Field>
           </div>
 
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:12,marginBottom:14}}>
@@ -1288,11 +1403,11 @@ export default function Dashboard() {
   const [ocSegment,setOcSegment]=useState<'day'|'week'|'month'|'quarter'|'year'>('month')
   const [ocFrom,setOcFrom]=useState('')
   const [ocTo,setOcTo]=useState('')
-  const [ocCompare,setOcCompare]=useState(false)
+  const [ocCompare,setOcCompare]=useState<'week'|'month'|'quarter'|'year'|null>(null)
   const [scSegment,setScSegment]=useState<'day'|'week'|'month'|'quarter'|'year'>('month')
   const [scFrom,setScFrom]=useState('')
   const [scTo,setScTo]=useState('')
-  const [scCompare,setScCompare]=useState(false)
+  const [scCompare,setScCompare]=useState<'week'|'month'|'quarter'|'year'|null>(null)
   const [spiffs,setSpiffs]=useState<Spiff[]>([])
   const [showSpiffModal,setShowSpiffModal]=useState(false)
   const [editingSpiff,setEditingSpiff]=useState<Spiff|null>(null)
@@ -2476,42 +2591,32 @@ export default function Dashboard() {
                 }
               })
 
-            // Compute period start/end and the previous period start/end
-            const computePeriodRange=(seg:'day'|'week'|'month'|'quarter'|'year')=>{
+            // Compute current period start/end from the view segment
+            const computeCurrentRange=(seg:'day'|'week'|'month'|'quarter'|'year')=>{
               const now=new Date()
-              let segStart:Date,segEnd:Date,prevStart:Date,prevEnd:Date
-              if(seg==='day'){
-                segStart=new Date(now.getFullYear(),now.getMonth(),now.getDate())
-                segEnd=new Date(now.getFullYear(),now.getMonth(),now.getDate(),23,59,59)
-                prevStart=new Date(segStart); prevStart.setDate(prevStart.getDate()-1)
-                prevEnd=new Date(prevStart); prevEnd.setHours(23,59,59)
-              } else if(seg==='week'){
-                segStart=new Date(now);segStart.setDate(now.getDate()-now.getDay());segStart.setHours(0,0,0,0)
-                segEnd=new Date(segStart);segEnd.setDate(segStart.getDate()+6);segEnd.setHours(23,59,59)
-                prevStart=new Date(segStart);prevStart.setDate(prevStart.getDate()-7)
-                prevEnd=new Date(prevStart);prevEnd.setDate(prevStart.getDate()+6);prevEnd.setHours(23,59,59)
-              } else if(seg==='month'){
-                segStart=new Date(now.getFullYear(),now.getMonth(),1)
-                segEnd=new Date(now.getFullYear(),now.getMonth()+1,0,23,59,59)
-                prevStart=new Date(now.getFullYear(),now.getMonth()-1,1)
-                prevEnd=new Date(now.getFullYear(),now.getMonth(),0,23,59,59)
-              } else if(seg==='quarter'){
-                const qm=Math.floor(now.getMonth()/3)*3
-                segStart=new Date(now.getFullYear(),qm,1)
-                segEnd=new Date(now.getFullYear(),qm+3,0,23,59,59)
-                prevStart=new Date(now.getFullYear(),qm-3,1)
-                prevEnd=new Date(now.getFullYear(),qm,0,23,59,59)
-              } else {
-                segStart=new Date(now.getFullYear(),0,1)
-                segEnd=new Date(now.getFullYear(),11,31,23,59,59)
-                prevStart=new Date(now.getFullYear()-1,0,1)
-                prevEnd=new Date(now.getFullYear()-1,11,31,23,59,59)
-              }
-              return {segStart,segEnd,prevStart,prevEnd}
+              let segStart:Date,segEnd:Date
+              if(seg==='day'){ segStart=new Date(now.getFullYear(),now.getMonth(),now.getDate()); segEnd=new Date(now.getFullYear(),now.getMonth(),now.getDate(),23,59,59) }
+              else if(seg==='week'){ segStart=new Date(now);segStart.setDate(now.getDate()-now.getDay());segStart.setHours(0,0,0,0); segEnd=new Date(segStart);segEnd.setDate(segStart.getDate()+6);segEnd.setHours(23,59,59) }
+              else if(seg==='month'){ segStart=new Date(now.getFullYear(),now.getMonth(),1); segEnd=new Date(now.getFullYear(),now.getMonth()+1,0,23,59,59) }
+              else if(seg==='quarter'){ const qm=Math.floor(now.getMonth()/3)*3; segStart=new Date(now.getFullYear(),qm,1); segEnd=new Date(now.getFullYear(),qm+3,0,23,59,59) }
+              else { segStart=new Date(now.getFullYear(),0,1); segEnd=new Date(now.getFullYear(),11,31,23,59,59) }
+              return {segStart,segEnd}
+            }
+
+            // Compute previous period range for a given comparison unit
+            const computePrevRange=(cmp:'day'|'week'|'month'|'quarter'|'year')=>{
+              const now=new Date()
+              let prevStart:Date,prevEnd:Date
+              if(cmp==='day'){ prevStart=new Date(now.getFullYear(),now.getMonth(),now.getDate()-1); prevEnd=new Date(now.getFullYear(),now.getMonth(),now.getDate()-1,23,59,59) }
+              else if(cmp==='week'){ prevStart=new Date(now);prevStart.setDate(now.getDate()-now.getDay()-7);prevStart.setHours(0,0,0,0); prevEnd=new Date(prevStart);prevEnd.setDate(prevStart.getDate()+6);prevEnd.setHours(23,59,59) }
+              else if(cmp==='month'){ prevStart=new Date(now.getFullYear(),now.getMonth()-1,1); prevEnd=new Date(now.getFullYear(),now.getMonth(),0,23,59,59) }
+              else if(cmp==='quarter'){ const qm=Math.floor(now.getMonth()/3)*3; prevStart=new Date(now.getFullYear(),qm-3,1); prevEnd=new Date(now.getFullYear(),qm,0,23,59,59) }
+              else { prevStart=new Date(now.getFullYear()-1,0,1); prevEnd=new Date(now.getFullYear()-1,11,31,23,59,59) }
+              return {prevStart,prevEnd}
             }
 
             const PERIOD_LABELS:{[k:string]:string}={day:'today',week:'this week',month:'this month',quarter:'this quarter',year:'this year'}
-            const PREV_LABELS:{[k:string]:string}={day:'yesterday',week:'last week',month:'last month',quarter:'last quarter',year:'last year'}
+            const COMPARE_LABELS:{[k:string]:string}={day:'yesterday',week:'last week',month:'last month',quarter:'last quarter',year:'last year'}
 
             const filterLeadsByRange=(start:Date,end:Date)=>allLeads.filter(l=>{
               const dateStr=getLeadActivityDate(l)
@@ -2529,15 +2634,17 @@ export default function Dashboard() {
               fromDate:string,setFromDate:(v:string)=>void,
               toDate:string,setToDate:(v:string)=>void,
               palette:Record<string,string>,
-              showCompare:boolean,setShowCompare:(v:boolean)=>void,
+              compareVs:'week'|'month'|'quarter'|'year'|null,setCompareVs:(v:'week'|'month'|'quarter'|'year'|null)=>void,
             )=>{
-              const {segStart,segEnd,prevStart,prevEnd}=computePeriodRange(seg)
+              const {segStart,segEnd}=computeCurrentRange(seg)
               const useCustomRange=!!(fromDate||toDate)
               const rangeStart=useCustomRange&&fromDate?new Date(fromDate):segStart
               const rangeEnd=useCustomRange&&toDate?new Date(toDate+'T23:59:59'):useCustomRange?new Date('2099-01-01'):segEnd
+              const showCompare=!!compareVs&&!useCustomRange
 
               const currentLeads=filterLeadsByRange(rangeStart,rangeEnd)
-              const prevLeads=showCompare&&!useCustomRange?filterLeadsByRange(prevStart,prevEnd):[]
+              const {prevStart,prevEnd}=compareVs?computePrevRange(compareVs):{prevStart:new Date(),prevEnd:new Date()}
+              const prevLeads=showCompare?filterLeadsByRange(prevStart,prevEnd):[]
 
               const channels=knownChannels.filter(c=>c)
               const currentStats=computeChannelStats(currentLeads,getChannel,channels)
@@ -2551,7 +2658,7 @@ export default function Dashboard() {
               })
 
               const summaryLabel=useCustomRange?'custom range':PERIOD_LABELS[seg]
-              const prevLabel=PREV_LABELS[seg]
+              const prevLabel=compareVs?COMPARE_LABELS[compareVs]:''
 
               // Delta indicator
               const delta=(cur:number,prev:number)=>{
@@ -2578,16 +2685,21 @@ export default function Dashboard() {
                       {(fromDate||toDate)&&<button onClick={()=>{setFromDate('');setToDate('')}} style={{fontSize:10,fontWeight:600,color:C.text3,background:'none',border:'none',cursor:'pointer',padding:'2px 6px'}}>✕ Clear</button>}
                     </div>
                     {!useCustomRange&&(
-                      <button onClick={()=>setShowCompare(!showCompare)} style={{...filterPill(showCompare,C.amber),fontSize:11}}>
-                        {showCompare?'✕ Hide comparison':'⇄ Compare vs '+prevLabel}
-                      </button>
+                      <div style={{display:'flex',gap:4,alignItems:'center'}}>
+                        <span style={{fontSize:10,fontWeight:700,color:C.text3,marginRight:2}}>⇄</span>
+                        {(['week','month','quarter','year'] as const).map(cmp=>(
+                          <button key={cmp} onClick={()=>setCompareVs(compareVs===cmp?null:cmp)} style={{...filterPill(compareVs===cmp,C.amber),fontSize:10,padding:'4px 10px'}}>
+                            vs {COMPARE_LABELS[cmp]}
+                          </button>
+                        ))}
+                      </div>
                     )}
                   </div>
 
                   {/* Summary cards */}
                   {allChans.length>0?(
                     <>
-                    <div style={{fontSize:10,color:C.text3,marginBottom:8,fontWeight:600,textTransform:'uppercase',letterSpacing:'.06em'}}>{summaryLabel}{showCompare&&!useCustomRange?` vs ${prevLabel}`:''}</div>
+                    <div style={{fontSize:10,color:C.text3,marginBottom:8,fontWeight:600,textTransform:'uppercase',letterSpacing:'.06em'}}>{summaryLabel}{showCompare?` vs ${prevLabel}`:''}</div>
                     <div style={{display:'grid',gridTemplateColumns:`repeat(${Math.min(allChans.length,4)},1fr)`,gap:12,marginBottom:18}}>
                       {allChans.map(ch=>{
                         const cur=currentStats.find(s=>s.ch===ch)||{ch,total:0,meetings:0,sqls:0,sqos:0,won:0}
@@ -2610,7 +2722,7 @@ export default function Dashboard() {
                             </div>
                             <div style={{display:'flex',alignItems:'baseline',gap:4}}>
                               <span style={{fontSize:22,fontWeight:800,color:C.text}}>{cur.total}</span>
-                              {showCompare&&!useCustomRange&&<span style={{fontSize:11,color:C.text3}}>vs {prev.total}</span>}
+                              {showCompare&&<span style={{fontSize:11,color:C.text3}}>vs {prev.total}</span>}
                               {renderDelta(cur.total,prev.total)}
                             </div>
                             <div style={{fontSize:10,color:C.text3,marginTop:2}}>leads</div>
@@ -2626,7 +2738,7 @@ export default function Dashboard() {
                     </div>
 
                     {/* Comparison table — shown when compare is active */}
-                    {showCompare&&!useCustomRange&&(
+                    {showCompare&&(
                       <div style={{overflowX:'auto',marginBottom:8}}>
                         <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
                           <thead>
