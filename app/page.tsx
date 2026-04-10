@@ -1288,6 +1288,9 @@ export default function Dashboard() {
   const [ocSegment,setOcSegment]=useState<'day'|'week'|'month'|'quarter'|'year'>('month')
   const [ocFrom,setOcFrom]=useState('')
   const [ocTo,setOcTo]=useState('')
+  const [scSegment,setScSegment]=useState<'day'|'week'|'month'|'quarter'|'year'>('month')
+  const [scFrom,setScFrom]=useState('')
+  const [scTo,setScTo]=useState('')
   const [spiffs,setSpiffs]=useState<Spiff[]>([])
   const [showSpiffModal,setShowSpiffModal]=useState(false)
   const [editingSpiff,setEditingSpiff]=useState<Spiff|null>(null)
@@ -2436,159 +2439,211 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* ── Outreach Channel Success ── */}
+          {/* ── Channel Success Renderer (shared by Outreach + Source) ── */}
           {(()=>{
-            // Build time segments for the selected grouping
-            const ocChannels = OUTREACH_CH.filter(c=>c) // exclude empty
-            const getSegKey=(dateStr:string,seg:typeof ocSegment):string=>{
-              const d=new Date(dateStr)
-              if(isNaN(d.getTime())) return ''
+            const segKeyFn=(dateStr:string,seg:'day'|'week'|'month'|'quarter'|'year'):string=>{
+              const d=new Date(dateStr); if(isNaN(d.getTime())) return ''
               if(seg==='day') return d.toISOString().split('T')[0]
-              if(seg==='week'){const s=new Date(d);s.setDate(d.getDate()-d.getDay());return `${s.toISOString().split('T')[0]}`}
+              if(seg==='week'){const s=new Date(d);s.setDate(d.getDate()-d.getDay());return s.toISOString().split('T')[0]}
               if(seg==='month') return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
               if(seg==='quarter') return `Q${Math.floor(d.getMonth()/3)+1} ${d.getFullYear()}`
               return String(d.getFullYear())
             }
-            const fmtSegLabel=(key:string,seg:typeof ocSegment):string=>{
+            const segLabelFn=(key:string,seg:'day'|'week'|'month'|'quarter'|'year'):string=>{
               if(seg==='day'){const d=new Date(key);return d.toLocaleDateString('en-US',{month:'short',day:'numeric'})}
               if(seg==='week'){const d=new Date(key);return `Wk ${d.toLocaleDateString('en-US',{month:'short',day:'numeric'})}`}
               if(seg==='month'){const [y,m]=key.split('-');return new Date(Number(y),Number(m)-1).toLocaleDateString('en-US',{month:'short',year:'2-digit'})}
               return key
             }
-
-            // Filter leads by date range
-            const ocLeads = allLeads.filter(l=>{
+            const getLeadActivityDate=(l:AppLead):string|null=>{
               const det=details[l.email]
-              const dateStr=det?.connectedDate||det?.meetingDate||l.date||l.receivedAt
-              if(!dateStr) return false
-              const d=new Date(dateStr)
-              if(ocFrom&&d<new Date(ocFrom)) return false
-              if(ocTo&&d>new Date(ocTo+'T23:59:59')) return false
-              return true
-            })
+              return det?.connectedDate||det?.meetingDate||l.date||l.receivedAt||null
+            }
+            const SEG_LABELS:{[k:string]:string}={day:'Day',week:'Week',month:'Month',quarter:'Quarter',year:'Year'}
 
-            // Aggregate: per channel, total counts and outcomes
-            const channelStats = ocChannels.map(ch=>{
-              const leads=ocLeads.filter(l=>(details[l.email]?.outreachChannel||'')=== ch)
-              const contacted=leads.filter(l=>(statuses[l.email]||'new')!=='new').length
-              const meetings=leads.filter(l=>!!details[l.email]?.meetingDate).length
-              const sqls=leads.filter(l=>(details[l.email]?.sqlDq||'').toLowerCase()==='yes').length
-              const sqos=leads.filter(l=>(details[l.email]?.sqo||'').toLowerCase()==='yes').length
-              const won=leads.filter(l=>(details[l.email]?.closedWon||'')==='Yes'||(statuses[l.email]||'new')==='closedwon').length
-              return {ch,total:leads.length,contacted,meetings,sqls,sqos,won}
-            }).filter(c=>c.total>0)
+            const renderChannelSuccess=(
+              title:string,
+              getChannel:(l:AppLead)=>string,
+              knownChannels:string[],
+              seg:'day'|'week'|'month'|'quarter'|'year',
+              setSeg:(v:'day'|'week'|'month'|'quarter'|'year')=>void,
+              fromDate:string,setFromDate:(v:string)=>void,
+              toDate:string,setToDate:(v:string)=>void,
+              palette:Record<string,string>,
+            )=>{
+              // Filter leads by custom date range
+              const filteredLeads=allLeads.filter(l=>{
+                const dateStr=getLeadActivityDate(l)
+                if(!dateStr) return false
+                if(fromDate&&new Date(dateStr)<new Date(fromDate)) return false
+                if(toDate&&new Date(dateStr)>new Date(toDate+'T23:59:59')) return false
+                return true
+              })
 
-            // Time-segmented data per channel
-            type SegRow={key:string;label:string;channels:Record<string,{total:number;meetings:number;sqls:number}>}
-            const segMap=new Map<string,SegRow>()
-            ocLeads.forEach(l=>{
-              const det=details[l.email]
-              const dateStr=det?.connectedDate||det?.meetingDate||l.date||l.receivedAt
-              if(!dateStr) return
-              const key=getSegKey(dateStr,ocSegment)
-              if(!key) return
-              if(!segMap.has(key)) segMap.set(key,{key,label:fmtSegLabel(key,ocSegment),channels:{}})
-              const row=segMap.get(key)!
-              const ch=det?.outreachChannel||''
-              if(!ch) return
-              if(!row.channels[ch]) row.channels[ch]={total:0,meetings:0,sqls:0}
-              row.channels[ch].total++
-              if(det?.meetingDate) row.channels[ch].meetings++
-              if((det?.sqlDq||'').toLowerCase()==='yes') row.channels[ch].sqls++
-            })
-            const segRows=Array.from(segMap.values()).sort((a,b)=>a.key.localeCompare(b.key))
-            const activeChannels=Array.from(new Set(segRows.flatMap(r=>Object.keys(r.channels)))).filter(c=>c)
+              // Current segment period range (for summary cards)
+              const now=new Date()
+              let segStart:Date
+              if(seg==='day') segStart=new Date(now.getFullYear(),now.getMonth(),now.getDate())
+              else if(seg==='week'){segStart=new Date(now);segStart.setDate(now.getDate()-now.getDay());segStart.setHours(0,0,0,0)}
+              else if(seg==='month') segStart=new Date(now.getFullYear(),now.getMonth(),1)
+              else if(seg==='quarter') segStart=new Date(now.getFullYear(),Math.floor(now.getMonth()/3)*3,1)
+              else segStart=new Date(now.getFullYear(),0,1)
 
-            return (
-              <div style={{...card,marginBottom:24}}>
-                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14,flexWrap:'wrap',gap:8}}>
-                  <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em'}}>Outreach Channel Success</div>
-                  <div style={{display:'flex',gap:5,alignItems:'center',flexWrap:'wrap'}}>
-                    {(['day','week','month','quarter','year'] as const).map(s=>(
-                      <button key={s} onClick={()=>setOcSegment(s)} style={filterPill(ocSegment===s)}>{{day:'Day',week:'Week',month:'Month',quarter:'Quarter',year:'Year'}[s]}</button>
-                    ))}
+              // Summary: scoped to current segment period (respecting custom date range override)
+              const summaryLeads=fromDate||toDate?filteredLeads:filteredLeads.filter(l=>{
+                const dateStr=getLeadActivityDate(l)
+                return dateStr?new Date(dateStr)>=segStart:false
+              })
+
+              const channels=knownChannels.filter(c=>c)
+              const channelStats=channels.map(ch=>{
+                const leads=summaryLeads.filter(l=>getChannel(l)===ch)
+                return {
+                  ch,total:leads.length,
+                  meetings:leads.filter(l=>!!details[l.email]?.meetingDate).length,
+                  sqls:leads.filter(l=>(details[l.email]?.sqlDq||'').toLowerCase()==='yes').length,
+                  sqos:leads.filter(l=>(details[l.email]?.sqo||'').toLowerCase()==='yes').length,
+                  won:leads.filter(l=>(details[l.email]?.closedWon||'')==='Yes'||(statuses[l.email]||'new')==='closedwon').length,
+                }
+              }).filter(c=>c.total>0)
+
+              const summaryLabel=fromDate||toDate?'custom range':seg==='day'?'today':seg==='week'?'this week':seg==='month'?'this month':seg==='quarter'?'this quarter':'this year'
+
+              // Time-segmented table
+              const segMap=new Map<string,{key:string;label:string;channels:Record<string,{total:number;meetings:number;sqls:number}>}>()
+              filteredLeads.forEach(l=>{
+                const dateStr=getLeadActivityDate(l)
+                if(!dateStr) return
+                const ch=getChannel(l); if(!ch) return
+                const key=segKeyFn(dateStr,seg); if(!key) return
+                if(!segMap.has(key)) segMap.set(key,{key,label:segLabelFn(key,seg),channels:{}})
+                const row=segMap.get(key)!
+                if(!row.channels[ch]) row.channels[ch]={total:0,meetings:0,sqls:0}
+                row.channels[ch].total++
+                if(details[l.email]?.meetingDate) row.channels[ch].meetings++
+                if((details[l.email]?.sqlDq||'').toLowerCase()==='yes') row.channels[ch].sqls++
+              })
+              const segRows=Array.from(segMap.values()).sort((a,b)=>a.key.localeCompare(b.key))
+              const activeChans=Array.from(new Set(segRows.flatMap(r=>Object.keys(r.channels)))).filter(c=>c)
+
+              return (
+                <div style={{...card,marginBottom:24}} key={title}>
+                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14,flexWrap:'wrap',gap:8}}>
+                    <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em'}}>{title}</div>
+                    <div style={{display:'flex',gap:5,alignItems:'center',flexWrap:'wrap'}}>
+                      {(['day','week','month','quarter','year'] as const).map(s=>(
+                        <button key={s} onClick={()=>setSeg(s)} style={filterPill(seg===s)}>{SEG_LABELS[s]}</button>
+                      ))}
+                    </div>
                   </div>
-                </div>
-                {/* Date range filter */}
-                <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:16,flexWrap:'wrap'}}>
-                  <span style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em'}}>From</span>
-                  <input type="date" value={ocFrom} onChange={e=>setOcFrom(e.target.value)} style={{fontSize:11,padding:'4px 8px',border:`1px solid ${C.border2}`,borderRadius:6,background:C.surface3,color:C.text2,outline:'none',colorScheme:'dark'}}/>
-                  <span style={{fontSize:11,color:C.text3}}>→</span>
-                  <input type="date" value={ocTo} onChange={e=>setOcTo(e.target.value)} style={{fontSize:11,padding:'4px 8px',border:`1px solid ${C.border2}`,borderRadius:6,background:C.surface3,color:C.text2,outline:'none',colorScheme:'dark'}}/>
-                  {(ocFrom||ocTo)&&<button onClick={()=>{setOcFrom('');setOcTo('')}} style={{fontSize:10,fontWeight:600,color:C.text3,background:'none',border:'none',cursor:'pointer',padding:'2px 6px'}}>✕ Clear</button>}
-                </div>
+                  <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:16,flexWrap:'wrap'}}>
+                    <span style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em'}}>From</span>
+                    <input type="date" value={fromDate} onChange={e=>setFromDate(e.target.value)} style={{fontSize:11,padding:'4px 8px',border:`1px solid ${C.border2}`,borderRadius:6,background:C.surface3,color:C.text2,outline:'none',colorScheme:'dark'}}/>
+                    <span style={{fontSize:11,color:C.text3}}>→</span>
+                    <input type="date" value={toDate} onChange={e=>setToDate(e.target.value)} style={{fontSize:11,padding:'4px 8px',border:`1px solid ${C.border2}`,borderRadius:6,background:C.surface3,color:C.text2,outline:'none',colorScheme:'dark'}}/>
+                    {(fromDate||toDate)&&<button onClick={()=>{setFromDate('');setToDate('')}} style={{fontSize:10,fontWeight:600,color:C.text3,background:'none',border:'none',cursor:'pointer',padding:'2px 6px'}}>✕ Clear</button>}
+                  </div>
 
-                {/* Summary cards per channel */}
-                <div style={{display:'grid',gridTemplateColumns:`repeat(${Math.min(channelStats.length,4)},1fr)`,gap:12,marginBottom:18}}>
-                  {channelStats.map(c=>{
-                    const meetRate=c.total?Math.round(c.meetings/c.total*100):0
-                    const sqlRate=c.total?Math.round(c.sqls/c.total*100):0
-                    const palette:{[k:string]:string}={Email:'#60d4f4',LinkedIn:'#a89cf8',Call:C.green,Other:C.amber}
-                    const clr=palette[c.ch]||C.text2
-                    return (
-                      <div key={c.ch} style={{background:C.surface3,border:`1px solid ${C.border}`,borderRadius:10,padding:14}}>
-                        <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:8}}>
-                          <span style={{width:8,height:8,borderRadius:2,background:clr,flexShrink:0}}/>
-                          <span style={{fontSize:12,fontWeight:700,color:clr}}>{c.ch}</span>
-                        </div>
-                        <div style={{fontSize:22,fontWeight:800,color:C.text}}>{c.total}</div>
-                        <div style={{fontSize:10,color:C.text3,marginTop:2}}>leads outreached</div>
-                        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,marginTop:10}}>
-                          <div><div style={{fontSize:14,fontWeight:700,color:C.text2}}>{c.meetings}</div><div style={{fontSize:9,color:C.text3}}>meetings ({meetRate}%)</div></div>
-                          <div><div style={{fontSize:14,fontWeight:700,color:C.text2}}>{c.sqls}</div><div style={{fontSize:9,color:C.text3}}>SQLs ({sqlRate}%)</div></div>
-                          <div><div style={{fontSize:14,fontWeight:700,color:C.text2}}>{c.sqos}</div><div style={{fontSize:9,color:C.text3}}>SQOs</div></div>
-                          <div><div style={{fontSize:14,fontWeight:700,color:C.text2}}>{c.won}</div><div style={{fontSize:9,color:C.text3}}>won</div></div>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
+                  {/* Summary cards — scoped to current segment period */}
+                  {channelStats.length>0&&(
+                    <>
+                    <div style={{fontSize:10,color:C.text3,marginBottom:8,fontWeight:600,textTransform:'uppercase',letterSpacing:'.06em'}}>{summaryLabel}</div>
+                    <div style={{display:'grid',gridTemplateColumns:`repeat(${Math.min(channelStats.length,4)},1fr)`,gap:12,marginBottom:18}}>
+                      {channelStats.map(c=>{
+                        const meetRate=c.total?Math.round(c.meetings/c.total*100):0
+                        const sqlRate=c.total?Math.round(c.sqls/c.total*100):0
+                        const clr=palette[c.ch]||C.text2
+                        return (
+                          <div key={c.ch} style={{background:C.surface3,border:`1px solid ${C.border}`,borderRadius:10,padding:14}}>
+                            <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:8}}>
+                              <span style={{width:8,height:8,borderRadius:2,background:clr,flexShrink:0}}/>
+                              <span style={{fontSize:12,fontWeight:700,color:clr}}>{c.ch}</span>
+                            </div>
+                            <div style={{fontSize:22,fontWeight:800,color:C.text}}>{c.total}</div>
+                            <div style={{fontSize:10,color:C.text3,marginTop:2}}>leads</div>
+                            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,marginTop:10}}>
+                              <div><div style={{fontSize:14,fontWeight:700,color:C.text2}}>{c.meetings}</div><div style={{fontSize:9,color:C.text3}}>meetings ({meetRate}%)</div></div>
+                              <div><div style={{fontSize:14,fontWeight:700,color:C.text2}}>{c.sqls}</div><div style={{fontSize:9,color:C.text3}}>SQLs ({sqlRate}%)</div></div>
+                              <div><div style={{fontSize:14,fontWeight:700,color:C.text2}}>{c.sqos}</div><div style={{fontSize:9,color:C.text3}}>SQOs</div></div>
+                              <div><div style={{fontSize:14,fontWeight:700,color:C.text2}}>{c.won}</div><div style={{fontSize:9,color:C.text3}}>won</div></div>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                    </>
+                  )}
 
-                {/* Time-segmented breakdown table */}
-                {segRows.length>0&&(
-                  <div style={{overflowX:'auto'}}>
-                    <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
-                      <thead>
-                        <tr style={{borderBottom:`2px solid ${C.border2}`}}>
-                          <th style={{padding:'8px 10px',textAlign:'left',fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em'}}>Period</th>
-                          {activeChannels.map(ch=>(
-                            <th key={ch} colSpan={3} style={{padding:'8px 10px',textAlign:'center',fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',borderLeft:`1px solid ${C.border}`}}>{ch}</th>
-                          ))}
-                        </tr>
-                        <tr style={{borderBottom:`1px solid ${C.border}`}}>
-                          <th/>
-                          {activeChannels.map(ch=>(
-                            <React.Fragment key={ch}>
-                              <th style={{padding:'4px 8px',textAlign:'right',fontSize:9,fontWeight:600,color:C.text3,borderLeft:`1px solid ${C.border}`}}>Leads</th>
-                              <th style={{padding:'4px 8px',textAlign:'right',fontSize:9,fontWeight:600,color:C.text3}}>Mtgs</th>
-                              <th style={{padding:'4px 8px',textAlign:'right',fontSize:9,fontWeight:600,color:C.text3}}>SQLs</th>
-                            </React.Fragment>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {segRows.map(row=>(
-                          <tr key={row.key} style={{borderBottom:`1px solid ${C.border}`}}>
-                            <td style={{padding:'8px 10px',fontWeight:600,color:C.text,whiteSpace:'nowrap'}}>{row.label}</td>
-                            {activeChannels.map(ch=>{
-                              const d=row.channels[ch]||{total:0,meetings:0,sqls:0}
-                              return (
-                                <React.Fragment key={ch}>
-                                  <td style={{padding:'8px',textAlign:'right',color:C.text2,borderLeft:`1px solid ${C.border}`}}>{d.total||<span style={{color:C.text3}}>—</span>}</td>
-                                  <td style={{padding:'8px',textAlign:'right',color:d.meetings?C.green:C.text3}}>{d.meetings||'—'}</td>
-                                  <td style={{padding:'8px',textAlign:'right',color:d.sqls?'#c084fc':C.text3}}>{d.sqls||'—'}</td>
-                                </React.Fragment>
-                              )
-                            })}
+                  {/* Breakdown table */}
+                  {segRows.length>0?(
+                    <div style={{overflowX:'auto'}}>
+                      <div style={{fontSize:10,color:C.text3,marginBottom:8,fontWeight:600,textTransform:'uppercase',letterSpacing:'.06em'}}>breakdown by {SEG_LABELS[seg].toLowerCase()}</div>
+                      <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+                        <thead>
+                          <tr style={{borderBottom:`2px solid ${C.border2}`}}>
+                            <th style={{padding:'8px 10px',textAlign:'left',fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em'}}>Period</th>
+                            {activeChans.map(ch=>(
+                              <th key={ch} colSpan={3} style={{padding:'8px 10px',textAlign:'center',fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',borderLeft:`1px solid ${C.border}`}}>{ch}</th>
+                            ))}
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-                {channelStats.length===0&&<div style={{fontSize:12,color:C.text3,padding:'12px 0'}}>No outreach channel data available. Tag leads with an outreach channel in their detail panel.</div>}
-              </div>
-            )
+                          <tr style={{borderBottom:`1px solid ${C.border}`}}>
+                            <th/>
+                            {activeChans.map(ch=>(
+                              <React.Fragment key={ch}>
+                                <th style={{padding:'4px 8px',textAlign:'right',fontSize:9,fontWeight:600,color:C.text3,borderLeft:`1px solid ${C.border}`}}>Leads</th>
+                                <th style={{padding:'4px 8px',textAlign:'right',fontSize:9,fontWeight:600,color:C.text3}}>Mtgs</th>
+                                <th style={{padding:'4px 8px',textAlign:'right',fontSize:9,fontWeight:600,color:C.text3}}>SQLs</th>
+                              </React.Fragment>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {segRows.map(row=>(
+                            <tr key={row.key} style={{borderBottom:`1px solid ${C.border}`}}>
+                              <td style={{padding:'8px 10px',fontWeight:600,color:C.text,whiteSpace:'nowrap'}}>{row.label}</td>
+                              {activeChans.map(ch=>{
+                                const d=row.channels[ch]||{total:0,meetings:0,sqls:0}
+                                return (
+                                  <React.Fragment key={ch}>
+                                    <td style={{padding:'8px',textAlign:'right',color:C.text2,borderLeft:`1px solid ${C.border}`}}>{d.total||<span style={{color:C.text3}}>—</span>}</td>
+                                    <td style={{padding:'8px',textAlign:'right',color:d.meetings?C.green:C.text3}}>{d.meetings||'—'}</td>
+                                    <td style={{padding:'8px',textAlign:'right',color:d.sqls?'#c084fc':C.text3}}>{d.sqls||'—'}</td>
+                                  </React.Fragment>
+                                )
+                              })}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ):(
+                    <div style={{fontSize:12,color:C.text3,padding:'12px 0'}}>No {title.toLowerCase()} data available for this period.</div>
+                  )}
+                </div>
+              )
+            }
+
+            const outreachPalette:Record<string,string>={Email:'#60d4f4',LinkedIn:'#a89cf8',Call:C.green,Other:C.amber}
+            const sourcePalette:Record<string,string>={'#growth-wins':'#00e5a0','#leads-bot':'#60d4f4','leads-platform waitlist':'#c084fc','gated-content':'#f5a623','QA Wolf inbox':'#e879f9',webinar:'#fb923c','AE assist':'#34d399','gen OB':'#a78bfa',Other:C.text2}
+
+            return (<>
+              {renderChannelSuccess(
+                'Outreach Channel Success',
+                l=>details[l.email]?.outreachChannel||'',
+                OUTREACH_CH,
+                ocSegment,setOcSegment,
+                ocFrom,setOcFrom,ocTo,setOcTo,
+                outreachPalette,
+              )}
+              {renderChannelSuccess(
+                'Source Channel Success',
+                l=>details[l.email]?.sourceChannel||'',
+                SOURCE_CHANNELS,
+                scSegment,setScSegment,
+                scFrom,setScFrom,scTo,setScTo,
+                sourcePalette,
+              )}
+            </>)
           })()}
 
           <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:16,marginBottom:24}}>
