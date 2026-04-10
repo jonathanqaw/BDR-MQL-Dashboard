@@ -1366,16 +1366,17 @@ export default function Dashboard() {
 
   useEffect(()=>{ setStatuses(getSt()); setDetails(getDetails()); fetchLeads() },[fetchLeads])
 
-  // Load Edge Config data on initial auth AND when manager switches reps
+  // Load Edge Config data: on initial auth ONLY if localStorage is empty, always on manager rep switch
   const prevRepId = useRef<string|null>(null)
   const initialEcLoaded = useRef(false)
   useEffect(()=>{
     if (!currentRep?.slackId) return
 
-    const isFirstAuth = !initialEcLoaded.current && auth
     const isRepSwitch = prevRepId.current !== null && prevRepId.current !== currentRep.id && auth?.role === 'manager'
+    const isFirstAuth = !initialEcLoaded.current && auth
+    const localDataEmpty = !localStorage.getItem('mql-st')
 
-    if (!isFirstAuth && !isRepSwitch) {
+    if (!isRepSwitch && !isFirstAuth) {
       if (prevRepId.current === null) prevRepId.current = currentRep.id
       return
     }
@@ -1383,19 +1384,23 @@ export default function Dashboard() {
     prevRepId.current = currentRep.id
     if (isFirstAuth) initialEcLoaded.current = true
 
-    loadFromEdgeConfig(currentRep.slackId).then(()=>{
-      // Re-seed historical entries on top of Edge Config data
-      const st=getSt(); const dt=getDetails()
-      HISTORICAL_LEADS.forEach(l=>{
-        if (!st[l.email]) st[l.email]=HISTORICAL_STATUSES[l.email]||'new'
-        if (!dt[l.email]) dt[l.email]={...EMPTY_DETAIL,...(HISTORICAL_DETAILS[l.email]||{})}
+    // Rep switch: always clear + reload from Edge Config
+    // Initial auth: only load from EC if localStorage has no data (new device / cleared cache)
+    if (isRepSwitch || (isFirstAuth && localDataEmpty)) {
+      loadFromEdgeConfig(currentRep.slackId).then(()=>{
+        // Re-seed historical entries on top of Edge Config data
+        const st=getSt(); const dt=getDetails()
+        HISTORICAL_LEADS.forEach(l=>{
+          if (!st[l.email]) st[l.email]=HISTORICAL_STATUSES[l.email]||'new'
+          if (!dt[l.email]) dt[l.email]={...EMPTY_DETAIL,...(HISTORICAL_DETAILS[l.email]||{})}
+        })
+        localStorage.setItem('mql-st',JSON.stringify(st))
+        localStorage.setItem('mql-dt',JSON.stringify(dt))
+        setStatuses(st); setDetails(dt)
+        setManualLeads(getManualLeads()); setNameOverrides(getNameOverrides())
+        setDeletedEmails(getDeletedEmails())
       })
-      localStorage.setItem('mql-st',JSON.stringify(st))
-      localStorage.setItem('mql-dt',JSON.stringify(dt))
-      setStatuses(st); setDetails(dt)
-      setManualLeads(getManualLeads()); setNameOverrides(getNameOverrides())
-      setDeletedEmails(getDeletedEmails())
-    })
+    }
   },[currentRep?.id, auth?.role])
 
   const updateStatus=(email:string,v:Status)=>{ saveSt(email,v); setStatuses(p=>({...p,[email]:v})); if(v==='closedwon'){const d={...(getDetails()[email]||EMPTY_DETAIL),closedWon:'Yes'};saveDetail(email,d);setDetails(p=>({...p,[email]:d}))} saveSnapshot('status'); syncToEdgeConfig() }
