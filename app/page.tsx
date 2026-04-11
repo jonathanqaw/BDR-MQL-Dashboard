@@ -1281,8 +1281,9 @@ export default function Dashboard() {
     fetch('/api/rep-data?repId=__registry__').then(r=>r.json()).then(({data})=>{
       if (data?.reps) setReps(data.reps)
     }).catch(()=>{})
-    // Load spiffs from localStorage
+    // Load spiffs and commission adjustments from localStorage
     try { const s=JSON.parse(localStorage.getItem('mql-spiffs')||'[]'); if(Array.isArray(s)) setSpiffs(s) } catch {}
+    try { const a=JSON.parse(localStorage.getItem('mql-comm-adj')||'[]'); if(Array.isArray(a)) setCommAdjustments(a) } catch {}
   },[])
 
   const handleLogin=()=>{
@@ -1331,6 +1332,7 @@ export default function Dashboard() {
         manual:   localStorage.getItem('mql-manual'),
         deleted:  localStorage.getItem('mql-deleted'),
         spiffs:   localStorage.getItem('mql-spiffs'),
+        commAdj:  localStorage.getItem('mql-comm-adj'),
         savedAt:  new Date().toISOString(),
       }
       await fetch('/api/rep-data', {
@@ -1417,6 +1419,9 @@ export default function Dashboard() {
   const [scTo,setScTo]=useState('')
   const [scCompare,setScCompare]=useState<'week'|'month'|'quarter'|'year'|null>(null)
   const [revopsSelectedRep,setRevopsSelectedRep]=useState('all')
+  const [commAdjustments,setCommAdjustments]=useState<{id:string;repId:string;month:string;amount:number;reason:string;createdAt:string}[]>([])
+  const [showAdjModal,setShowAdjModal]=useState(false)
+  const [editingAdj,setEditingAdj]=useState<{id:string;repId:string;month:string;amount:number;reason:string;createdAt:string}|null>(null)
   const [spiffs,setSpiffs]=useState<Spiff[]>([])
   const [showSpiffModal,setShowSpiffModal]=useState(false)
   const [editingSpiff,setEditingSpiff]=useState<Spiff|null>(null)
@@ -3512,6 +3517,24 @@ export default function Dashboard() {
             return { months, ytdMeetingTotal, ytdSqlTotal, ytdAcceleratorTotal, ytdGrandTotal }
           }
 
+          // Adjustment helpers
+          const saveAdj=(updated:typeof commAdjustments)=>{
+            setCommAdjustments(updated)
+            localStorage.setItem('mql-comm-adj',JSON.stringify(updated))
+            syncToEdgeConfig()
+          }
+          const getMonthAdj=(monthKey:string,repId?:string):number=>{
+            return commAdjustments
+              .filter(a=>a.month===monthKey&&(!repId||a.repId===repId||a.repId==='all'))
+              .reduce((s,a)=>s+a.amount,0)
+          }
+          const getYtdAdj=(repId?:string):number=>{
+            const yr=String(new Date().getFullYear())
+            return commAdjustments
+              .filter(a=>a.month.startsWith(yr)&&(!repId||a.repId===repId||a.repId==='all'))
+              .reduce((s,a)=>s+a.amount,0)
+          }
+
           // Current month key
           const now = new Date()
           const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`
@@ -3519,6 +3542,7 @@ export default function Dashboard() {
           // Build for current rep
           const commData = buildRepCommissions(allLeads)
           const currentMonth = commData.months.find(m => m.key === currentMonthKey)
+          const currentMonthAdj = getMonthAdj(currentMonthKey, currentRep?.id)
 
           // For manager view: build per-rep
           const managerRepData = auth?.role === 'manager' ? reps.map(rep => {
@@ -3530,9 +3554,16 @@ export default function Dashboard() {
           }) : []
 
           return (<>
-          <div style={{marginBottom:28}}>
-            <div style={{fontSize:26,fontWeight:800,letterSpacing:'-0.02em',lineHeight:1.15}}>Commissions<br/><span style={{color:C.green}}>Tracker.</span></div>
-            <div style={{fontSize:12,color:C.text3,marginTop:4}}>ICP meeting bonuses · SQL payouts · accelerators</div>
+          <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:16,marginBottom:28}}>
+            <div>
+              <div style={{fontSize:26,fontWeight:800,letterSpacing:'-0.02em',lineHeight:1.15}}>Commissions<br/><span style={{color:C.green}}>Tracker.</span></div>
+              <div style={{fontSize:12,color:C.text3,marginTop:4}}>ICP meeting bonuses · SQL payouts · accelerators</div>
+            </div>
+            {auth?.role==='manager'&&(
+              <button onClick={()=>{setEditingAdj({id:`adj-${Date.now()}`,repId:currentRep?.id||'all',month:currentMonthKey,amount:0,reason:'',createdAt:new Date().toISOString()});setShowAdjModal(true)}} style={{fontSize:11,fontWeight:700,padding:'8px 14px',borderRadius:8,border:`1px solid ${C.border2}`,background:C.surface,color:C.text2,cursor:'pointer'}}>
+                ± Adjust Commission
+              </button>
+            )}
           </div>
 
           {/* ── Monthly Summary Cards ── */}
@@ -3557,8 +3588,9 @@ export default function Dashboard() {
             </div>
             <div style={card}>
               <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:8}}>Total Commission</div>
-              <div style={{fontSize:24,fontWeight:800,color:C.text}}>${(currentMonth?.total ?? 0).toLocaleString()}</div>
-              <div style={{fontSize:10,color:C.text3,marginTop:6}}>
+              <div style={{fontSize:24,fontWeight:800,color:C.text}}>${((currentMonth?.total ?? 0) + currentMonthAdj).toLocaleString()}</div>
+              {currentMonthAdj!==0&&<div style={{fontSize:10,color:currentMonthAdj<0?C.red:C.green,marginTop:2,fontWeight:600}}>{currentMonthAdj<0?'':'+'}{currentMonthAdj.toLocaleString()} adj</div>}
+              <div style={{fontSize:10,color:C.text3,marginTop:currentMonthAdj!==0?2:6}}>
                 {now.toLocaleString('en-US',{month:'long',year:'numeric'})}
               </div>
             </div>
@@ -3598,7 +3630,14 @@ export default function Dashboard() {
                         <td style={{padding:'10px',textAlign:'right',color:C.text}}>{m.sqls.length}</td>
                         <td style={{padding:'10px',textAlign:'right',color:'#c084fc',fontWeight:600}}>${(m.sqlTotal - m.acceleratorTotal).toLocaleString()}</td>
                         <td style={{padding:'10px',textAlign:'right',color:m.acceleratorTotal>0?C.amber:C.text3,fontWeight:m.acceleratorTotal>0?600:400}}>{m.acceleratorTotal>0?`$${m.acceleratorTotal.toLocaleString()}`:'—'}</td>
-                        <td style={{padding:'10px',textAlign:'right',fontWeight:700,color:C.text}}>${m.total.toLocaleString()}</td>
+                        {(()=>{
+                          const adj=getMonthAdj(m.key,currentRep?.id)
+                          const adjusted=m.total+adj
+                          return <td style={{padding:'10px',textAlign:'right',fontWeight:700,color:C.text}}>
+                            ${adjusted.toLocaleString()}
+                            {adj!==0&&<div style={{fontSize:9,color:adj<0?C.red:C.green,fontWeight:600}}>{adj<0?'':'+'}{adj.toLocaleString()}</div>}
+                          </td>
+                        })()}
                         <td style={{padding:'10px',textAlign:'right',fontSize:10,color:C.text3}}>—</td>
                         <td style={{padding:'10px',textAlign:'right',fontSize:11,color:C.text2}}>{m.payoutMonth}</td>
                       </tr>
@@ -3686,11 +3725,16 @@ export default function Dashboard() {
                 <div style={{fontSize:22,fontWeight:800,color:C.amber}}>${commData.ytdAcceleratorTotal.toLocaleString()}</div>
                 <div style={{fontSize:10,color:C.text3,marginTop:6}}>from months with &gt;3 SQLs</div>
               </div>
-              <div style={{background:C.surface3,border:`1px solid ${C.border}`,borderRadius:10,padding:14}}>
-                <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:8}}>Grand Total</div>
-                <div style={{fontSize:22,fontWeight:800,color:C.text}}>${commData.ytdGrandTotal.toLocaleString()}</div>
-                <div style={{fontSize:10,color:C.text3,marginTop:6}}>all commission YTD</div>
-              </div>
+              {(()=>{
+                const ytdAdj=getYtdAdj(currentRep?.id)
+                const adjusted=commData.ytdGrandTotal+ytdAdj
+                return <div style={{background:C.surface3,border:`1px solid ${C.border}`,borderRadius:10,padding:14}}>
+                  <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:8}}>Grand Total</div>
+                  <div style={{fontSize:22,fontWeight:800,color:C.text}}>${adjusted.toLocaleString()}</div>
+                  {ytdAdj!==0&&<div style={{fontSize:10,color:ytdAdj<0?C.red:C.green,marginTop:4,fontWeight:600}}>{ytdAdj<0?'':'+'}{ytdAdj.toLocaleString()} adjustments</div>}
+                  <div style={{fontSize:10,color:C.text3,marginTop:ytdAdj!==0?2:6}}>all commission YTD</div>
+                </div>
+              })()}
             </div>
           </div>
 
@@ -3709,6 +3753,8 @@ export default function Dashboard() {
                 <tbody>
                   {managerRepData.map(({rep, months, ytdMeetingTotal, ytdSqlTotal, ytdAcceleratorTotal, ytdGrandTotal})=>{
                     const cm = months.find(m => m.key === currentMonthKey)
+                    const mtdAdj = getMonthAdj(currentMonthKey, rep.id)
+                    const repYtdAdj = getYtdAdj(rep.id)
                     return (
                       <tr key={rep.id} style={{borderBottom:`1px solid ${C.border}`}}>
                         <td style={{padding:'10px',fontWeight:600,color:C.text}}>{rep.name}</td>
@@ -3716,8 +3762,8 @@ export default function Dashboard() {
                         <td style={{padding:'10px',textAlign:'right',color:C.green,fontWeight:600}}>${(cm?.meetingTotal ?? 0).toLocaleString()}</td>
                         <td style={{padding:'10px',textAlign:'right',color:C.text}}>{cm?.sqls.length ?? 0}</td>
                         <td style={{padding:'10px',textAlign:'right',color:'#c084fc',fontWeight:600}}>${(cm?.sqlTotal ?? 0).toLocaleString()}</td>
-                        <td style={{padding:'10px',textAlign:'right',fontWeight:700,color:C.text}}>${(cm?.total ?? 0).toLocaleString()}</td>
-                        <td style={{padding:'10px',textAlign:'right',fontWeight:700,color:C.amber}}>${ytdGrandTotal.toLocaleString()}</td>
+                        <td style={{padding:'10px',textAlign:'right',fontWeight:700,color:C.text}}>${((cm?.total ?? 0)+mtdAdj).toLocaleString()}{mtdAdj!==0&&<span style={{fontSize:9,color:mtdAdj<0?C.red:C.green,marginLeft:3}}>{mtdAdj<0?'':'+'}{mtdAdj}</span>}</td>
+                        <td style={{padding:'10px',textAlign:'right',fontWeight:700,color:C.amber}}>${(ytdGrandTotal+repYtdAdj).toLocaleString()}{repYtdAdj!==0&&<span style={{fontSize:9,color:repYtdAdj<0?C.red:C.green,marginLeft:3}}>{repYtdAdj<0?'':'+'}{repYtdAdj}</span>}</td>
                         <td style={{padding:'10px',textAlign:'right',fontSize:11,color:ytdMeetingTotal>=ANNUAL_MEETING_CAP?C.red:C.text3}}>{pct(ytdMeetingTotal,ANNUAL_MEETING_CAP)}%</td>
                         <td style={{padding:'10px',textAlign:'right',fontSize:11,color:(ytdSqlTotal+ytdAcceleratorTotal)>=ANNUAL_SQL_CAP?C.red:C.text3}}>{pct(ytdSqlTotal+ytdAcceleratorTotal,ANNUAL_SQL_CAP)}%</td>
                       </tr>
@@ -3725,6 +3771,90 @@ export default function Dashboard() {
                   })}
                 </tbody>
               </table>
+            </div>
+          )}
+
+          {/* ── Adjustments Log ── */}
+          {auth?.role==='manager'&&commAdjustments.length>0&&(
+            <div style={{...card,marginBottom:20}}>
+              <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:14}}>Commission Adjustments</div>
+              <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+                <thead>
+                  <tr style={{borderBottom:`2px solid ${C.border2}`}}>
+                    {['Month','Rep','Amount','Reason','Date',''].map(h=>(
+                      <th key={h} style={{padding:'8px 10px',textAlign:h==='Amount'?'right':'left',fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em'}}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...commAdjustments].sort((a,b)=>b.createdAt.localeCompare(a.createdAt)).map(adj=>{
+                    const repName=adj.repId==='all'?'All Reps':reps.find(r=>r.id===adj.repId)?.name||adj.repId
+                    const [y,mo]=adj.month.split('-').map(Number)
+                    const monthLabel=new Date(y,mo-1).toLocaleString('en-US',{month:'short',year:'numeric'})
+                    return (
+                      <tr key={adj.id} style={{borderBottom:`1px solid ${C.border}`}}>
+                        <td style={{padding:'8px 10px',color:C.text2}}>{monthLabel}</td>
+                        <td style={{padding:'8px 10px',color:C.text}}>{repName}</td>
+                        <td style={{padding:'8px 10px',textAlign:'right',fontWeight:700,color:adj.amount<0?C.red:C.green}}>{adj.amount<0?'−':'+'} ${Math.abs(adj.amount).toLocaleString()}</td>
+                        <td style={{padding:'8px 10px',color:C.text3,maxWidth:200,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{adj.reason||'—'}</td>
+                        <td style={{padding:'8px 10px',color:C.text3,fontSize:10}}>{new Date(adj.createdAt).toLocaleDateString('en-US',{month:'short',day:'numeric'})}</td>
+                        <td style={{padding:'8px 10px'}}>
+                          <div style={{display:'flex',gap:4}}>
+                            <button onClick={()=>{setEditingAdj({...adj});setShowAdjModal(true)}} style={{fontSize:10,fontWeight:600,padding:'3px 7px',borderRadius:4,border:`1px solid ${C.border2}`,background:'transparent',color:C.purpleL,cursor:'pointer'}}>Edit</button>
+                            <button onClick={()=>{if(window.confirm('Delete this adjustment?'))saveAdj(commAdjustments.filter(a=>a.id!==adj.id))}} style={{fontSize:10,fontWeight:600,padding:'3px 7px',borderRadius:4,border:`1px solid ${C.red}`,background:'transparent',color:C.red,cursor:'pointer'}}>✕</button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* ── Adjustment Modal ── */}
+          {showAdjModal&&auth?.role==='manager'&&editingAdj&&(
+            <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',zIndex:200,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={()=>{setShowAdjModal(false);setEditingAdj(null)}}>
+              <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:28,width:400}} onClick={e=>e.stopPropagation()}>
+                <div style={{fontSize:16,fontWeight:800,marginBottom:20}}>Commission Adjustment</div>
+                <div style={{marginBottom:12}}>
+                  <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:4}}>Rep</div>
+                  <select value={editingAdj.repId} onChange={e=>setEditingAdj({...editingAdj,repId:e.target.value})}
+                    style={{width:'100%',padding:'8px 10px',borderRadius:6,border:`1px solid ${C.border2}`,background:C.surface2,color:C.text,fontSize:12,outline:'none',appearance:'none' as const}}>
+                    <option value="all">All Reps</option>
+                    {reps.filter(r=>r.slackId).map(r=><option key={r.id} value={r.id}>{r.name}</option>)}
+                  </select>
+                </div>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:12}}>
+                  <div>
+                    <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:4}}>Month</div>
+                    <input type="month" value={editingAdj.month} onChange={e=>setEditingAdj({...editingAdj,month:e.target.value})}
+                      style={{width:'100%',padding:'8px 10px',borderRadius:6,border:`1px solid ${C.border2}`,background:C.surface2,color:C.text,fontSize:12,outline:'none',colorScheme:'dark',boxSizing:'border-box'}}/>
+                  </div>
+                  <div>
+                    <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:4}}>Amount ($)</div>
+                    <input type="number" value={editingAdj.amount||''} onChange={e=>setEditingAdj({...editingAdj,amount:parseFloat(e.target.value)||0})} placeholder="-620"
+                      style={{width:'100%',padding:'8px 10px',borderRadius:6,border:`1px solid ${C.border2}`,background:C.surface2,color:C.text,fontSize:12,outline:'none',boxSizing:'border-box'}}/>
+                    <div style={{fontSize:9,color:C.text3,marginTop:3}}>Negative to redact (e.g. -620), positive to add</div>
+                  </div>
+                </div>
+                <div style={{marginBottom:16}}>
+                  <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:4}}>Reason</div>
+                  <input value={editingAdj.reason} onChange={e=>setEditingAdj({...editingAdj,reason:e.target.value})} placeholder="e.g. SQL overpayment redacted per RevOps"
+                    style={{width:'100%',padding:'8px 10px',borderRadius:6,border:`1px solid ${C.border2}`,background:C.surface2,color:C.text,fontSize:12,outline:'none',boxSizing:'border-box'}}/>
+                </div>
+                <div style={{display:'flex',gap:8}}>
+                  <button onClick={()=>{
+                    const isNew=!commAdjustments.some(a=>a.id===editingAdj.id)
+                    const updated=isNew?[...commAdjustments,editingAdj]:commAdjustments.map(a=>a.id===editingAdj.id?editingAdj:a)
+                    saveAdj(updated)
+                    setShowAdjModal(false);setEditingAdj(null)
+                  }} style={{flex:1,padding:'8px',borderRadius:6,border:'none',background:C.green,color:C.bg,fontSize:12,fontWeight:700,cursor:'pointer'}}>
+                    Save Adjustment
+                  </button>
+                  <button onClick={()=>{setShowAdjModal(false);setEditingAdj(null)}} style={{padding:'8px 14px',borderRadius:6,border:`1px solid ${C.border2}`,background:'transparent',color:C.text3,fontSize:12,cursor:'pointer'}}>Cancel</button>
+                </div>
+              </div>
             </div>
           )}
           </>)
