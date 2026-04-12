@@ -1451,6 +1451,9 @@ export default function Dashboard() {
   const [scTo,setScTo]=useState('')
   const [scCompare,setScCompare]=useState<'week'|'month'|'quarter'|'year'|null>(null)
   const [revopsSelectedRep,setRevopsSelectedRep]=useState('all')
+  const [revopsPeriod,setRevopsPeriod]=useState<'week'|'month'|'quarter'|'year'|'all'|'custom'>('month')
+  const [revopsFrom,setRevopsFrom]=useState('')
+  const [revopsTo,setRevopsTo]=useState('')
   const [commAdjustments,setCommAdjustments]=useState<{id:string;repId:string;month:string;amount:number;reason:string;createdAt:string}[]>([])
   const [showAdjModal,setShowAdjModal]=useState(false)
   const [editingAdj,setEditingAdj]=useState<{id:string;repId:string;month:string;amount:number;reason:string;createdAt:string}|null>(null)
@@ -4552,106 +4555,174 @@ export default function Dashboard() {
             </div>
 
             {/* Rep filter */}
-            <div style={{display:'flex',gap:5,marginBottom:20,flexWrap:'wrap'}}>
+            <div style={{display:'flex',gap:5,marginBottom:12,flexWrap:'wrap'}}>
               <button onClick={()=>setRevopsSelectedRep('all')} style={filterPill(revopsSelectedRep==='all','#60d4f4')}>All Reps</button>
               {reps.filter(r=>r.slackId).map(r=>(
                 <button key={r.id} onClick={()=>setRevopsSelectedRep(r.id)} style={filterPill(revopsSelectedRep===r.id,'#60d4f4')}>{r.name}</button>
               ))}
             </div>
 
-            {/* YTD Summary per rep */}
-            <div style={{...card,marginBottom:20}}>
-              <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:14}}>YTD Commission Summary · {new Date().getFullYear()}</div>
-              <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
-                <thead>
-                  <tr style={{borderBottom:`2px solid ${C.border2}`}}>
-                    {['Rep','Meetings','Meeting $','SQLs','SQL $','Accel $','Total','Mtg Cap %','SQL Cap %'].map(h=>(
-                      <th key={h} style={{padding:'8px 10px',textAlign:h==='Rep'?'left':'right',fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em'}}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredRepData.map(r=>(
-                    <tr key={r.rep.id} style={{borderBottom:`1px solid ${C.border}`}}>
-                      <td style={{padding:'10px',fontWeight:600,color:C.text}}>{r.rep.name}</td>
-                      <td style={{padding:'10px',textAlign:'right',color:C.text}}>{r.ytdMeetings}</td>
-                      <td style={{padding:'10px',textAlign:'right',color:C.green,fontWeight:600}}>${r.ytdMeetingAmt.toLocaleString()}</td>
-                      <td style={{padding:'10px',textAlign:'right',color:C.text}}>{r.ytdSqls}</td>
-                      <td style={{padding:'10px',textAlign:'right',color:'#c084fc',fontWeight:600}}>${r.ytdSqlAmt.toLocaleString()}</td>
-                      <td style={{padding:'10px',textAlign:'right',color:r.ytdAccelAmt>0?C.amber:C.text3,fontWeight:r.ytdAccelAmt>0?600:400}}>{r.ytdAccelAmt>0?`$${r.ytdAccelAmt.toLocaleString()}`:'—'}</td>
-                      <td style={{padding:'10px',textAlign:'right',fontWeight:800,color:C.text}}>${r.ytdTotal.toLocaleString()}</td>
-                      <td style={{padding:'10px',textAlign:'right',fontSize:11,color:r.ytdMeetingAmt>=ANNUAL_MEETING_CAP?C.red:C.text3}}>{Math.round(r.ytdMeetingAmt/ANNUAL_MEETING_CAP*100)}%</td>
-                      <td style={{padding:'10px',textAlign:'right',fontSize:11,color:(r.ytdSqlAmt+r.ytdAccelAmt)>=ANNUAL_SQL_CAP?C.red:C.text3}}>{Math.round((r.ytdSqlAmt+r.ytdAccelAmt)/ANNUAL_SQL_CAP*100)}%</td>
-                    </tr>
-                  ))}
-                  {filteredRepData.length>1&&(
-                    <tr style={{borderTop:`2px solid ${C.border2}`,background:C.surface2}}>
-                      <td style={{padding:'10px',fontWeight:800,color:C.text}}>Total</td>
-                      <td style={{padding:'10px',textAlign:'right',fontWeight:700,color:C.text}}>{filteredRepData.reduce((s,r)=>s+r.ytdMeetings,0)}</td>
-                      <td style={{padding:'10px',textAlign:'right',fontWeight:700,color:C.green}}>${filteredRepData.reduce((s,r)=>s+r.ytdMeetingAmt,0).toLocaleString()}</td>
-                      <td style={{padding:'10px',textAlign:'right',fontWeight:700,color:C.text}}>{filteredRepData.reduce((s,r)=>s+r.ytdSqls,0)}</td>
-                      <td style={{padding:'10px',textAlign:'right',fontWeight:700,color:'#c084fc'}}>${filteredRepData.reduce((s,r)=>s+r.ytdSqlAmt,0).toLocaleString()}</td>
-                      <td style={{padding:'10px',textAlign:'right',fontWeight:700,color:C.amber}}>${filteredRepData.reduce((s,r)=>s+r.ytdAccelAmt,0).toLocaleString()}</td>
-                      <td style={{padding:'10px',textAlign:'right',fontWeight:800,color:C.text}}>${filteredRepData.reduce((s,r)=>s+r.ytdTotal,0).toLocaleString()}</td>
-                      <td/><td/>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+            {/* Time period filter */}
+            <div style={{display:'flex',gap:5,marginBottom:12,flexWrap:'wrap'}}>
+              {(['week','month','quarter','year','all'] as const).map(p=>(
+                <button key={p} onClick={()=>{setRevopsPeriod(p);setRevopsFrom('');setRevopsTo('')}} style={filterPill(revopsPeriod===p)}>
+                  {{week:'This Week',month:'This Month',quarter:'This Quarter',year:'This Year',all:'All Time'}[p]}
+                </button>
+              ))}
+              <button onClick={()=>setRevopsPeriod('custom')} style={filterPill(revopsPeriod==='custom',C.amber)}>Custom Range</button>
             </div>
-
-            {/* Detailed attribution table */}
-            <div style={{...card,marginBottom:20}}>
-              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
-                <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em'}}>Commission Event Detail · {allEvents.length} events</div>
+            {revopsPeriod==='custom'&&(
+              <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:12,flexWrap:'wrap'}}>
+                <span style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em'}}>From</span>
+                <input type="date" value={revopsFrom} onChange={e=>setRevopsFrom(e.target.value)} style={{fontSize:11,padding:'4px 8px',border:`1px solid ${C.border2}`,borderRadius:6,background:C.surface3,color:C.text2,outline:'none',colorScheme:'dark'}}/>
+                <span style={{fontSize:11,color:C.text3}}>→</span>
+                <input type="date" value={revopsTo} onChange={e=>setRevopsTo(e.target.value)} style={{fontSize:11,padding:'4px 8px',border:`1px solid ${C.border2}`,borderRadius:6,background:C.surface3,color:C.text2,outline:'none',colorScheme:'dark'}}/>
+                {(revopsFrom||revopsTo)&&<button onClick={()=>{setRevopsFrom('');setRevopsTo('')}} style={{fontSize:10,fontWeight:600,color:C.text3,background:'none',border:'none',cursor:'pointer',padding:'2px 6px'}}>✕ Clear</button>}
               </div>
-              <div style={{overflowX:'auto'}}>
-                <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
+            )}
+            <div style={{marginBottom:20}}/>
+
+            {/* Period-scoped Summary per rep */}
+            {(()=>{
+              // Compute period range
+              const now=new Date()
+              let pStart:Date,pEnd:Date
+              if(revopsPeriod==='week'){pStart=new Date(now);pStart.setDate(now.getDate()-now.getDay());pStart.setHours(0,0,0,0);pEnd=new Date(pStart);pEnd.setDate(pStart.getDate()+6);pEnd.setHours(23,59,59)}
+              else if(revopsPeriod==='month'){pStart=new Date(now.getFullYear(),now.getMonth(),1);pEnd=new Date(now.getFullYear(),now.getMonth()+1,0,23,59,59)}
+              else if(revopsPeriod==='quarter'){const qm=Math.floor(now.getMonth()/3)*3;pStart=new Date(now.getFullYear(),qm,1);pEnd=new Date(now.getFullYear(),qm+3,0,23,59,59)}
+              else if(revopsPeriod==='year'){pStart=new Date(now.getFullYear(),0,1);pEnd=new Date(now.getFullYear(),11,31,23,59,59)}
+              else if(revopsPeriod==='custom'&&revopsFrom){pStart=new Date(revopsFrom);pEnd=revopsTo?new Date(revopsTo+'T23:59:59'):new Date('2099-01-01')}
+              else {pStart=new Date('2020-01-01');pEnd=new Date('2099-01-01')}
+
+              const inRange=(d:string|null)=>{if(!d)return false;const dt=new Date(d);return dt>=pStart&&dt<=pEnd}
+              const periodLabel=revopsPeriod==='week'?'This Week':revopsPeriod==='month'?'This Month':revopsPeriod==='quarter'?'This Quarter':revopsPeriod==='year'?`YTD · ${now.getFullYear()}`:revopsPeriod==='custom'?'Custom Range':'All Time'
+
+              // Filter events by period
+              const periodRepData=filteredRepData.map(r=>{
+                const periodEvents=r.events.filter(e=>{
+                  const d=e.meetingDate||e.sqlDate
+                  return inRange(d)
+                })
+                const meetings=periodEvents.filter(e=>e.isMeeting).length
+                const sqls=periodEvents.filter(e=>e.isSql).length
+                const meetingAmt=meetings*MEETING_BONUS
+                let sqlAmt=0,accelAmt=0
+                // Recalculate with accelerator per month within period
+                const sqlByMonth=new Map<string,number>()
+                periodEvents.filter(e=>e.isSql&&e.sqlDate).forEach(e=>{
+                  const d=new Date(e.sqlDate!)
+                  const mk=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
+                  sqlByMonth.set(mk,(sqlByMonth.get(mk)||0)+1)
+                })
+                // Simple approach: count base vs accel from monthly totals
+                sqlByMonth.forEach(count=>{
+                  const base=Math.min(count,SQL_ACCELERATOR_THRESHOLD)
+                  const accel=Math.max(0,count-SQL_ACCELERATOR_THRESHOLD)
+                  sqlAmt+=base*SQL_BONUS
+                  accelAmt+=accel*SQL_ACCELERATOR
+                })
+                return {...r,periodEvents,periodMeetings:meetings,periodSqls:sqls,periodMeetingAmt:meetingAmt,periodSqlAmt:sqlAmt,periodAccelAmt:accelAmt,periodTotal:meetingAmt+sqlAmt+accelAmt}
+              })
+
+              // Filter detail events by period
+              const periodAllEvents=periodRepData.flatMap(r=>r.periodEvents.map(e=>({...e,repName:r.rep.name,repId:r.rep.id})))
+                .sort((a,b)=>{const da=a.meetingDate||a.sqlDate||'';const db=b.meetingDate||b.sqlDate||'';return db.localeCompare(da)})
+
+              return (<>
+              <div style={{...card,marginBottom:20}}>
+                <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:14}}>Commission Summary · {periodLabel}</div>
+                <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
                   <thead>
                     <tr style={{borderBottom:`2px solid ${C.border2}`}}>
-                      {['Rep','Account','Source','AE','Quality','Meeting Date','SQL Date','SQO Date','ACV','Type','Amount'].map(h=>(
-                        <th key={h} style={{padding:'7px 8px',textAlign:['ACV','Amount'].includes(h)?'right':'left',fontSize:9,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',whiteSpace:'nowrap'}}>{h}</th>
+                      {['Rep','Meetings','Meeting $','SQLs','SQL $','Accel $','Total','Mtg Cap %','SQL Cap %'].map(h=>(
+                        <th key={h} style={{padding:'8px 10px',textAlign:h==='Rep'?'left':'right',fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em'}}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {allEvents.map((e,i)=>{
-                      const types: string[] = []
-                      let amount = 0
-                      if (e.isMeeting) { types.push('Meeting'); amount += MEETING_BONUS }
-                      if (e.isSql) { types.push('SQL'); amount += SQL_BONUS }
-                      const qualityColor = e.mqlQuality==='hq'?C.amber:e.mqlQuality==='lq'?'#fb923c':C.text3
-                      return (
-                        <tr key={`${e.email}-${i}`} style={{borderBottom:`1px solid ${C.border}`}}>
-                          <td style={{padding:'7px 8px',fontWeight:500,color:C.text2,whiteSpace:'nowrap'}}>{e.repName}</td>
-                          <td style={{padding:'7px 8px',fontWeight:600,color:C.text,maxWidth:160,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{e.account}</td>
-                          <td style={{padding:'7px 8px',color:C.text3,fontSize:10}}>{e.sourceChannel||'—'}</td>
-                          <td style={{padding:'7px 8px',color:C.text2}}>{e.ae||'—'}</td>
-                          <td style={{padding:'7px 8px'}}><span style={{fontSize:9,fontWeight:700,color:qualityColor,background:`${qualityColor}18`,padding:'1px 5px',borderRadius:3}}>{e.mqlQuality==='hq'?'HQ':e.mqlQuality==='lq'?'LQ':e.mqlQuality||'—'}</span></td>
-                          <td style={{padding:'7px 8px',color:e.meetingDate?C.text2:C.text3,whiteSpace:'nowrap'}}>{e.meetingDate?new Date(e.meetingDate).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'2-digit'}):'—'}</td>
-                          <td style={{padding:'7px 8px',color:e.sqlDate?'#c084fc':C.text3,whiteSpace:'nowrap'}}>{e.sqlDate?new Date(e.sqlDate).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'2-digit'}):'—'}</td>
-                          <td style={{padding:'7px 8px',color:e.sqoDate?C.amber:C.text3,whiteSpace:'nowrap'}}>{e.sqoDate?new Date(e.sqoDate).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'2-digit'}):'—'}</td>
-                          <td style={{padding:'7px 8px',textAlign:'right',color:e.acv?C.text2:C.text3}}>{e.acv?`$${parseAcv(e.acv).toLocaleString()}`:'—'}</td>
-                          <td style={{padding:'7px 8px'}}>
-                            {types.map(t=>(
-                              <span key={t} style={{fontSize:9,fontWeight:700,padding:'1px 5px',borderRadius:3,marginRight:3,
-                                background:t==='Meeting'?'rgba(0,229,160,0.15)':'rgba(192,132,252,0.15)',
-                                color:t==='Meeting'?C.green:'#c084fc',
-                                border:`1px solid ${t==='Meeting'?'rgba(0,229,160,0.3)':'rgba(192,132,252,0.3)'}`,
-                              }}>{t}</span>
-                            ))}
-                          </td>
-                          <td style={{padding:'7px 8px',textAlign:'right',fontWeight:700,color:C.text}}>${amount.toLocaleString()}</td>
-                        </tr>
-                      )
-                    })}
-                    {allEvents.length===0&&(
-                      <tr><td colSpan={11} style={{padding:'20px',textAlign:'center',color:C.text3}}>No commission events found for the selected rep(s).</td></tr>
+                    {periodRepData.map(r=>(
+                      <tr key={r.rep.id} style={{borderBottom:`1px solid ${C.border}`}}>
+                        <td style={{padding:'10px',fontWeight:600,color:C.text}}>{r.rep.name}</td>
+                        <td style={{padding:'10px',textAlign:'right',color:C.text}}>{r.periodMeetings}</td>
+                        <td style={{padding:'10px',textAlign:'right',color:C.green,fontWeight:600}}>${r.periodMeetingAmt.toLocaleString()}</td>
+                        <td style={{padding:'10px',textAlign:'right',color:C.text}}>{r.periodSqls}</td>
+                        <td style={{padding:'10px',textAlign:'right',color:'#c084fc',fontWeight:600}}>${r.periodSqlAmt.toLocaleString()}</td>
+                        <td style={{padding:'10px',textAlign:'right',color:r.periodAccelAmt>0?C.amber:C.text3,fontWeight:r.periodAccelAmt>0?600:400}}>{r.periodAccelAmt>0?`$${r.periodAccelAmt.toLocaleString()}`:'—'}</td>
+                        <td style={{padding:'10px',textAlign:'right',fontWeight:800,color:C.text}}>${r.periodTotal.toLocaleString()}</td>
+                        <td style={{padding:'10px',textAlign:'right',fontSize:11,color:r.ytdMeetingAmt>=ANNUAL_MEETING_CAP?C.red:C.text3}}>{Math.round(r.ytdMeetingAmt/ANNUAL_MEETING_CAP*100)}%</td>
+                        <td style={{padding:'10px',textAlign:'right',fontSize:11,color:(r.ytdSqlAmt+r.ytdAccelAmt)>=ANNUAL_SQL_CAP?C.red:C.text3}}>{Math.round((r.ytdSqlAmt+r.ytdAccelAmt)/ANNUAL_SQL_CAP*100)}%</td>
+                      </tr>
+                    ))}
+                    {periodRepData.length>1&&(
+                      <tr style={{borderTop:`2px solid ${C.border2}`,background:C.surface2}}>
+                        <td style={{padding:'10px',fontWeight:800,color:C.text}}>Total</td>
+                        <td style={{padding:'10px',textAlign:'right',fontWeight:700,color:C.text}}>{periodRepData.reduce((s,r)=>s+r.periodMeetings,0)}</td>
+                        <td style={{padding:'10px',textAlign:'right',fontWeight:700,color:C.green}}>${periodRepData.reduce((s,r)=>s+r.periodMeetingAmt,0).toLocaleString()}</td>
+                        <td style={{padding:'10px',textAlign:'right',fontWeight:700,color:C.text}}>{periodRepData.reduce((s,r)=>s+r.periodSqls,0)}</td>
+                        <td style={{padding:'10px',textAlign:'right',fontWeight:700,color:'#c084fc'}}>${periodRepData.reduce((s,r)=>s+r.periodSqlAmt,0).toLocaleString()}</td>
+                        <td style={{padding:'10px',textAlign:'right',fontWeight:700,color:C.amber}}>${periodRepData.reduce((s,r)=>s+r.periodAccelAmt,0).toLocaleString()}</td>
+                        <td style={{padding:'10px',textAlign:'right',fontWeight:800,color:C.text}}>${periodRepData.reduce((s,r)=>s+r.periodTotal,0).toLocaleString()}</td>
+                        <td/><td/>
+                      </tr>
                     )}
                   </tbody>
                 </table>
               </div>
-            </div>
+
+              {/* Detailed attribution table — filtered by period */}
+              <div style={{...card,marginBottom:20}}>
+                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
+                  <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em'}}>Commission Event Detail · {periodAllEvents.length} events · {periodLabel}</div>
+                </div>
+                <div style={{overflowX:'auto'}}>
+                  <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
+                    <thead>
+                      <tr style={{borderBottom:`2px solid ${C.border2}`}}>
+                        {['Rep','Account','Source','AE','Quality','Meeting Date','SQL Date','SQO Date','ACV','Type','Amount'].map(h=>(
+                          <th key={h} style={{padding:'7px 8px',textAlign:['ACV','Amount'].includes(h)?'right':'left',fontSize:9,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',whiteSpace:'nowrap'}}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {periodAllEvents.map((e,i)=>{
+                        const types: string[] = []
+                        let amount = 0
+                        if (e.isMeeting) { types.push('Meeting'); amount += MEETING_BONUS }
+                        if (e.isSql) { types.push('SQL'); amount += SQL_BONUS }
+                        const qualityColor = e.mqlQuality==='hq'?C.amber:e.mqlQuality==='lq'?'#fb923c':C.text3
+                        return (
+                          <tr key={`${e.email}-${i}`} style={{borderBottom:`1px solid ${C.border}`}}>
+                            <td style={{padding:'7px 8px',fontWeight:500,color:C.text2,whiteSpace:'nowrap'}}>{e.repName}</td>
+                            <td style={{padding:'7px 8px',fontWeight:600,color:C.text,maxWidth:160,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{e.account}</td>
+                            <td style={{padding:'7px 8px',color:C.text3,fontSize:10}}>{e.sourceChannel||'—'}</td>
+                            <td style={{padding:'7px 8px',color:C.text2}}>{e.ae||'—'}</td>
+                            <td style={{padding:'7px 8px'}}><span style={{fontSize:9,fontWeight:700,color:qualityColor,background:`${qualityColor}18`,padding:'1px 5px',borderRadius:3}}>{e.mqlQuality==='hq'?'HQ':e.mqlQuality==='lq'?'LQ':e.mqlQuality||'—'}</span></td>
+                            <td style={{padding:'7px 8px',color:e.meetingDate?C.text2:C.text3,whiteSpace:'nowrap'}}>{e.meetingDate?new Date(e.meetingDate).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'2-digit'}):'—'}</td>
+                            <td style={{padding:'7px 8px',color:e.sqlDate?'#c084fc':C.text3,whiteSpace:'nowrap'}}>{e.sqlDate?new Date(e.sqlDate).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'2-digit'}):'—'}</td>
+                            <td style={{padding:'7px 8px',color:e.sqoDate?C.amber:C.text3,whiteSpace:'nowrap'}}>{e.sqoDate?new Date(e.sqoDate).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'2-digit'}):'—'}</td>
+                            <td style={{padding:'7px 8px',textAlign:'right',color:e.acv?C.text2:C.text3}}>{e.acv?`$${parseAcv(e.acv).toLocaleString()}`:'—'}</td>
+                            <td style={{padding:'7px 8px'}}>
+                              {types.map(t=>(
+                                <span key={t} style={{fontSize:9,fontWeight:700,padding:'1px 5px',borderRadius:3,marginRight:3,
+                                  background:t==='Meeting'?'rgba(0,229,160,0.15)':'rgba(192,132,252,0.15)',
+                                  color:t==='Meeting'?C.green:'#c084fc',
+                                  border:`1px solid ${t==='Meeting'?'rgba(0,229,160,0.3)':'rgba(192,132,252,0.3)'}`,
+                                }}>{t}</span>
+                              ))}
+                            </td>
+                            <td style={{padding:'7px 8px',textAlign:'right',fontWeight:700,color:C.text}}>${amount.toLocaleString()}</td>
+                          </tr>
+                        )
+                      })}
+                      {periodAllEvents.length===0&&(
+                        <tr><td colSpan={11} style={{padding:'20px',textAlign:'center',color:C.text3}}>No commission events found for this period.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              </>)
+            })()}
 
             {/* Commission rules reference */}
             <div style={{...card,opacity:0.7}}>
