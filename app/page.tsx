@@ -3985,8 +3985,9 @@ export default function Dashboard() {
                 </div>
                 <div style={{marginBottom:16}}>
                   <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:4}}>Reason</div>
-                  <input value={editingAdj.reason} onChange={e=>setEditingAdj({...editingAdj,reason:e.target.value})} placeholder="e.g. SQL overpayment redacted per RevOps"
-                    style={{width:'100%',padding:'8px 10px',borderRadius:6,border:`1px solid ${C.border2}`,background:C.surface2,color:C.text,fontSize:12,outline:'none',boxSizing:'border-box'}}/>
+                  <textarea value={editingAdj.reason} onChange={e=>setEditingAdj({...editingAdj,reason:e.target.value})} placeholder="e.g. SQL overpayment redacted per RevOps"
+                    rows={3}
+                    style={{width:'100%',padding:'8px 10px',borderRadius:6,border:`1px solid ${C.border2}`,background:C.surface2,color:C.text,fontSize:12,outline:'none',boxSizing:'border-box',resize:'vertical',minHeight:60,fontFamily:'inherit',lineHeight:1.5}}/>
                 </div>
                 <div style={{display:'flex',gap:8}}>
                   <button onClick={()=>{
