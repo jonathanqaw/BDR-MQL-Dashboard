@@ -24,8 +24,8 @@ interface UserCredential { email:string; password:string; role:UserRole; name:st
 const USER_CREDENTIALS: UserCredential[] = [
   { email:'jonathankim@qawolf.com', password:'johnnywolfpack2026', role:'manager', name:'Jonathan Kim', allowedViews:'all' },
   { email:'scott@qawolf.com',       password:'ScottQAW2026',       role:'cmo',     name:'Scott Wilson', allowedViews:'all' },
-  { email:'arnav@qawolf.com',       password:'PMLQAW2026',         role:'perf_marketing', name:'Arnav Shome', allowedViews:['commissions','revops_commissions','analytics'] },
-  { email:'meenal@qawolf.com',      password:'RevOpsQAW#123',      role:'revops',  name:'Meenal Gupta', allowedViews:['revops_commissions','commissions','analytics'] },
+  { email:'arnav@qawolf.com',       password:'PMLQAW2026',         role:'perf_marketing', name:'Arnav Shome', allowedViews:['revops_commissions'] },
+  { email:'meenal@qawolf.com',      password:'RevOpsQAW#123',      role:'revops',  name:'Meenal Gupta', allowedViews:['revops_commissions'] },
 ]
 const MANAGER_ROLES: UserRole[] = ['manager','cmo'] // full access roles that can edit reps, data, etc.
 
@@ -1256,6 +1256,7 @@ export default function Dashboard() {
   const [loginEmail, setLoginEmail] = useState('')
   const [loginPass, setLoginPass] = useState('')
   const [passErr, setPassErr] = useState(false)
+  const [showPass, setShowPass] = useState(false)
   const [activeRepId, setActiveRepId] = useState('jonathan')
   const [ecSaving, setEcSaving] = useState(false)
   const [reps, setReps] = useState<Rep[]>(DEFAULT_REPS)
@@ -2195,14 +2196,20 @@ export default function Dashboard() {
           onKeyDown={e=>e.key==='Enter'&&handleLogin()}
           style={{width:'100%',padding:'10px 14px',borderRadius:8,border:`1px solid ${passErr?C.red:C.border2}`,background:C.surface2,color:C.text,fontSize:14,outline:'none',boxSizing:'border-box',marginBottom:10}}
         />
-        <input
-          type="password"
-          placeholder="Password"
-          value={loginPass}
-          onChange={e=>{setLoginPass(e.target.value);setPassErr(false)}}
-          onKeyDown={e=>e.key==='Enter'&&handleLogin()}
-          style={{width:'100%',padding:'10px 14px',borderRadius:8,border:`1px solid ${passErr?C.red:C.border2}`,background:C.surface2,color:C.text,fontSize:14,outline:'none',boxSizing:'border-box',marginBottom:passErr?6:12}}
-        />
+        <div style={{position:'relative',marginBottom:passErr?6:12}}>
+          <input
+            type={showPass?'text':'password'}
+            placeholder="Password"
+            value={loginPass}
+            onChange={e=>{setLoginPass(e.target.value);setPassErr(false)}}
+            onKeyDown={e=>e.key==='Enter'&&handleLogin()}
+            style={{width:'100%',padding:'10px 14px',paddingRight:40,borderRadius:8,border:`1px solid ${passErr?C.red:C.border2}`,background:C.surface2,color:C.text,fontSize:14,outline:'none',boxSizing:'border-box'}}
+          />
+          <button type="button" onClick={()=>setShowPass(p=>!p)} style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',fontSize:16,color:C.text3,padding:2,lineHeight:1}}
+            onMouseEnter={e=>(e.currentTarget.style.color=C.text)} onMouseLeave={e=>(e.currentTarget.style.color=C.text3)}>
+            {showPass?'🙈':'👁'}
+          </button>
+        </div>
         {passErr&&<div style={{fontSize:11,color:C.red,marginBottom:8}}>Invalid email or password</div>}
         <button onClick={handleLogin} style={{width:'100%',padding:'10px',borderRadius:8,border:'none',background:C.green,color:C.bg,fontSize:14,fontWeight:700,cursor:'pointer'}}>
           Sign In
