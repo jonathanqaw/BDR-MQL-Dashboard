@@ -17,9 +17,19 @@ const DEFAULT_REPS: Rep[] = [
   { id: 'rep4',     name: 'Rep 4 (TBD)', slackId: '',             passcode: '' },
 ]
 
-const MANAGER_PASSCODE = 'johnnywolfpack2026'
+// ─── User Credentials ────────────────────────────────────────────────────────
+type UserRole = 'manager' | 'cmo' | 'perf_marketing' | 'revops' | 'rep'
+type DashView = 'pipeline' | 'analytics' | 'reporting' | 'commissions' | 'leaderboard' | 'revops_commissions'
+interface UserCredential { email:string; password:string; role:UserRole; name:string; allowedViews:DashView[]|'all' }
+const USER_CREDENTIALS: UserCredential[] = [
+  { email:'jonathankim@qawolf.com', password:'johnnywolfpack2026', role:'manager', name:'Jonathan Kim', allowedViews:'all' },
+  { email:'scott@qawolf.com',       password:'ScottQAW2026',       role:'cmo',     name:'Scott Wilson', allowedViews:'all' },
+  { email:'arnav@qawolf.com',       password:'PMLQAW2026',         role:'perf_marketing', name:'Arnav Shome', allowedViews:['commissions','revops_commissions','analytics'] },
+  { email:'meenal@qawolf.com',      password:'RevOpsQAW#123',      role:'revops',  name:'Meenal Gupta', allowedViews:['revops_commissions','commissions','analytics'] },
+]
+const MANAGER_ROLES: UserRole[] = ['manager','cmo'] // full access roles that can edit reps, data, etc.
 
-type AuthState = { role: 'manager' } | { role: 'rep'; repId: string } | { role: 'revops' } | null
+type AuthState = { role: UserRole; email?: string; allowedViews: DashView[]|'all' } | { role: 'rep'; repId: string; allowedViews: 'all' } | null
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Status       = 'new' | 'contacted' | 'inprogress' | 'booked' | 'nurture' | 'lost' | 'na' | 'dq' | 'closedwon'
@@ -1243,7 +1253,8 @@ function CreateContactModal({onSave,onClose}:{onSave:(account:string,email:strin
 // ─── Main ─────────────────────────────────────────────────────────────────────
 export default function Dashboard() {
   const [auth, setAuth] = useState<AuthState>(null)
-  const [passcode, setPasscode] = useState('')
+  const [loginEmail, setLoginEmail] = useState('')
+  const [loginPass, setLoginPass] = useState('')
   const [passErr, setPassErr] = useState(false)
   const [activeRepId, setActiveRepId] = useState('jonathan')
   const [ecSaving, setEcSaving] = useState(false)
@@ -1259,7 +1270,7 @@ export default function Dashboard() {
     const params = new URLSearchParams(window.location.search)
     const repParam = params.get('rep')
     if (repParam) {
-      const a:AuthState = { role:'rep', repId: repParam }
+      const a:AuthState = { role:'rep', repId: repParam, allowedViews:'all' }
       setAuth(a); sessionStorage.setItem('mql-auth', JSON.stringify(a))
     }
     // Public leaderboard access via ?view=leaderboard
@@ -1267,13 +1278,13 @@ export default function Dashboard() {
     if (viewParam === 'leaderboard') {
       setView('leaderboard')
       if (!saved && !repParam) {
-        const a:AuthState = { role:'rep', repId: 'jonathan' }
+        const a:AuthState = { role:'rep', repId: 'jonathan', allowedViews:'all' }
         setAuth(a); sessionStorage.setItem('mql-auth', JSON.stringify(a))
       }
     }
     // RevOps access via ?view=revops
     if (viewParam === 'revops') {
-      const a:AuthState = { role:'revops' }
+      const a:AuthState = { role:'revops', allowedViews:['revops_commissions','commissions','analytics'] }
       setAuth(a); sessionStorage.setItem('mql-auth', JSON.stringify(a))
       setView('revops_commissions')
     }
@@ -1286,22 +1297,36 @@ export default function Dashboard() {
     try { const a=JSON.parse(localStorage.getItem('mql-comm-adj')||'[]'); if(Array.isArray(a)) setCommAdjustments(a) } catch {}
   },[])
 
+  const isManagerRole=(a:AuthState):boolean=>!!a&&'role' in a&&MANAGER_ROLES.includes(a.role as UserRole)
+  const canView=(v:DashView):boolean=>{
+    if (!auth) return false
+    if (auth.allowedViews==='all') return true
+    return auth.allowedViews.includes(v)
+  }
+
   const handleLogin=()=>{
-    if (passcode === MANAGER_PASSCODE) {
-      const a:AuthState = { role:'manager' }
+    const emailLower=loginEmail.trim().toLowerCase()
+    // Check user credentials (email + password)
+    const user=USER_CREDENTIALS.find(u=>u.email.toLowerCase()===emailLower&&u.password===loginPass)
+    if (user) {
+      const a:AuthState = { role:user.role, email:user.email, allowedViews:user.allowedViews }
       setAuth(a); sessionStorage.setItem('mql-auth', JSON.stringify(a))
       setPassErr(false)
-    } else {
-      // Check rep passcodes
-      const rep = reps.find(r=>r.passcode && r.passcode===passcode)
-      if (rep) {
-        const a:AuthState = { role:'rep', repId: rep.id }
-        setAuth(a); sessionStorage.setItem('mql-auth', JSON.stringify(a))
-        setPassErr(false)
-      } else {
-        setPassErr(true)
+      // Set default view based on access
+      if (user.allowedViews!=='all') {
+        setView(user.allowedViews[0])
       }
+      return
     }
+    // Fall back: check rep passcodes (password-only, for reps set by manager)
+    const rep = reps.find(r=>r.passcode && r.passcode===loginPass)
+    if (rep) {
+      const a:AuthState = { role:'rep', repId: rep.id, allowedViews:'all' }
+      setAuth(a); sessionStorage.setItem('mql-auth', JSON.stringify(a))
+      setPassErr(false)
+      return
+    }
+    setPassErr(true)
   }
 
   const saveRepRegistry = async (updated: Rep[]) => {
@@ -1314,11 +1339,9 @@ export default function Dashboard() {
   }
 
   // Which rep's data are we currently viewing?
-  const currentRep = auth?.role==='manager'||auth?.role==='revops'
-    ? (reps.find(r=>r.id===activeRepId) || reps[0])
-    : auth?.role==='rep'
+  const currentRep = (auth && 'repId' in auth)
     ? (reps.find(r=>r.id===auth.repId) || reps[0])
-    : reps[0]
+    : (reps.find(r=>r.id===activeRepId) || reps[0])
 
   // ── Edge Config sync ──────────────────────────────────────────────────────
   const syncToEdgeConfig = useCallback(async () => {
@@ -1511,7 +1534,7 @@ export default function Dashboard() {
   useEffect(()=>{
     if (!currentRep?.slackId) return
 
-    const isRepSwitch = prevRepId.current !== null && prevRepId.current !== currentRep.id && auth?.role === 'manager'
+    const isRepSwitch = prevRepId.current !== null && prevRepId.current !== currentRep.id && isManagerRole(auth)
     const isFirstAuth = !initialEcLoaded.current && auth
     const localDataEmpty = !localStorage.getItem('mql-st')
 
@@ -2155,16 +2178,24 @@ export default function Dashboard() {
       <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:16,padding:'40px 48px',width:360,textAlign:'center'}}>
         <div style={{width:48,height:48,borderRadius:12,background:C.green,display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,fontWeight:800,color:C.bg,margin:'0 auto 20px'}}>QW</div>
         <div style={{fontSize:20,fontWeight:700,marginBottom:4}}>BDR Dashboard</div>
-        <div style={{fontSize:13,color:C.text3,marginBottom:28}}>QA Wolf · Manager Access</div>
+        <div style={{fontSize:13,color:C.text3,marginBottom:28}}>QA Wolf · Sign in with your credentials</div>
+        <input
+          type="email"
+          placeholder="Email address"
+          value={loginEmail}
+          onChange={e=>{setLoginEmail(e.target.value);setPassErr(false)}}
+          onKeyDown={e=>e.key==='Enter'&&handleLogin()}
+          style={{width:'100%',padding:'10px 14px',borderRadius:8,border:`1px solid ${passErr?C.red:C.border2}`,background:C.surface2,color:C.text,fontSize:14,outline:'none',boxSizing:'border-box',marginBottom:10}}
+        />
         <input
           type="password"
-          placeholder="Enter passcode"
-          value={passcode}
-          onChange={e=>{setPasscode(e.target.value);setPassErr(false)}}
+          placeholder="Password"
+          value={loginPass}
+          onChange={e=>{setLoginPass(e.target.value);setPassErr(false)}}
           onKeyDown={e=>e.key==='Enter'&&handleLogin()}
           style={{width:'100%',padding:'10px 14px',borderRadius:8,border:`1px solid ${passErr?C.red:C.border2}`,background:C.surface2,color:C.text,fontSize:14,outline:'none',boxSizing:'border-box',marginBottom:passErr?6:12}}
         />
-        {passErr&&<div style={{fontSize:11,color:C.red,marginBottom:8}}>Incorrect passcode</div>}
+        {passErr&&<div style={{fontSize:11,color:C.red,marginBottom:8}}>Invalid email or password</div>}
         <button onClick={handleLogin} style={{width:'100%',padding:'10px',borderRadius:8,border:'none',background:C.green,color:C.bg,fontSize:14,fontWeight:700,cursor:'pointer'}}>
           Sign In
         </button>
@@ -2188,32 +2219,41 @@ export default function Dashboard() {
             <div style={{fontSize:13,fontWeight:700}}>QA Wolf</div>
             <div style={{fontSize:10,fontWeight:600,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em'}}>BDR Portal</div>
           </div>
-          {auth.role==='manager'&&(
-            <div title="Manager" style={{fontSize:10,fontWeight:700,color:C.amber,background:'rgba(245,166,35,0.15)',borderRadius:5,padding:'2px 6px',border:'1px solid rgba(245,166,35,0.3)',flexShrink:0}}>MGR</div>
+          {isManagerRole(auth)&&(
+            <div title="Manager" style={{fontSize:10,fontWeight:700,color:C.amber,background:'rgba(245,166,35,0.15)',borderRadius:5,padding:'2px 6px',border:'1px solid rgba(245,166,35,0.3)',flexShrink:0}}>{auth?.role==='cmo'?'CMO':'MGR'}</div>
           )}
           {auth.role==='revops'&&(
             <div title="RevOps" style={{fontSize:10,fontWeight:700,color:'#60d4f4',background:'rgba(96,212,244,0.15)',borderRadius:5,padding:'2px 6px',border:'1px solid rgba(96,212,244,0.3)',flexShrink:0}}>REVOPS</div>
+          )}
+          {auth.role==='perf_marketing'&&(
+            <div title="Performance Marketing" style={{fontSize:10,fontWeight:700,color:'#e879f9',background:'rgba(232,121,249,0.15)',borderRadius:5,padding:'2px 6px',border:'1px solid rgba(232,121,249,0.3)',flexShrink:0}}>PML</div>
           )}
           <button onClick={()=>{setAuth(null);sessionStorage.removeItem('mql-auth');window.location.href='/'}} title="Sign out" style={{background:'none',border:'none',color:C.text3,cursor:'pointer',fontSize:14,padding:2,flexShrink:0}}
             onMouseEnter={e=>(e.currentTarget.style.color=C.red)} onMouseLeave={e=>(e.currentTarget.style.color=C.text3)}>⎋</button>
         </div>
 
-        {/* RevOps restricted sidebar */}
-        {auth.role==='revops'&&(
+        {/* Limited-access sidebar (RevOps + Perf Marketing) */}
+        {(auth.role==='revops'||auth.role==='perf_marketing')&&(
           <>
-          <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.1em',padding:'6px 20px 4px'}}>RevOps</div>
-          <div style={navBtn(view==='revops_commissions')} onClick={()=>setView('revops_commissions')}>
-            <div style={{width:26,height:26,borderRadius:6,background:view==='revops_commissions'?C.purple:C.surface3,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,color:view==='revops_commissions'?'#fff':C.text3,flexShrink:0}}>💲</div>
-            <div>
-              <div style={{fontSize:12,fontWeight:view==='revops_commissions'?600:500,color:view==='revops_commissions'?C.text:C.text2}}>Commissions</div>
-              <div style={{fontSize:11,color:C.text3}}>Verify attribution · process payouts</div>
+          <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.1em',padding:'6px 20px 4px'}}>Views</div>
+          {([
+            ['analytics','📈','Analytics','Charts · trends · breakdown'] as const,
+            ['commissions','💲','Commissions','Bonus tracking · payouts'] as const,
+            ['revops_commissions','📋','RevOps','Commission verification · payouts'] as const,
+          ] as const).filter(([v])=>canView(v as DashView)).map(([v,icon,label,sub])=>(
+            <div key={v} style={navBtn(view===v as View)} onClick={()=>setView(v as View)}>
+              <div style={{width:26,height:26,borderRadius:6,background:view===v?C.purple:C.surface3,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,color:view===v?'#fff':C.text3,flexShrink:0}}>{icon}</div>
+              <div>
+                <div style={{fontSize:12,fontWeight:view===v?600:500,color:view===v?C.text:C.text2}}>{label}</div>
+                <div style={{fontSize:11,color:C.text3}}>{sub}</div>
+              </div>
             </div>
-          </div>
+          ))}
           </>
         )}
 
         {/* Manager rep switcher + editor — hidden in revops mode */}
-        {auth.role!=='revops'&&auth.role==='manager'&&(
+        {auth.role!=='revops'&&auth.role!=='perf_marketing'&&isManagerRole(auth)&&(
           <div style={{padding:'0 20px 12px'}}>
             <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:6,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
               Reps
@@ -2300,15 +2340,15 @@ export default function Dashboard() {
           </div>
         )}
 
-        {auth.role!=='revops'&&<><div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.1em',padding:'6px 20px 4px'}}>Views</div>
+        {auth.role!=='revops'&&auth.role!=='perf_marketing'&&<><div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.1em',padding:'6px 20px 4px'}}>Views</div>
         {([
-          ['pipeline','📊','Pipeline','Lead tracking · expandable'],
-          ['analytics','📈','Analytics','Charts · trends · breakdown'],
-          ...(auth?.role==='manager' ? [['reporting','🧾','Reporting','Generated summaries · leadership-ready'] as const] : []),
+          ['pipeline','📊','Pipeline','Lead tracking · expandable'] as const,
+          ['analytics','📈','Analytics','Charts · trends · breakdown'] as const,
+          ...(isManagerRole(auth) ? [['reporting','🧾','Reporting','Generated summaries · leadership-ready'] as const] : []),
           ['commissions','💲','Commissions','Bonus tracking · payouts'] as const,
           ['leaderboard','🏆','Leaderboard','Rep rankings · spiffs'] as const,
-          ...(auth?.role==='manager' ? [['revops_commissions','📋','RevOps','Commission verification · payouts'] as const] : []),
-        ] as const).map(([v,icon,label,sub])=>(
+          ...(isManagerRole(auth) ? [['revops_commissions','📋','RevOps','Commission verification · payouts'] as const] : []),
+        ] as const).filter(([v])=>canView(v as DashView)).map(([v,icon,label,sub])=>(
           <div key={v} style={navBtn(view===v as View)} onClick={()=>setView(v as View)}>
             <div style={{width:26,height:26,borderRadius:6,background:view===v?C.purple:C.surface3,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,color:view===v?'#fff':C.text3,flexShrink:0}}>{icon}</div>
             <div>
@@ -3705,7 +3745,7 @@ export default function Dashboard() {
           const currentMonthAdj = getMonthAdj(currentMonthKey, currentRep?.id)
 
           // For manager view: build per-rep
-          const managerRepData = auth?.role === 'manager' ? reps.map(rep => {
+          const managerRepData = isManagerRole(auth) ? reps.map(rep => {
             const repLeads = rep.id === 'jonathan'
               ? allLeads
               : allLeads.filter(l => l.repSlackId && l.repSlackId === rep.slackId)
@@ -3719,7 +3759,7 @@ export default function Dashboard() {
               <div style={{fontSize:26,fontWeight:800,letterSpacing:'-0.02em',lineHeight:1.15}}>Commissions<br/><span style={{color:C.green}}>Tracker.</span></div>
               <div style={{fontSize:12,color:C.text3,marginTop:4}}>ICP meeting bonuses · SQL payouts · accelerators</div>
             </div>
-            {auth?.role==='manager'&&(
+            {isManagerRole(auth)&&(
               <button onClick={()=>{setEditingAdj({id:`adj-${Date.now()}`,repId:currentRep?.id||'all',month:currentMonthKey,amount:0,reason:'',createdAt:new Date().toISOString()});setShowAdjModal(true)}} style={{fontSize:11,fontWeight:700,padding:'8px 14px',borderRadius:8,border:`1px solid ${C.border2}`,background:C.surface,color:C.text2,cursor:'pointer'}}>
                 ± Adjust Commission
               </button>
@@ -3739,7 +3779,7 @@ export default function Dashboard() {
           )}
 
           {/* ── Undo history (persistent) ── */}
-          {auth?.role==='manager'&&adjUndoStack.length>0&&!adjUndoMsg&&(
+          {isManagerRole(auth)&&adjUndoStack.length>0&&!adjUndoMsg&&(
             <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12}}>
               <button onClick={undoAdj} style={{fontSize:10,fontWeight:600,padding:'4px 10px',borderRadius:5,border:`1px solid ${C.border2}`,background:'transparent',color:C.text3,cursor:'pointer'}}>
                 ↩ Undo last change ({adjUndoStack.length} in history)
@@ -3920,7 +3960,7 @@ export default function Dashboard() {
           </div>
 
           {/* ── Manager View: All Reps Comparison ── */}
-          {auth?.role==='manager'&&(
+          {isManagerRole(auth)&&(
             <div style={{...card,marginBottom:20}}>
               <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:14}}>Manager View · All Reps</div>
               <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
@@ -3956,7 +3996,7 @@ export default function Dashboard() {
           )}
 
           {/* ── Adjustments Log ── */}
-          {auth?.role==='manager'&&commAdjustments.length>0&&(
+          {isManagerRole(auth)&&commAdjustments.length>0&&(
             <div style={{...card,marginBottom:20}}>
               <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:14}}>Commission Adjustments</div>
               <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
@@ -3994,7 +4034,7 @@ export default function Dashboard() {
           )}
 
           {/* ── Adjustment Modal ── */}
-          {showAdjModal&&auth?.role==='manager'&&editingAdj&&(
+          {showAdjModal&&isManagerRole(auth)&&editingAdj&&(
             <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',zIndex:200,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={()=>{setShowAdjModal(false);setEditingAdj(null)}}>
               <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:28,width:400}} onClick={e=>e.stopPropagation()}>
                 <div style={{fontSize:16,fontWeight:800,marginBottom:20}}>Commission Adjustment</div>
@@ -4168,7 +4208,7 @@ export default function Dashboard() {
                 <div style={{fontSize:26,fontWeight:800,letterSpacing:'-0.02em',lineHeight:1.15}}>Leaderboard<br/><span style={{color:C.green}}>Rankings.</span></div>
                 <div style={{fontSize:12,color:C.text3,marginTop:4}}>Rep performance rankings · spiff challenges</div>
               </div>
-              {auth?.role==='manager'&&(
+              {isManagerRole(auth)&&(
                 <button onClick={()=>{setEditingSpiff(null);setShowSpiffModal(true)}} style={{fontSize:11,fontWeight:700,padding:'8px 14px',borderRadius:8,border:`1px solid ${C.border2}`,background:C.surface,color:C.text2,cursor:'pointer'}}>
                   Manage Spiffs
                 </button>
@@ -4290,7 +4330,7 @@ export default function Dashboard() {
         })()}
 
         {/* ── Spiff Management Modal ── */}
-        {showSpiffModal&&auth?.role==='manager'&&(
+        {showSpiffModal&&isManagerRole(auth)&&(
           <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',zIndex:200,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={()=>{setShowSpiffModal(false);setEditingSpiff(null)}}>
             <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:28,width:480,maxHeight:'85vh',overflowY:'auto'}} onClick={e=>e.stopPropagation()}>
               <div style={{fontSize:16,fontWeight:800,marginBottom:20}}>Manage Spiff Challenges</div>
