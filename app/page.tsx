@@ -29,7 +29,7 @@ const USER_CREDENTIALS: UserCredential[] = [
 ]
 const MANAGER_ROLES: UserRole[] = ['manager','cmo'] // full access roles that can edit reps, data, etc.
 
-type AuthState = { role: UserRole; email?: string; allowedViews: DashView[]|'all' } | { role: 'rep'; repId: string; allowedViews: 'all' } | null
+type AuthState = { role: UserRole; email?: string; allowedViews: DashView[]|'all' } | { role: 'rep'; repId: string; allowedViews: DashView[]|'all' } | null
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Status       = 'new' | 'contacted' | 'inprogress' | 'booked' | 'nurture' | 'lost' | 'na' | 'dq' | 'closedwon'
@@ -1312,9 +1312,10 @@ export default function Dashboard() {
     } catch { sessionStorage.removeItem('mql-auth') } }
     // Check URL param for direct rep access (bypasses login)
     const params = new URLSearchParams(window.location.search)
+    const REP_VIEWS: DashView[] = ['pipeline','analytics','reporting','commissions','leaderboard']
     const repParam = params.get('rep')
     if (repParam) {
-      const a:AuthState = { role:'rep', repId: repParam, allowedViews:'all' }
+      const a:AuthState = { role:'rep', repId: repParam, allowedViews:REP_VIEWS }
       setAuth(a); sessionStorage.setItem('mql-auth', JSON.stringify(a))
     }
     // Public leaderboard access via ?view=leaderboard
@@ -1322,7 +1323,7 @@ export default function Dashboard() {
     if (viewParam === 'leaderboard') {
       setView('leaderboard')
       if (!saved && !repParam) {
-        const a:AuthState = { role:'rep', repId: 'jonathan', allowedViews:'all' }
+        const a:AuthState = { role:'rep', repId: 'jonathan', allowedViews:REP_VIEWS }
         setAuth(a); sessionStorage.setItem('mql-auth', JSON.stringify(a))
       }
     }
@@ -1362,10 +1363,11 @@ export default function Dashboard() {
       }
       return
     }
-    // Fall back: check rep passcodes (password-only, for reps set by manager)
-    const rep = reps.find(r=>r.passcode && r.passcode===loginPass)
+    // Fall back: check rep passcodes (email + password, for reps set by manager)
+    const rep = reps.find(r=>r.slackId && r.slackId.toLowerCase()===emailLower && r.passcode && r.passcode===loginPass)
+    const REP_VIEWS: DashView[] = ['pipeline','analytics','reporting','commissions','leaderboard']
     if (rep) {
-      const a:AuthState = { role:'rep', repId: rep.id, allowedViews:'all' }
+      const a:AuthState = { role:'rep', repId: rep.id, allowedViews:REP_VIEWS }
       setAuth(a); sessionStorage.setItem('mql-auth', JSON.stringify(a))
       setPassErr(false)
       return
@@ -2387,7 +2389,7 @@ export default function Dashboard() {
               <div style={{fontSize:14,fontWeight:700,marginBottom:16}}>Edit Rep</div>
               {([
                 ['Name', 'name', 'text', 'Jonathan Kim'],
-                ['Slack User ID', 'slackId', 'text', 'U098PSETPJ4'],
+                ['Rep Email', 'slackId', 'text', 'rep@qawolf.com'],
                 ['Rep Passcode', 'passcode', 'password', 'Set a passcode for this rep'],
               ] as const).map(([label, field, type, placeholder])=>(
                 <div key={field} style={{marginBottom:12}}>
