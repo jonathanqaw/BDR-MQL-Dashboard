@@ -1422,6 +1422,8 @@ export default function Dashboard() {
   const [commAdjustments,setCommAdjustments]=useState<{id:string;repId:string;month:string;amount:number;reason:string;createdAt:string}[]>([])
   const [showAdjModal,setShowAdjModal]=useState(false)
   const [editingAdj,setEditingAdj]=useState<{id:string;repId:string;month:string;amount:number;reason:string;createdAt:string}|null>(null)
+  const [adjUndoStack,setAdjUndoStack]=useState<{snapshot:typeof commAdjustments;label:string}[]>([])
+  const [adjUndoMsg,setAdjUndoMsg]=useState<string|null>(null)
   const [spiffs,setSpiffs]=useState<Spiff[]>([])
   const [showSpiffModal,setShowSpiffModal]=useState(false)
   const [editingSpiff,setEditingSpiff]=useState<Spiff|null>(null)
@@ -3662,11 +3664,24 @@ export default function Dashboard() {
             return { months, ytdMeetingTotal, ytdSqlTotal, ytdAcceleratorTotal, ytdGrandTotal }
           }
 
-          // Adjustment helpers
-          const saveAdj=(updated:typeof commAdjustments)=>{
+          // Adjustment helpers — with undo support
+          const saveAdj=(updated:typeof commAdjustments,actionLabel:string)=>{
+            // Snapshot current state before applying change
+            setAdjUndoStack(prev=>[{snapshot:[...commAdjustments],label:actionLabel},...prev].slice(0,20))
             setCommAdjustments(updated)
             localStorage.setItem('mql-comm-adj',JSON.stringify(updated))
             syncToEdgeConfig()
+            setAdjUndoMsg(actionLabel)
+            setTimeout(()=>setAdjUndoMsg(null),8000)
+          }
+          const undoAdj=()=>{
+            if (adjUndoStack.length===0) return
+            const [top,...rest]=adjUndoStack
+            setAdjUndoStack(rest)
+            setCommAdjustments(top.snapshot)
+            localStorage.setItem('mql-comm-adj',JSON.stringify(top.snapshot))
+            syncToEdgeConfig()
+            setAdjUndoMsg(null)
           }
           const getMonthAdj=(monthKey:string,repId?:string):number=>{
             return commAdjustments
@@ -3710,6 +3725,27 @@ export default function Dashboard() {
               </button>
             )}
           </div>
+
+          {/* ── Undo banner ── */}
+          {adjUndoMsg&&adjUndoStack.length>0&&(
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 14px',background:'rgba(245,166,35,0.12)',border:`1px solid rgba(245,166,35,0.3)`,borderRadius:8,marginBottom:16}}>
+              <div style={{display:'flex',alignItems:'center',gap:8}}>
+                <span style={{fontSize:12,color:C.amber,fontWeight:600}}>{adjUndoMsg}</span>
+              </div>
+              <button onClick={undoAdj} style={{fontSize:11,fontWeight:700,padding:'5px 14px',borderRadius:6,border:`1px solid ${C.amber}`,background:'rgba(245,166,35,0.18)',color:C.amber,cursor:'pointer'}}>
+                Undo
+              </button>
+            </div>
+          )}
+
+          {/* ── Undo history (persistent) ── */}
+          {auth?.role==='manager'&&adjUndoStack.length>0&&!adjUndoMsg&&(
+            <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12}}>
+              <button onClick={undoAdj} style={{fontSize:10,fontWeight:600,padding:'4px 10px',borderRadius:5,border:`1px solid ${C.border2}`,background:'transparent',color:C.text3,cursor:'pointer'}}>
+                ↩ Undo last change ({adjUndoStack.length} in history)
+              </button>
+            </div>
+          )}
 
           {/* ── Monthly Summary Cards ── */}
           <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:12,marginBottom:20}}>
@@ -3946,7 +3982,7 @@ export default function Dashboard() {
                         <td style={{padding:'8px 10px'}}>
                           <div style={{display:'flex',gap:4}}>
                             <button onClick={()=>{setEditingAdj({...adj});setShowAdjModal(true)}} style={{fontSize:10,fontWeight:600,padding:'3px 7px',borderRadius:4,border:`1px solid ${C.border2}`,background:'transparent',color:C.purpleL,cursor:'pointer'}}>Edit</button>
-                            <button onClick={()=>{if(window.confirm('Delete this adjustment?'))saveAdj(commAdjustments.filter(a=>a.id!==adj.id))}} style={{fontSize:10,fontWeight:600,padding:'3px 7px',borderRadius:4,border:`1px solid ${C.red}`,background:'transparent',color:C.red,cursor:'pointer'}}>✕</button>
+                            <button onClick={()=>saveAdj(commAdjustments.filter(a=>a.id!==adj.id),'Deleted adjustment')} style={{fontSize:10,fontWeight:600,padding:'3px 7px',borderRadius:4,border:`1px solid ${C.red}`,background:'transparent',color:C.red,cursor:'pointer'}}>✕</button>
                           </div>
                         </td>
                       </tr>
@@ -3993,7 +4029,7 @@ export default function Dashboard() {
                   <button onClick={()=>{
                     const isNew=!commAdjustments.some(a=>a.id===editingAdj.id)
                     const updated=isNew?[...commAdjustments,editingAdj]:commAdjustments.map(a=>a.id===editingAdj.id?editingAdj:a)
-                    saveAdj(updated)
+                    saveAdj(updated,isNew?'Added adjustment':'Edited adjustment')
                     setShowAdjModal(false);setEditingAdj(null)
                   }} style={{flex:1,padding:'8px',borderRadius:6,border:'none',background:C.green,color:C.bg,fontSize:12,fontWeight:700,cursor:'pointer'}}>
                     Save Adjustment
