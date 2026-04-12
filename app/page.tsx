@@ -50,6 +50,7 @@ interface LeadDetail {
   sqlDq: string; sqlDate: string; ae: string; multithreading: string
   sqo: string; sqoDate: string; acv: string; closedWon: string; closedWonDate: string; notes: string; sfLink: string
   mqlQuality: string  // '' | 'hq' | 'lq' | 'dq'
+  accountTier: string // '' | 'A' | 'B' | 'C' | 'E'
 }
 interface AppLead extends Lead {
   isHistorical?: boolean
@@ -63,7 +64,8 @@ const EMPTY_DETAIL: LeadDetail = {
   prospectName:'', title:'', sourceChannel:'', outreachChannel:'',
   connectedDate:'', meetingDate:'', nextStep:'', nextStepStatus:'',
   sqlDq:'', sqlDate:'', ae:'', multithreading:'', sqo:'', sqoDate:'', acv:'', closedWon:'', closedWonDate:'', notes:'', sfLink:'',
-  mqlQuality:''
+  mqlQuality:'',
+  accountTier:''
 }
 
 // ─── Historical records from spreadsheet ─────────────────────────────────────
@@ -767,6 +769,39 @@ function DetailPanel({lead,detail,onSave,onClose}:{lead:AppLead;detail:LeadDetai
                     key={opt.val}
                     onMouseDown={stopProp}
                     onClick={e=>{e.stopPropagation(); setVal('mqlQuality')(active?'':opt.val)}}
+                    style={{
+                      flex:1, padding:'9px 12px', borderRadius:7, cursor:'pointer',
+                      border:`1px solid ${active?opt.border:C.border2}`,
+                      background:active?opt.dim:'transparent',
+                      transition:'all 0.15s', textAlign:'left' as const,
+                    }}
+                  >
+                    <div style={{fontSize:12,fontWeight:700,color:active?opt.color:C.text2,marginBottom:2}}>{opt.label}</div>
+                    <div style={{fontSize:10,color:active?opt.color:C.text3}}>{opt.desc}</div>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Account Tier — determines commission eligibility */}
+          <div style={{marginBottom:14,padding:'12px 14px',background:C.surface3,borderRadius:8,border:`1px solid ${C.border2}`}} onClick={stopProp} onMouseDown={stopProp}>
+            <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:10}}>
+              Account Tier · <span style={{fontWeight:400,textTransform:'none',letterSpacing:'normal',color:C.text3}}>A/B/E = ICP (commission eligible) · C = not ICP</span>
+            </div>
+            <div style={{display:'flex',gap:8}}>
+              {[
+                {val:'A', label:'Tier A', desc:'Top ICP', color:C.green, dim:'rgba(0,229,160,0.15)', border:'rgba(0,229,160,0.35)'},
+                {val:'B', label:'Tier B', desc:'Strong ICP', color:'#60d4f4', dim:'rgba(96,212,244,0.15)', border:'rgba(96,212,244,0.35)'},
+                {val:'E', label:'Tier E', desc:'Approved ICP', color:C.purpleL, dim:'rgba(168,156,248,0.15)', border:'rgba(168,156,248,0.35)'},
+                {val:'C', label:'Tier C', desc:'Not ICP · no commission', color:C.red, dim:'rgba(255,92,92,0.12)', border:'rgba(255,92,92,0.35)'},
+              ].map(opt=>{
+                const active = d.accountTier===opt.val
+                return (
+                  <button
+                    key={opt.val}
+                    onMouseDown={stopProp}
+                    onClick={e=>{e.stopPropagation(); setVal('accountTier')(active?'':opt.val)}}
                     style={{
                       flex:1, padding:'9px 12px', borderRadius:7, cursor:'pointer',
                       border:`1px solid ${active?opt.border:C.border2}`,
@@ -1818,6 +1853,35 @@ export default function Dashboard() {
                     <option value=''>— Quality —</option>
                     <option value='hq'>HQ MQL</option>
                     <option value='lq'>LQ MQL</option>
+                  </select>
+                )
+              })()}
+              {/* Account Tier — A/B/E = ICP (commission eligible), C = DQ */}
+              {(()=>{
+                const det=details[lead.email]||{...EMPTY_DETAIL,...(HISTORICAL_DETAILS[lead.email]||{})}
+                const t=det.accountTier||''
+                const tCfg:{color:string;dim:string;border:string}=
+                  t==='A'?{color:C.green,dim:'rgba(0,229,160,0.15)',border:'rgba(0,229,160,0.35)'}:
+                  t==='B'?{color:'#60d4f4',dim:'rgba(96,212,244,0.15)',border:'rgba(96,212,244,0.35)'}:
+                  t==='E'?{color:C.purpleL,dim:'rgba(168,156,248,0.15)',border:'rgba(168,156,248,0.35)'}:
+                  t==='C'?{color:C.red,dim:'rgba(255,92,92,0.12)',border:'rgba(255,92,92,0.35)'}:
+                  {color:C.text3,dim:'transparent',border:C.border2}
+                return (
+                  <select
+                    value={t}
+                    onChange={e=>{
+                      e.stopPropagation()
+                      const updated={...EMPTY_DETAIL,...(HISTORICAL_DETAILS[lead.email]||{}),...(details[lead.email]||{}),accountTier:e.target.value}
+                      updateDetail(lead.email,updated)
+                    }}
+                    onClick={e=>e.stopPropagation()}
+                    style={{fontSize:11,fontWeight:600,padding:'4px 10px',borderRadius:999,border:`1px solid ${tCfg.border}`,background:tCfg.dim,color:tCfg.color,cursor:'pointer',outline:'none',appearance:'none'}}
+                  >
+                    <option value=''>— Tier —</option>
+                    <option value='A'>Tier A</option>
+                    <option value='B'>Tier B</option>
+                    <option value='C'>Tier C</option>
+                    <option value='E'>Tier E</option>
                   </select>
                 )
               })()}
@@ -3479,10 +3543,13 @@ export default function Dashboard() {
           const ANNUAL_SQL_CAP = 22320
           const ANNUAL_MEETING_CAP = 18000
 
-          // ── Helper: is lead ICP (A/B/E tier = hq quality or approved E) ──
+          // ── Helper: is lead ICP — tier A/B/E qualifies, C does not ──
+          // Falls back to mqlQuality === 'hq' for leads without a tier set
           const isIcp = (email: string): boolean => {
-            const q = details[email]?.mqlQuality || ''
-            return q === 'hq'
+            const det = details[email]
+            const tier = det?.accountTier || ''
+            if (tier) return tier === 'A' || tier === 'B' || tier === 'E'
+            return (det?.mqlQuality || '') === 'hq'
           }
 
           // ── Build per-rep commission data ────────────────────
@@ -4470,7 +4537,12 @@ export default function Dashboard() {
           const SQL_ACCELERATOR_THRESHOLD = 3
           const ANNUAL_SQL_CAP = 22320
           const ANNUAL_MEETING_CAP = 18000
-          const isIcp = (email: string): boolean => (details[email]?.mqlQuality || '') === 'hq'
+          const isIcp = (email: string): boolean => {
+            const det = details[email]
+            const tier = det?.accountTier || ''
+            if (tier) return tier === 'A' || tier === 'B' || tier === 'E'
+            return (det?.mqlQuality || '') === 'hq'
+          }
 
           // Use ALL leads unfiltered (revops needs full picture)
           const allLeadsUnfiltered: AppLead[] = [
@@ -4486,7 +4558,7 @@ export default function Dashboard() {
               : allLeadsUnfiltered.filter(l => l.repSlackId === rep.slackId)
 
             // Gather events
-            const events: { email:string; account:string; meetingDate:string|null; sqlDate:string|null; sqoDate:string|null; mqlQuality:string; sourceChannel:string; ae:string; acv:string; isMeeting:boolean; isSql:boolean }[] = []
+            const events: { email:string; account:string; meetingDate:string|null; sqlDate:string|null; sqoDate:string|null; mqlQuality:string; accountTier:string; sourceChannel:string; ae:string; acv:string; isMeeting:boolean; isSql:boolean }[] = []
 
             repLeads.forEach(l => {
               const det = details[l.email]
@@ -4498,7 +4570,7 @@ export default function Dashboard() {
                 events.push({
                   email: l.email, account: displayName,
                   meetingDate: det.meetingDate||null, sqlDate: det.sqlDate||null, sqoDate: det.sqoDate||null,
-                  mqlQuality: det.mqlQuality||'', sourceChannel: det.sourceChannel||'', ae: det.ae||'', acv: det.acv||'',
+                  mqlQuality: det.mqlQuality||'', accountTier: det.accountTier||'', sourceChannel: det.sourceChannel||'', ae: det.ae||'', acv: det.acv||'',
                   isMeeting: hasMeeting, isSql: hasSql,
                 })
               }
@@ -4678,7 +4750,7 @@ export default function Dashboard() {
                   <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
                     <thead>
                       <tr style={{borderBottom:`2px solid ${C.border2}`}}>
-                        {['Rep','Account','Source','AE','Quality','Meeting Date','SQL Date','SQO Date','ACV','Type','Amount'].map(h=>(
+                        {['Rep','Account','Tier','Source','AE','Quality','Meeting Date','SQL Date','SQO Date','ACV','Type','Amount'].map(h=>(
                           <th key={h} style={{padding:'7px 8px',textAlign:['ACV','Amount'].includes(h)?'right':'left',fontSize:9,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',whiteSpace:'nowrap'}}>{h}</th>
                         ))}
                       </tr>
@@ -4694,6 +4766,7 @@ export default function Dashboard() {
                           <tr key={`${e.email}-${i}`} style={{borderBottom:`1px solid ${C.border}`}}>
                             <td style={{padding:'7px 8px',fontWeight:500,color:C.text2,whiteSpace:'nowrap'}}>{e.repName}</td>
                             <td style={{padding:'7px 8px',fontWeight:600,color:C.text,maxWidth:160,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{e.account}</td>
+                            <td style={{padding:'7px 8px'}}>{(()=>{const t=e.accountTier;const tc=t==='A'?C.green:t==='B'?'#60d4f4':t==='E'?C.purpleL:t==='C'?C.red:C.text3;return <span style={{fontSize:9,fontWeight:700,color:tc,background:`${tc}18`,padding:'1px 5px',borderRadius:3}}>{t||'—'}</span>})()}</td>
                             <td style={{padding:'7px 8px',color:C.text3,fontSize:10}}>{e.sourceChannel||'—'}</td>
                             <td style={{padding:'7px 8px',color:C.text2}}>{e.ae||'—'}</td>
                             <td style={{padding:'7px 8px'}}><span style={{fontSize:9,fontWeight:700,color:qualityColor,background:`${qualityColor}18`,padding:'1px 5px',borderRadius:3}}>{e.mqlQuality==='hq'?'HQ':e.mqlQuality==='lq'?'LQ':e.mqlQuality||'—'}</span></td>
@@ -4715,7 +4788,7 @@ export default function Dashboard() {
                         )
                       })}
                       {periodAllEvents.length===0&&(
-                        <tr><td colSpan={11} style={{padding:'20px',textAlign:'center',color:C.text3}}>No commission events found for this period.</td></tr>
+                        <tr><td colSpan={12} style={{padding:'20px',textAlign:'center',color:C.text3}}>No commission events found for this period.</td></tr>
                       )}
                     </tbody>
                   </table>
