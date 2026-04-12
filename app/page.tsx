@@ -1708,7 +1708,7 @@ export default function Dashboard() {
     return fallback?new Date(fallback)>=start:false
   }
   // Inbound / Outbound direction filter
-  const isOutbound=(l:AppLead):boolean=>OUTBOUND_SOURCES.has(details[l.email]?.sourceChannel||'')
+  const isOutbound=(l:AppLead):boolean=>OUTBOUND_SOURCES.has(details[l.email]?.sourceChannel||'')||l.email.includes('_lonescale')
   const dirFilter=(l:AppLead):boolean=>pipelineDir==='all'?true:pipelineDir==='outbound'?isOutbound(l):!isOutbound(l)
 
   const pipelineLeads=allLeads.filter(l=>{
