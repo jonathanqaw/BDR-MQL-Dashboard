@@ -697,6 +697,14 @@ const Inp=({value,onChange,placeholder}:{value:string;onChange:(v:string)=>void;
 function DetailPanel({lead,detail,onSave,onClose}:{lead:AppLead;detail:LeadDetail;onSave:(d:LeadDetail)=>void;onClose:()=>void}) {
   const [d,setD]=useState<LeadDetail>(detail)
   const [hydrating,setHydrating]=useState(false)
+
+  // Sync internal state when external detail changes (e.g. inline dropdown)
+  useEffect(()=>{setD(prev=>{
+    // Merge: keep unsaved edits but pick up external changes to mqlQuality/accountTier
+    if(prev.mqlQuality!==detail.mqlQuality||prev.accountTier!==detail.accountTier)
+      return {...prev,mqlQuality:detail.mqlQuality,accountTier:detail.accountTier}
+    return prev
+  })},[detail.mqlQuality,detail.accountTier])
   const notesRef=React.useRef<HTMLTextAreaElement>(null)
 
   const stopProp=(e:React.SyntheticEvent)=>e.stopPropagation()
@@ -761,14 +769,20 @@ function DetailPanel({lead,detail,onSave,onClose}:{lead:AppLead;detail:LeadDetai
               {[
                 {val:'hq', label:'HQ MQL', desc:'Squarely ICP', color:'#f5a623', dim:'rgba(245,166,35,0.18)', border:'rgba(245,166,35,0.45)'},
                 {val:'lq', label:'LQ MQL', desc:'Partial ICP', color:'#fb923c', dim:'rgba(251,146,60,0.15)', border:'rgba(251,146,60,0.4)'},
-                {val:'dq', label:'DQ',     desc:'Not ICP',    color:C.red,     dim:'rgba(255,92,92,0.12)',  border:'rgba(255,92,92,0.35)'},
               ].map(opt=>{
                 const active = d.mqlQuality===opt.val
                 return (
                   <button
                     key={opt.val}
                     onMouseDown={stopProp}
-                    onClick={e=>{e.stopPropagation(); setVal('mqlQuality')(active?'':opt.val)}}
+                    onClick={e=>{
+                      e.stopPropagation()
+                      const newVal=active?'':opt.val
+                      setVal('mqlQuality')(newVal)
+                      // Save immediately so inline dropdown stays in sync
+                      const updated={...d,mqlQuality:newVal}
+                      saveDetail(lead.email,updated); onSave(updated)
+                    }}
                     style={{
                       flex:1, padding:'9px 12px', borderRadius:7, cursor:'pointer',
                       border:`1px solid ${active?opt.border:C.border2}`,
@@ -801,7 +815,13 @@ function DetailPanel({lead,detail,onSave,onClose}:{lead:AppLead;detail:LeadDetai
                   <button
                     key={opt.val}
                     onMouseDown={stopProp}
-                    onClick={e=>{e.stopPropagation(); setVal('accountTier')(active?'':opt.val)}}
+                    onClick={e=>{
+                      e.stopPropagation()
+                      const newVal=active?'':opt.val
+                      setVal('accountTier')(newVal)
+                      const updated={...d,accountTier:newVal}
+                      saveDetail(lead.email,updated); onSave(updated)
+                    }}
                     style={{
                       flex:1, padding:'9px 12px', borderRadius:7, cursor:'pointer',
                       border:`1px solid ${active?opt.border:C.border2}`,
