@@ -3438,6 +3438,147 @@ export default function Dashboard() {
             payoutMonth: string  // 'Feb 2026' etc
           }
 
+          // ── Frozen commission overrides from Spiff statements ──────────────
+          // These months had different commission models or data corrections.
+          // Override data takes priority over dynamically computed commissions.
+          const mkPayoutLabel=(mk:string)=>{const [y,m]=mk.split('-').map(Number);return `${new Date(y,m,1).toLocaleString('en-US',{month:'short',year:'numeric'})} (2nd half)`}
+          const mkLabel=(mk:string)=>{const [y,m]=mk.split('-').map(Number);return new Date(y,m-1,1).toLocaleString('en-US',{month:'short',year:'numeric'})}
+
+          const COMMISSION_OVERRIDES: Record<string,CommissionMonth> = {
+            // ── Sep 2025 — FY25-Q3: $500/SQL flat, no meetings, no accelerator ──
+            '2025-09': {
+              key:'2025-09', label:mkLabel('2025-09'), payoutMonth:mkPayoutLabel('2025-09'),
+              meetings:[], meetingTotal:0, acceleratorTotal:0,
+              sqls:[
+                {email:'josh.barrett@pep.com',      account:'Josh Barrett — pep, LLC',             date:'2025-09-10',amount:500,accelerated:false},
+                {email:'joseph.sintum@quantummetric.com', account:'Joseph Sintum — Quantum Metric', date:'2025-09-05',amount:500,accelerated:false},
+                {email:'mani.suri@follett.com',      account:'Mani Suri — Follett Higher Education', date:'2025-09-05',amount:500,accelerated:false},
+                {email:'sean.grice@ny.gov',          account:'Sean Grice — New York State',         date:'2025-09-19',amount:500,accelerated:false},
+                {email:'wei.si@wyze.com',            account:'Wei Si — Wyze',                       date:'2025-09-22',amount:500,accelerated:false},
+              ],
+              sqlTotal:2500, total:2500,
+            },
+            // ── Oct 2025 — FY25-Q3: $500/SQL flat, no meetings ──
+            '2025-10': {
+              key:'2025-10', label:mkLabel('2025-10'), payoutMonth:mkPayoutLabel('2025-10'),
+              meetings:[], meetingTotal:0, acceleratorTotal:0,
+              sqls:[
+                {email:'alejandro.mallea@dakotasoft.com', account:'Alejandro Mallea — Dakota Software', date:'2025-10-17',amount:500,accelerated:false},
+                {email:'srinivasan.dayalan@trimble.com',  account:'Srinivasan Dayalan — Trimble',      date:'2025-10-21',amount:500,accelerated:false},
+                {email:'arthur.miller@sixfold.com',       account:'Arthur Miller — Sixfold',            date:'2025-10-02',amount:500,accelerated:false},
+                {email:'devario.johnson@imentor.org',     account:'Devario Johnson — iMentor',          date:'2025-10-09',amount:500,accelerated:false},
+              ],
+              sqlTotal:2000, total:2000,
+            },
+            // ── Nov 2025 — FY26-Q1: $100/meeting, no SQLs ──
+            '2025-11': {
+              key:'2025-11', label:mkLabel('2025-11'), payoutMonth:mkPayoutLabel('2025-11'),
+              meetings:[
+                {email:'michael.wahl@tweddlegroup.com',  account:'Michael Wahl — Tweddle Group',  date:'2025-11-06',amount:100},
+                {email:'geraldine.bai@deloitte.com',     account:'Geraldine Bai — Deloitte',      date:'2025-11-22',amount:100},
+                {email:'suzanne.robinson@gentrack.com',  account:'Suzanne Robinson — Gentrack',   date:'2025-11-09',amount:100},
+                {email:'ilir.kosumi@enmacc.com',         account:'Ilir Kosumi — enmacc',          date:'2025-11-17',amount:100},
+              ],
+              meetingTotal:400, sqls:[], sqlTotal:0, acceleratorTotal:0, total:400,
+            },
+            // ── Dec 2025 — FY26-Q1: $100/meeting, 1 SQL at $400 ──
+            '2025-12': {
+              key:'2025-12', label:mkLabel('2025-12'), payoutMonth:mkPayoutLabel('2025-12'),
+              meetings:[
+                {email:'richard.tep@textnow.com',       account:'Richard Tep — TextNow',              date:'2025-12-08',amount:100},
+                {email:'jf.cantin@lgi.com',              account:'Jean-Francois Cantin — LGI Healthcare', date:'2025-12-08',amount:100},
+                {email:'kenanadvantage@historical',      account:'Dave Derecskey — Kenan Advantage Group', date:'2025-12-12',amount:100},
+              ],
+              meetingTotal:300,
+              sqls:[
+                {email:'michael.wahl@tweddlegroup.com',  account:'Michael Wahl — Tweddle Group',  date:'2025-12-04',amount:400,accelerated:false},
+              ],
+              sqlTotal:400, acceleratorTotal:0, total:700,
+            },
+            // ── Jan 2026 — New model. 6 meetings correct. 11 SQLs (8 contact + 3 lead) ──
+            // Dynamic computation handles the 8 contact SQLs; we override to add 3 lead SQLs and fix totals
+            '2026-01': (() => {
+              // 8 contact SQLs from the dashboard (computed dynamically but we freeze them here)
+              const contactSqls: CommissionMonth['sqls'] = [
+                {email:'everydayhealth@historical',   account:'Kholilur Rahman — Everyday Health', date:'2026-01-13',amount:620,accelerated:false},
+                {email:'harrys@historical',           account:'Simon Anguish — Harry\'s',          date:'2026-01-15',amount:620,accelerated:false},
+                {email:'trackunit@historical',        account:'Philip Quinn — Trackunit',          date:'2026-01-19',amount:620,accelerated:false},
+                {email:'bloomcoaching@historical',    account:'Thomas Stevens — Bloom Coaching',   date:'2026-01-23',amount:930,accelerated:true},
+                {email:'vidmob@historical',           account:'Ben Holm — Vidmob',                 date:'2026-01-27',amount:930,accelerated:true},
+                {email:'sharkninja@historical',       account:'Jake Rutter — SharkNinja',          date:'2026-01-28',amount:930,accelerated:true},
+                {email:'pods@historical',             account:'Randy Withrow — PODS',              date:'2026-01-29',amount:930,accelerated:true},
+                {email:'gavin.williams@f1arcade.com', account:'Gavin Williams — F1 Arcade',        date:'2026-01-30',amount:930,accelerated:true},
+              ]
+              // 3 lead SQLs missing from dashboard
+              const leadSqls: CommissionMonth['sqls'] = [
+                {email:'logicmonitor@historical',         account:'Jitender Prasad — LogicMonitor',  date:'2026-01-13',amount:930,accelerated:true},
+                {email:'harry.selvaratnam@iterate.ai',    account:'Harry Selvaratnam — Iterate.ai',  date:'2026-01-13',amount:930,accelerated:true},
+                {email:'suzanne.robinson@gentrack.com',   account:'Suzanne Robinson — Gentrack',     date:'2026-01-13',amount:930,accelerated:true},
+              ]
+              const allSqls = [...contactSqls, ...leadSqls]
+              // Meetings (6, correct in dashboard, frozen here)
+              const meetings: CommissionMonth['meetings'] = [
+                {email:'logicmonitor@historical',     account:'Jitender Prasad — LogicMonitor',       date:'2025-12-11',amount:150},
+                {email:'everydayhealth@historical',   account:'Kholilur Rahman — Everyday Health',    date:'2026-01-13',amount:150},
+                {email:'vidmob@historical',           account:'Ben Holm — Vidmob',                    date:'2026-01-15',amount:150},
+                {email:'circlemedical@historical',    account:'Florian Denu — Circle Medical',        date:'2026-01-22',amount:150},
+                {email:'tradera@historical',          account:'Emma Carlsson — Tradera',              date:'2026-01-22',amount:150},
+                {email:'bloomcoaching@historical',    account:'Thomas Stevens — Bloom Coaching',      date:'2026-01-23',amount:150},
+              ]
+              // Spiff statement totals: Contact SQL = $6,510, Lead SQL = $2,790, Meeting = $900
+              return {
+                key:'2026-01', label:mkLabel('2026-01'), payoutMonth:mkPayoutLabel('2026-01'),
+                meetings, meetingTotal:900,
+                sqls: allSqls, sqlTotal:9300, acceleratorTotal:allSqls.filter(s=>s.accelerated).reduce((s,x)=>s+x.amount,0),
+                total:10200,
+              }
+            })(),
+            // ── Feb 2026 — 6 meetings ($150 each), 2 SQLs ──
+            '2026-02': {
+              key:'2026-02', label:mkLabel('2026-02'), payoutMonth:mkPayoutLabel('2026-02'),
+              meetings:[
+                {email:'sharkninja@historical',   account:'Jake Rutter — SharkNinja',    date:'2026-02-01',amount:150},
+                {email:'bloomcoaching@historical',account:'Thomas Stevens — Bloom Coaching', date:'2026-02-01',amount:150},
+                {email:'quince@historical',       account:'Prabhanjan Jha — Quince',     date:'2026-02-12',amount:150},
+                {email:'prophetx@historical',     account:'Nathan Busscher — ProphetX',  date:'2026-02-17',amount:150},
+                {email:'westjet@historical',      account:'Santhosha C. — WestJet',      date:'2026-02-20',amount:150},
+                {email:'robbinsresearch@historical',account:'Nick Jensen — Robbins Research', date:'2026-02-23',amount:150},
+              ],
+              meetingTotal:900,
+              sqls:[
+                {email:'quartr@historical',       account:'Fabricio Vergara — Quartr',   date:'2026-02-11',amount:620,accelerated:false},
+                {email:'prophetx@historical',     account:'Nathan Busscher — ProphetX',  date:'2026-02-18',amount:620,accelerated:false},
+              ],
+              sqlTotal:1240, acceleratorTotal:0, total:2140,
+            },
+            // ── Mar 2026 — 8 meetings, 6 SQLs (5 contact + 1 lead) ──
+            '2026-03': (() => {
+              const meetings: CommissionMonth['meetings'] = [
+                {email:'onephase@historical',        account:'Louis Velez — onPhase',           date:'2026-03-06',amount:150},
+                {email:'enablecomp@historical',      account:'Keith Clayton — EnableComp',      date:'2026-03-12',amount:150},
+                {email:'nuqleous@historical',        account:'Steven Williams — Nuqleous',      date:'2026-03-13',amount:150},
+                {email:'playtech@historical',        account:'Borislav Zhezhev — Playtech',     date:'2026-03-13',amount:150},
+                {email:'north@historical',           account:'Forum Vyas — North',              date:'2026-03-17',amount:150},
+                {email:'cradle@historical',          account:'Melanie Burger — Cradle',         date:'2026-03-17',amount:150},
+                {email:'novemberfive@historical',    account:'Antonio Marquez — November Five', date:'2026-03-18',amount:150},
+                {email:'azets@historical',           account:'Kristijonas Bulzgis — Azets',     date:'2026-03-25',amount:150},
+              ]
+              const sqls: CommissionMonth['sqls'] = [
+                {email:'brandon.hall@everyonesocial.com', account:'Brandon Hall — EveryoneSocial',    date:'2026-03-03',amount:620,accelerated:false},
+                {email:'bhargav.mehta@octaura.com',       account:'Bhargav Mehta — Octaura',          date:'2026-03-04',amount:620,accelerated:false},
+                {email:'onephase@historical',             account:'Louis Velez — onPhase',            date:'2026-03-06',amount:620,accelerated:false},
+                {email:'nuqleous@historical',             account:'Steven Williams — Nuqleous',       date:'2026-03-13',amount:930,accelerated:true},
+                {email:'north@historical',                account:'Forum Vyas — North American Bancard', date:'2026-03-17',amount:930,accelerated:true},
+                {email:'enablecomp@historical',           account:'Keith Clayton — EnableComp',       date:'2026-03-13',amount:930,accelerated:true},
+              ]
+              return {
+                key:'2026-03', label:mkLabel('2026-03'), payoutMonth:mkPayoutLabel('2026-03'),
+                meetings, meetingTotal:1200,
+                sqls, sqlTotal:4650, acceleratorTotal:2790, total:5850,
+              }
+            })(),
+          }
+
           const buildRepCommissions = (repLeads: AppLead[]) => {
             // Gather all meeting events and SQL events with their months
             const meetingEvents: { email: string; account: string; month: string; date: string }[] = []
@@ -3465,14 +3606,18 @@ export default function Dashboard() {
               }
             })
 
-            // Collect all months
+            // Collect all months — include override months
             const allMonthKeys = new Set<string>()
             meetingEvents.forEach(e => allMonthKeys.add(e.month))
             sqlEvents.forEach(e => allMonthKeys.add(e.month))
+            Object.keys(COMMISSION_OVERRIDES).forEach(k => allMonthKeys.add(k))
             const sortedMonths = Array.from(allMonthKeys).sort()
 
-            // Build monthly breakdown
+            // Build monthly breakdown — use overrides for frozen months
             const months: CommissionMonth[] = sortedMonths.map(mk => {
+              // If this month has a frozen override, use it directly
+              if (COMMISSION_OVERRIDES[mk]) return COMMISSION_OVERRIDES[mk]
+
               const mMeetings = meetingEvents.filter(e => e.month === mk)
               const mSqls = sqlEvents.filter(e => e.month === mk)
 
