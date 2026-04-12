@@ -1265,7 +1265,15 @@ export default function Dashboard() {
   // ── Auth: check sessionStorage on mount ───────────────────────────────────
   useEffect(()=>{
     const saved = sessionStorage.getItem('mql-auth')
-    if (saved) { try { setAuth(JSON.parse(saved)) } catch {} }
+    if (saved) { try {
+      const parsed=JSON.parse(saved)
+      // Clear stale auth from old format (missing allowedViews)
+      if (parsed && parsed.role && !('allowedViews' in parsed) && parsed.role!=='rep') {
+        sessionStorage.removeItem('mql-auth')
+      } else {
+        setAuth(parsed)
+      }
+    } catch { sessionStorage.removeItem('mql-auth') } }
     // Check URL param for direct rep access (bypasses login)
     const params = new URLSearchParams(window.location.search)
     const repParam = params.get('rep')
@@ -1300,7 +1308,7 @@ export default function Dashboard() {
   const isManagerRole=(a:AuthState):boolean=>!!a&&'role' in a&&MANAGER_ROLES.includes(a.role as UserRole)
   const canView=(v:DashView):boolean=>{
     if (!auth) return false
-    if (auth.allowedViews==='all') return true
+    if (!('allowedViews' in auth) || !auth.allowedViews || auth.allowedViews==='all') return true
     return auth.allowedViews.includes(v)
   }
 
