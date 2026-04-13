@@ -3158,64 +3158,177 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* SQO ACV by account */}
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:24}}>
-            <div style={card}>
-              <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:12}}>
-                SQO account ACV mix
-              </div>
-              <PieChart
-                data={allLeads
-                  .filter(l => {
-                    const d = details[l.email]
-                    return d?.sqo === 'Yes' && parseAcv(d?.acv) > 0
-                  })
-                  .sort((a,b) => parseAcv(details[b.email]?.acv) - parseAcv(details[a.email]?.acv))
-                  .slice(0,8)
-                  .map((l,idx) => {
-                    const d = details[l.email]
-                    const palette = ['#c084fc','#60d4f4','#00e5a0','#f59e0b','#e879f9','#fb7185','#34d399','#a78bfa']
-                    return {
-                      label: l.account || d?.prospectName || formatDomain(l.domain),
-                      value: parseAcv(d?.acv),
-                      color: palette[idx % palette.length]
-                    }
-                  })}
-              />
-              <div style={{fontSize:11,color:C.text3,marginTop:12}}>
-                Total pipeline ACV represented: $
-                {allLeads.reduce((s,l)=>{const d=details[l.email]; return s+((d?.sqo==='Yes'&&d?.acv)?parseAcv(d.acv):0)},0).toLocaleString()}
+          {/* SQO & Closed-Won ACV — donuts + time filter + drill-down */}
+          {(()=>{
+            const sqoPalette=['#c084fc','#60d4f4','#00e5a0','#f59e0b','#e879f9','#fb7185','#34d399','#a78bfa']
+            const wonPalette=['#f59e0b','#00e5a0','#60d4f4','#c084fc','#e879f9','#fb7185','#34d399','#a78bfa']
+
+            // Build SQO and Won lead lists with enriched data
+            const buildEntries=(leads:AppLead[])=>leads.map(l=>{
+              const det=details[l.email]||EMPTY_DETAIL
+              const acv=parseAcv(det.acv)
+              const displayName=nameOverrides[l.email]||l.account||formatDomain(l.domain)||l.email
+              const sqoDate=det.sqoDate||det.sqlDate||det.meetingDate||l.date||''
+              const st=statuses[l.email]||'new'
+              return {
+                email:l.email,account:displayName,acv,sqoDate,
+                stage:det.closedWon==='Yes'||st==='closedwon'?'Closed Won':st==='lost'?'Closed Lost':'Active',
+                tier:det.accountTier||'',ae:det.ae||'',source:det.sourceChannel||'',
+                prospectName:det.prospectName||'',title:det.title||'',
+                meetingDate:det.meetingDate||'',sqlDate:det.sqlDate||'',
+                connectedDate:det.connectedDate||'',closedWonDate:det.closedWonDate||'',
+                outreachChannel:det.outreachChannel||'',multithreading:det.multithreading||'',
+                sfLink:det.sfLink||l.sfUrl||'',notes:det.notes||'',nextStep:det.nextStep||'',nextStepStatus:det.nextStepStatus||'',
+              }
+            }).sort((a,b)=>b.acv-a.acv)
+
+            const sqoLeads=allLeads.filter(l=>(details[l.email]?.sqo||'')==='Yes'&&parseAcv(details[l.email]?.acv)>0)
+            const wonLeads=allLeads.filter(l=>((details[l.email]?.closedWon||'')==='Yes'||(statuses[l.email]||'new')==='closedwon')&&parseAcv(details[l.email]?.acv)>0)
+            const sqoEntries=buildEntries(sqoLeads)
+            const wonEntries=buildEntries(wonLeads)
+            const totalSqoAcv=sqoEntries.reduce((s,e)=>s+e.acv,0)
+            const totalWonAcv=wonEntries.reduce((s,e)=>s+e.acv,0)
+
+            // Time segmentation for ACV breakdown
+            const getSegKey=(dateStr:string):string=>{
+              if(!dateStr) return ''; const d=new Date(dateStr); if(isNaN(d.getTime())) return ''
+              if(sqoTimeSeg==='year') return String(d.getFullYear())
+              if(sqoTimeSeg==='quarter') return `Q${Math.floor(d.getMonth()/3)+1} ${d.getFullYear()}`
+              if(sqoTimeSeg==='month') return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
+              const ws=new Date(d);ws.setDate(d.getDate()-d.getDay());return ws.toISOString().split('T')[0]
+            }
+            const getSegLabel=(key:string):string=>{
+              if(sqoTimeSeg==='year') return key
+              if(sqoTimeSeg==='quarter') return key
+              if(sqoTimeSeg==='month'){const [y,m]=key.split('-').map(Number);return new Date(y,m-1).toLocaleString('en-US',{month:'short',year:'2-digit'})}
+              return `Wk ${new Date(key).toLocaleDateString('en-US',{month:'short',day:'numeric'})}`
+            }
+            const segMap=new Map<string,{key:string;label:string;entries:typeof sqoEntries;acv:number}>()
+            sqoEntries.forEach(e=>{const k=getSegKey(e.sqoDate);if(!k)return;if(!segMap.has(k))segMap.set(k,{key:k,label:getSegLabel(k),entries:[],acv:0});const g=segMap.get(k)!;g.entries.push(e);g.acv+=e.acv})
+            const segGroups=Array.from(segMap.values()).sort((a,b)=>b.key.localeCompare(a.key))
+            const maxSegAcv=Math.max(1,...segGroups.map(g=>g.acv))
+
+            // Render expanded account detail card
+            const renderDetail=(e:typeof sqoEntries[0])=>{
+              const tierColor=e.tier==='A'?C.green:e.tier==='B'?'#60d4f4':e.tier==='E'?C.purpleL:e.tier==='C'?C.red:C.text3
+              const stageColor=e.stage==='Closed Won'?C.green:e.stage==='Closed Lost'?C.red:C.purpleL
+              return (
+                <div style={{marginTop:8,paddingTop:8,borderTop:`1px solid ${C.border}`}}>
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:8,marginBottom:8}}>
+                    <div><div style={{fontSize:9,color:C.text3,textTransform:'uppercase',marginBottom:2}}>Stage</div><div style={{fontSize:11,color:stageColor,fontWeight:600}}>{e.stage}</div></div>
+                    <div><div style={{fontSize:9,color:C.text3,textTransform:'uppercase',marginBottom:2}}>Account Tier</div><div style={{fontSize:11,color:tierColor,fontWeight:600}}>{e.tier?`Tier ${e.tier}`:'—'}</div></div>
+                    <div><div style={{fontSize:9,color:C.text3,textTransform:'uppercase',marginBottom:2}}>AE / Opp Owner</div><div style={{fontSize:11,color:C.text2}}>{e.ae||'—'}</div></div>
+                    <div><div style={{fontSize:9,color:C.text3,textTransform:'uppercase',marginBottom:2}}>Lead Source</div><div style={{fontSize:11,color:C.text2}}>{e.source||'—'}</div></div>
+                  </div>
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:8,marginBottom:8}}>
+                    <div><div style={{fontSize:9,color:C.text3,textTransform:'uppercase',marginBottom:2}}>SQO Date</div><div style={{fontSize:11,color:C.text2}}>{e.sqoDate?new Date(e.sqoDate).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'—'}</div></div>
+                    <div><div style={{fontSize:9,color:C.text3,textTransform:'uppercase',marginBottom:2}}>Meeting Date</div><div style={{fontSize:11,color:C.text2}}>{e.meetingDate?new Date(e.meetingDate).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'—'}</div></div>
+                    <div><div style={{fontSize:9,color:C.text3,textTransform:'uppercase',marginBottom:2}}>SQL Date</div><div style={{fontSize:11,color:C.text2}}>{e.sqlDate?new Date(e.sqlDate).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'—'}</div></div>
+                    <div><div style={{fontSize:9,color:C.text3,textTransform:'uppercase',marginBottom:2}}>Connected Date</div><div style={{fontSize:11,color:C.text2}}>{e.connectedDate?new Date(e.connectedDate).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'—'}</div></div>
+                  </div>
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:8,marginBottom:8}}>
+                    <div><div style={{fontSize:9,color:C.text3,textTransform:'uppercase',marginBottom:2}}>Closed-Won Date</div><div style={{fontSize:11,color:C.text2}}>{e.closedWonDate?new Date(e.closedWonDate).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'—'}</div></div>
+                    <div><div style={{fontSize:9,color:C.text3,textTransform:'uppercase',marginBottom:2}}>Prospect</div><div style={{fontSize:11,color:C.text2}}>{e.prospectName||'—'}{e.title&&<span style={{color:C.text3}}> · {e.title}</span>}</div></div>
+                    <div><div style={{fontSize:9,color:C.text3,textTransform:'uppercase',marginBottom:2}}>Outreach</div><div style={{fontSize:11,color:C.text2}}>{e.outreachChannel||'—'}</div></div>
+                    <div><div style={{fontSize:9,color:C.text3,textTransform:'uppercase',marginBottom:2}}>Next Step</div><div style={{fontSize:11,color:C.text2}}>{e.nextStep||'—'}{e.nextStepStatus&&<span style={{color:C.text3}}> · {e.nextStepStatus}</span>}</div></div>
+                  </div>
+                  {e.sfLink&&<div style={{marginBottom:6}}><a href={e.sfLink} target="_blank" rel="noopener noreferrer" style={{fontSize:10,color:C.green,textDecoration:'none'}}>↗ Open in Salesforce</a></div>}
+                  <div><div style={{fontSize:9,color:C.text3,textTransform:'uppercase',marginBottom:3}}>Account Notes</div><div style={{fontSize:11,color:e.notes?C.text2:C.text3,lineHeight:1.5,whiteSpace:'pre-wrap'}}>{e.notes||'No notes'}</div></div>
+                </div>
+              )
+            }
+
+            return (<>
+            {/* Time filter */}
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}}>
+              <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em'}}>SQO & Closed-Won ACV</div>
+              <div style={{display:'flex',gap:5}}>
+                {(['year','quarter','month','week'] as const).map(s=>(
+                  <button key={s} onClick={()=>setSqoTimeSeg(s)} style={filterPill(sqoTimeSeg===s,'#c084fc')}>{{year:'Year',quarter:'Quarter',month:'Month',week:'Week'}[s]}</button>
+                ))}
               </div>
             </div>
 
-            <div style={card}>
-              <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:12}}>
-                Closed-Won revenue mix
+            {/* Donut charts side by side */}
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:16}}>
+              <div style={card}>
+                <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:12}}>SQO account ACV mix</div>
+                <PieChart
+                  data={sqoEntries.slice(0,8).map((e,idx)=>({label:e.account,value:e.acv,color:sqoPalette[idx%sqoPalette.length]}))}
+                  onSliceClick={(label)=>setSqoExpandedAcct(p=>p===label?null:label)}
+                />
+                <div style={{fontSize:11,color:C.text3,marginTop:12}}>Total pipeline ACV: ${totalSqoAcv.toLocaleString()} · click segment to drill down</div>
               </div>
-              <PieChart
-                data={allLeads
-                  .filter(l => {
-                    const d = details[l.email]
-                    return (d?.closedWon === 'Yes' || (statuses[l.email]||'new')==='closedwon') && parseAcv(d?.acv) > 0
-                  })
-                  .sort((a,b) => parseAcv(details[b.email]?.acv) - parseAcv(details[a.email]?.acv))
-                  .slice(0,8)
-                  .map((l,idx) => {
-                    const d = details[l.email]
-                    const palette = ['#f59e0b','#00e5a0','#60d4f4','#c084fc','#e879f9','#fb7185','#34d399','#a78bfa']
-                    return {
-                      label: l.account || d?.prospectName || formatDomain(l.domain),
-                      value: parseAcv(d?.acv),
-                      color: palette[idx % palette.length]
-                    }
-                  })}
-              />
-              <div style={{fontSize:11,color:C.text3,marginTop:12}}>
-                Total closed-won ACV: $
-                {allLeads.reduce((s,l)=>{const d=details[l.email]; return s+(((d?.closedWon==='Yes'||(statuses[l.email]||'new')==='closedwon')&&d?.acv)?parseAcv(d.acv):0)},0).toLocaleString()}
+              <div style={card}>
+                <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:12}}>Closed-Won revenue mix</div>
+                <PieChart
+                  data={wonEntries.slice(0,8).map((e,idx)=>({label:e.account,value:e.acv,color:wonPalette[idx%wonPalette.length]}))}
+                  onSliceClick={(label)=>setSqoExpandedAcct(p=>p===label?null:label)}
+                />
+                <div style={{fontSize:11,color:C.text3,marginTop:12}}>Total closed-won ACV: ${totalWonAcv.toLocaleString()}</div>
               </div>
             </div>
-          </div>
+
+            {/* ACV by time period */}
+            <div style={{...card,marginBottom:16}}>
+              <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:12}}>SQO ACV by {sqoTimeSeg==='year'?'Year':sqoTimeSeg==='quarter'?'Quarter':sqoTimeSeg==='month'?'Month':'Week'}</div>
+              <div style={{display:'grid',gap:6,maxHeight:260,overflowY:'auto'}}>
+                {segGroups.map(g=>(
+                  <div key={g.key}>
+                    <div style={{display:'grid',gridTemplateColumns:'90px 1fr 80px 30px',gap:8,alignItems:'center',padding:'5px 0'}}>
+                      <div style={{fontSize:11,fontWeight:600,color:C.text2}}>{g.label}</div>
+                      <div style={{height:8,borderRadius:4,background:C.surface3,overflow:'hidden'}}><div style={{height:8,borderRadius:4,background:'#c084fc',width:`${g.acv/maxSegAcv*100}%`}}/></div>
+                      <div style={{fontSize:11,fontWeight:700,color:C.text,textAlign:'right'}}>${(g.acv/1000).toFixed(0)}K</div>
+                      <div style={{fontSize:9,color:C.text3,textAlign:'right'}}>{g.entries.length}</div>
+                    </div>
+                    <div style={{paddingLeft:16}}>{g.entries.map((e,i)=>(<div key={i} style={{display:'flex',justifyContent:'space-between',padding:'2px 0',borderBottom:i<g.entries.length-1?`1px solid ${C.border}`:'none'}}><span style={{fontSize:10,color:C.text2}}>{e.account}</span><span style={{fontSize:10,fontWeight:600,color:C.text3}}>${e.acv.toLocaleString()}</span></div>))}</div>
+                  </div>
+                ))}
+                {segGroups.length===0&&<div style={{fontSize:11,color:C.text3}}>No SQO data with dates available.</div>}
+              </div>
+            </div>
+
+            {/* Account detail list — click to expand full detail */}
+            <div style={{...card,marginBottom:24}}>
+              <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:12}}>
+                Account Detail · {sqoEntries.length+wonEntries.filter(w=>!sqoEntries.some(s=>s.email===w.email)).length} accounts
+                {sqoExpandedAcct&&<span style={{color:'#c084fc',textTransform:'none',letterSpacing:'normal',fontWeight:400}}> · {sqoExpandedAcct}</span>}
+              </div>
+              <div style={{display:'grid',gap:4}}>
+                {/* Merge SQO + Won (deduped) */}
+                {[...sqoEntries,...wonEntries.filter(w=>!sqoEntries.some(s=>s.email===w.email))]
+                  .filter(e=>!sqoExpandedAcct||e.account===sqoExpandedAcct)
+                  .map((e,i)=>{
+                    const isExp=sqoExpandedAcct===e.account
+                    const tierColor=e.tier==='A'?C.green:e.tier==='B'?'#60d4f4':e.tier==='E'?C.purpleL:e.tier==='C'?C.red:C.text3
+                    const stageColor=e.stage==='Closed Won'?C.green:e.stage==='Closed Lost'?C.red:C.purpleL
+                    return (
+                      <div key={i} onClick={()=>setSqoExpandedAcct(p=>p===e.account?null:e.account)}
+                        style={{padding:'10px 12px',background:isExp?'rgba(192,132,252,0.08)':C.surface3,border:`1px solid ${isExp?'rgba(192,132,252,0.3)':C.border}`,borderRadius:8,cursor:'pointer',transition:'all 0.15s'}}>
+                        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                          <div style={{display:'flex',alignItems:'center',gap:8}}>
+                            <span style={{fontSize:12,fontWeight:700,color:C.text}}>{e.account}</span>
+                            <span style={{fontSize:9,fontWeight:700,color:stageColor,background:`${stageColor}18`,padding:'1px 5px',borderRadius:3}}>{e.stage}</span>
+                            {e.tier&&<span style={{fontSize:9,fontWeight:700,color:tierColor,background:`${tierColor}18`,padding:'1px 5px',borderRadius:3}}>Tier {e.tier}</span>}
+                          </div>
+                          <div style={{display:'flex',alignItems:'center',gap:10}}>
+                            <span style={{fontSize:14,fontWeight:800,color:'#c084fc'}}>${e.acv.toLocaleString()}</span>
+                            <span style={{fontSize:10,color:C.text3}}>{isExp?'▲':'▼'}</span>
+                          </div>
+                        </div>
+                        <div style={{fontSize:10,color:C.text3,marginTop:3}}>
+                          SQO: {e.sqoDate?new Date(e.sqoDate).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'—'}
+                          {e.ae&&` · AE: ${e.ae}`}{e.source&&` · ${e.source}`}
+                        </div>
+                        {isExp&&renderDetail(e)}
+                      </div>
+                    )
+                  })}
+                {sqoExpandedAcct&&<button onClick={()=>setSqoExpandedAcct(null)} style={{fontSize:10,fontWeight:600,color:C.text3,background:'none',border:`1px solid ${C.border2}`,borderRadius:6,padding:'6px 12px',cursor:'pointer',marginTop:4}}>Clear filter · show all</button>}
+              </div>
+            </div>
+            </>)
+          })()}
 
           {/* MQL Quality chart — from Notion manual tracker (Mar 21 – Apr 1) */}
           <div style={{...card,marginBottom:24}}>
@@ -3283,160 +3396,6 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* ── SQO Pipeline ACV Analysis ── */}
-          {(()=>{
-            // Pull SQO data from the dashboard's own pipeline — same source as the SQO Account ACV Mix chart
-            const sqoLeads=allLeads.filter(l=>(details[l.email]?.sqo||'')==='Yes'&&parseAcv(details[l.email]?.acv)>0)
-
-            // Build SQO entries with all available detail fields
-            const sqoEntries=sqoLeads.map(l=>{
-              const det=details[l.email]||EMPTY_DETAIL
-              const acv=parseAcv(det.acv)
-              const displayName=nameOverrides[l.email]||l.account||formatDomain(l.domain)||l.email
-              const sqoDate=det.sqoDate||det.sqlDate||det.meetingDate||l.date||''
-              return {
-                email:l.email, account:displayName, acv,
-                sqoDate, sqoMonth:sqoDate?`${new Date(sqoDate).getFullYear()}-${String(new Date(sqoDate).getMonth()+1).padStart(2,'0')}`:'',
-                stage:det.closedWon==='Yes'||((statuses[l.email]||'new')==='closedwon')?'Closed Won':(statuses[l.email]||'new')==='lost'?'Closed Lost':'Active',
-                tier:det.accountTier||'', ae:det.ae||'', source:det.sourceChannel||'',
-                prospectName:det.prospectName||'', meetingDate:det.meetingDate||'', sqlDate:det.sqlDate||'',
-              }
-            }).sort((a,b)=>(b.sqoDate||'').localeCompare(a.sqoDate||''))
-
-            const totalAcv=sqoEntries.reduce((s,e)=>s+e.acv,0)
-
-            // Time segmentation
-            const getSegKey=(dateStr:string):string=>{
-              if(!dateStr) return ''
-              const d=new Date(dateStr)
-              if(isNaN(d.getTime())) return ''
-              if(sqoTimeSeg==='year') return String(d.getFullYear())
-              if(sqoTimeSeg==='quarter') return `Q${Math.floor(d.getMonth()/3)+1} ${d.getFullYear()}`
-              if(sqoTimeSeg==='month') return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
-              // week
-              const ws=new Date(d);ws.setDate(d.getDate()-d.getDay());return ws.toISOString().split('T')[0]
-            }
-            const getSegLabel=(key:string):string=>{
-              if(sqoTimeSeg==='year') return key
-              if(sqoTimeSeg==='quarter') return key
-              if(sqoTimeSeg==='month'){const [y,m]=key.split('-').map(Number);return new Date(y,m-1).toLocaleString('en-US',{month:'short',year:'2-digit'})}
-              return `Wk ${new Date(key).toLocaleDateString('en-US',{month:'short',day:'numeric'})}`
-            }
-
-            // Group entries by time segment
-            const segMap=new Map<string,{key:string;label:string;entries:typeof sqoEntries;acv:number}>()
-            sqoEntries.forEach(e=>{
-              const k=getSegKey(e.sqoDate);if(!k) return
-              if(!segMap.has(k)) segMap.set(k,{key:k,label:getSegLabel(k),entries:[],acv:0})
-              const g=segMap.get(k)!; g.entries.push(e); g.acv+=e.acv
-            })
-            const segGroups=Array.from(segMap.values()).sort((a,b)=>b.key.localeCompare(a.key))
-            const maxSegAcv=Math.max(1,...segGroups.map(g=>g.acv))
-
-            // Palette for donut segments
-            const palette=['#c084fc','#60d4f4','#00e5a0','#f59e0b','#e879f9','#fb7185','#34d399','#a78bfa']
-
-            return (
-              <div style={{marginTop:24}}>
-                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:4}}>
-                  <div style={{fontSize:18,fontWeight:800,letterSpacing:'-0.02em'}}>SQO Pipeline <span style={{color:'#c084fc'}}>Analysis</span></div>
-                  <div style={{display:'flex',gap:5}}>
-                    {(['year','quarter','month','week'] as const).map(s=>(
-                      <button key={s} onClick={()=>setSqoTimeSeg(s)} style={filterPill(sqoTimeSeg===s,'#c084fc')}>{{year:'Year',quarter:'Quarter',month:'Month',week:'Week'}[s]}</button>
-                    ))}
-                  </div>
-                </div>
-                <div style={{fontSize:11,color:C.text3,marginBottom:20}}>SQO accounts with ACV · from dashboard pipeline data · ${totalAcv.toLocaleString()} total</div>
-
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1.5fr',gap:16,marginBottom:20}}>
-                  {/* SQO Account ACV Mix — enhanced with click interaction */}
-                  <div style={card}>
-                    <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:12}}>SQO Account ACV Mix</div>
-                    <PieChart
-                      data={sqoEntries.slice(0,8).map((e,i)=>({label:e.account,value:e.acv,color:palette[i%palette.length]}))}
-                      onSliceClick={(label)=>setSqoExpandedAcct(p=>p===label?null:label)}
-                    />
-                    <div style={{fontSize:10,color:C.text3,marginTop:8,textAlign:'center'}}>Click a segment to expand details</div>
-                  </div>
-
-                  {/* Time-grouped ACV breakdown */}
-                  <div style={card}>
-                    <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:14}}>ACV by {sqoTimeSeg==='year'?'Year':sqoTimeSeg==='quarter'?'Quarter':sqoTimeSeg==='month'?'Month':'Week'}</div>
-                    <div style={{display:'grid',gap:6,maxHeight:320,overflowY:'auto'}}>
-                      {segGroups.map(g=>(
-                        <div key={g.key}>
-                          <div style={{display:'grid',gridTemplateColumns:'90px 1fr 80px 30px',gap:8,alignItems:'center',padding:'6px 0'}}>
-                            <div style={{fontSize:11,fontWeight:600,color:C.text2}}>{g.label}</div>
-                            <div style={{height:8,borderRadius:4,background:C.surface3,overflow:'hidden'}}>
-                              <div style={{height:8,borderRadius:4,background:'#c084fc',width:`${g.acv/maxSegAcv*100}%`}}/>
-                            </div>
-                            <div style={{fontSize:11,fontWeight:700,color:C.text,textAlign:'right'}}>${(g.acv/1000).toFixed(0)}K</div>
-                            <div style={{fontSize:9,color:C.text3,textAlign:'right'}}>{g.entries.length}</div>
-                          </div>
-                          {/* Expandable entries within each segment */}
-                          <div style={{paddingLeft:16}}>
-                            {g.entries.map((e,i)=>(
-                              <div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'3px 0',borderBottom:i<g.entries.length-1?`1px solid ${C.border}`:'none'}}>
-                                <span style={{fontSize:10,color:C.text2}}>{e.account}</span>
-                                <span style={{fontSize:10,fontWeight:600,color:C.text3}}>${e.acv.toLocaleString()}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                      {segGroups.length===0&&<div style={{fontSize:11,color:C.text3}}>No SQO data with dates available.</div>}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Expanded account detail list */}
-                <div style={{...card,marginBottom:20}}>
-                  <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:14}}>
-                    SQO Account Detail · {sqoEntries.length} accounts
-                    {sqoExpandedAcct&&<span style={{color:'#c084fc',textTransform:'none',letterSpacing:'normal',fontWeight:400}}> · filtering: {sqoExpandedAcct}</span>}
-                  </div>
-                  <div style={{display:'grid',gap:4}}>
-                    {(sqoExpandedAcct?sqoEntries.filter(e=>e.account===sqoExpandedAcct):sqoEntries).map((e,i)=>{
-                      const isExpanded=sqoExpandedAcct===e.account
-                      const tierColor=e.tier==='A'?C.green:e.tier==='B'?'#60d4f4':e.tier==='E'?C.purpleL:e.tier==='C'?C.red:C.text3
-                      const stageColor=e.stage==='Closed Won'?C.green:e.stage==='Closed Lost'?C.red:C.purpleL
-                      return (
-                        <div key={i} onClick={()=>setSqoExpandedAcct(p=>p===e.account?null:e.account)}
-                          style={{padding:'10px 12px',background:isExpanded?'rgba(192,132,252,0.08)':C.surface3,border:`1px solid ${isExpanded?'rgba(192,132,252,0.3)':C.border}`,borderRadius:8,cursor:'pointer',transition:'all 0.15s'}}>
-                          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                            <div style={{display:'flex',alignItems:'center',gap:8}}>
-                              <span style={{fontSize:12,fontWeight:700,color:C.text}}>{e.account}</span>
-                              <span style={{fontSize:9,fontWeight:700,color:stageColor,background:`${stageColor}18`,padding:'1px 5px',borderRadius:3}}>{e.stage}</span>
-                              {e.tier&&<span style={{fontSize:9,fontWeight:700,color:tierColor,background:`${tierColor}18`,padding:'1px 5px',borderRadius:3}}>Tier {e.tier}</span>}
-                            </div>
-                            <div style={{display:'flex',alignItems:'center',gap:10}}>
-                              <span style={{fontSize:14,fontWeight:800,color:'#c084fc'}}>${e.acv.toLocaleString()}</span>
-                              <span style={{fontSize:10,color:C.text3}}>{isExpanded?'▲':'▼'}</span>
-                            </div>
-                          </div>
-                          <div style={{fontSize:10,color:C.text3,marginTop:4}}>
-                            SQO: {e.sqoDate?new Date(e.sqoDate).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'—'}
-                            {e.ae&&` · AE: ${e.ae}`}
-                            {e.source&&` · Source: ${e.source}`}
-                          </div>
-                          {isExpanded&&(
-                            <div style={{marginTop:8,paddingTop:8,borderTop:`1px solid ${C.border}`,display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:8}}>
-                              <div><div style={{fontSize:9,color:C.text3,textTransform:'uppercase',marginBottom:2}}>Meeting Date</div><div style={{fontSize:11,color:C.text2}}>{e.meetingDate?new Date(e.meetingDate).toLocaleDateString('en-US',{month:'short',day:'numeric'}):'—'}</div></div>
-                              <div><div style={{fontSize:9,color:C.text3,textTransform:'uppercase',marginBottom:2}}>SQL Date</div><div style={{fontSize:11,color:C.text2}}>{e.sqlDate?new Date(e.sqlDate).toLocaleDateString('en-US',{month:'short',day:'numeric'}):'—'}</div></div>
-                              <div><div style={{fontSize:9,color:C.text3,textTransform:'uppercase',marginBottom:2}}>Prospect</div><div style={{fontSize:11,color:C.text2}}>{e.prospectName||'—'}</div></div>
-                              <div><div style={{fontSize:9,color:C.text3,textTransform:'uppercase',marginBottom:2}}>Account Tier</div><div style={{fontSize:11,color:tierColor}}>{e.tier?`Tier ${e.tier}`:'—'}</div></div>
-                            </div>
-                          )}
-                        </div>
-                      )
-                    })}
-                    {sqoEntries.length===0&&<div style={{fontSize:11,color:C.text3,padding:12}}>No SQO accounts with ACV found in the pipeline.</div>}
-                    {sqoExpandedAcct&&<button onClick={()=>setSqoExpandedAcct(null)} style={{fontSize:10,fontWeight:600,color:C.text3,background:'none',border:`1px solid ${C.border2}`,borderRadius:6,padding:'6px 12px',cursor:'pointer',marginTop:4}}>Clear filter · show all</button>}
-                  </div>
-                </div>
-              </div>
-            )
-          })()}
         </>)}
 
 
