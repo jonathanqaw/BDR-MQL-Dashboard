@@ -2092,15 +2092,21 @@ export default function Dashboard() {
   ]
 
   const velocityData = (()=>{
-    const vc:number[]=[], vm:number[]=[], vw:number[]=[]
+    const vMqlSql:number[]=[], vSqlSqo:number[]=[], vSqoWon:number[]=[], vMqlWon:number[]=[]
     reportBaseLeads.forEach(l=>{
       const d=details[l.email]; const r=new Date(l.receivedAt||l.date||Date.now())
-      if(d?.connectedDate){const dy=Math.round((new Date(d.connectedDate).getTime()-r.getTime())/864e5);if(dy>=0&&dy<365)vc.push(dy)}
-      if(d?.meetingDate){const dy=Math.round((new Date(d.meetingDate).getTime()-r.getTime())/864e5);if(dy>=0&&dy<365)vm.push(dy)}
-      if(d?.closedWonDate&&(d?.closedWon==='Yes'||(statuses[l.email]||'new')==='closedwon')){const dy=Math.round((new Date(d.closedWonDate).getTime()-r.getTime())/864e5);if(dy>=0&&dy<730)vw.push(dy)}
+      const isWon=(d?.closedWon==='Yes'||(statuses[l.email]||'new')==='closedwon')
+      // MQL → SQL: lead date to sqlDate (only for SQLs)
+      if((d?.sqlDq||'').toLowerCase()==='yes'&&d?.sqlDate){const dy=Math.round((new Date(d.sqlDate).getTime()-r.getTime())/864e5);if(dy>=0&&dy<730)vMqlSql.push(dy)}
+      // SQL → SQO: sqlDate to sqoDate (only for SQOs)
+      if((d?.sqo||'').toLowerCase()==='yes'&&d?.sqlDate&&d?.sqoDate){const dy=Math.round((new Date(d.sqoDate).getTime()-new Date(d.sqlDate).getTime())/864e5);if(dy>=0&&dy<730)vSqlSqo.push(dy)}
+      // SQO → Closed Won: sqoDate to closedWonDate (only for won deals)
+      if(isWon&&d?.sqoDate&&d?.closedWonDate){const dy=Math.round((new Date(d.closedWonDate).getTime()-new Date(d.sqoDate).getTime())/864e5);if(dy>=0&&dy<730)vSqoWon.push(dy)}
+      // MQL → Closed Won: full funnel (only for won deals)
+      if(isWon&&d?.closedWonDate){const dy=Math.round((new Date(d.closedWonDate).getTime()-r.getTime())/864e5);if(dy>=0&&dy<730)vMqlWon.push(dy)}
     })
     const avg=(a:number[])=>a.length?Math.round(a.reduce((s,n)=>s+n,0)/a.length):null
-    return {connect:{avg:avg(vc),n:vc.length},meeting:{avg:avg(vm),n:vm.length},close:{avg:avg(vw),n:vw.length}}
+    return {mqlSql:{avg:avg(vMqlSql),n:vMqlSql.length},sqlSqo:{avg:avg(vSqlSqo),n:vSqlSqo.length},sqoWon:{avg:avg(vSqoWon),n:vSqoWon.length},mqlWon:{avg:avg(vMqlWon),n:vMqlWon.length}}
   })()
 
 
@@ -3889,6 +3895,7 @@ export default function Dashboard() {
                     th{padding:8px 12px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#64748b;border-bottom:2px solid #cbd5e1}
                     .summary{font-size:14px;line-height:1.7;color:#334155;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:16px;margin-bottom:24px}
                     .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:24px}
+                    .grid4v{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px}
                     @media print{body{padding:20px 24px}h1{font-size:22px}.card .val{font-size:18px}}
                   </style></head><body>
                     <h1>QA Wolf — BDR Report</h1>
@@ -3901,10 +3908,11 @@ export default function Dashboard() {
                       <div class="card"><div class="label">SQOs</div><div class="val">${reportSqoCount}</div><div class="sub">${pct(reportSqoCount,reportTotal)}% conversion</div></div>
                       <div class="card"><div class="label">Pipeline</div><div class="val">$${reportPipeline.toLocaleString()}</div></div>
                     </div>
-                    <div class="grid3">
-                      <div class="card"><div class="label">Avg Days to Connect</div><div class="val">${vel.connect.avg!==null?vel.connect.avg+'d':'N/A'}</div><div class="sub">${vel.connect.n} leads</div></div>
-                      <div class="card"><div class="label">Avg Days to Meeting</div><div class="val">${vel.meeting.avg!==null?vel.meeting.avg+'d':'N/A'}</div><div class="sub">${vel.meeting.n} leads</div></div>
-                      <div class="card"><div class="label">Avg Days to Close</div><div class="val">${vel.close.avg!==null?vel.close.avg+'d':'N/A'}</div><div class="sub">${vel.close.n} leads</div></div>
+                    <div class="grid4v">
+                      <div class="card"><div class="label">Avg Days MQL → SQL</div><div class="val">${vel.mqlSql.avg!==null?vel.mqlSql.avg+'d':'N/A'}</div><div class="sub">${vel.mqlSql.n} leads</div></div>
+                      <div class="card"><div class="label">Avg Days SQL → SQO</div><div class="val">${vel.sqlSqo.avg!==null?vel.sqlSqo.avg+'d':'N/A'}</div><div class="sub">${vel.sqlSqo.n} leads</div></div>
+                      <div class="card"><div class="label">Avg Days SQO → Won</div><div class="val">${vel.sqoWon.avg!==null?vel.sqoWon.avg+'d':'N/A'}</div><div class="sub">${vel.sqoWon.n} leads</div></div>
+                      <div class="card"><div class="label">Avg Days MQL → Won</div><div class="val">${vel.mqlWon.avg!==null?vel.mqlWon.avg+'d':'N/A'}</div><div class="sub">${vel.mqlWon.n} leads</div></div>
                     </div>
                     <h2>Status Volume</h2>
                     <table><thead><tr><th>Status</th><th style="text-align:right">Count</th><th style="text-align:right">%</th></tr></thead><tbody>${statusRows}</tbody></table>
@@ -4067,11 +4075,12 @@ export default function Dashboard() {
                 <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:12}}>
                   Velocity Summary
                 </div>
-                <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12}}>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12}}>
                   {[
-                    {label:'Avg Days to Connect',value:velocityData.connect.avg,n:velocityData.connect.n},
-                    {label:'Avg Days to Meeting',value:velocityData.meeting.avg,n:velocityData.meeting.n},
-                    {label:'Avg Days to Close',value:velocityData.close.avg,n:velocityData.close.n},
+                    {label:'Avg Days MQL → SQL',value:velocityData.mqlSql.avg,n:velocityData.mqlSql.n},
+                    {label:'Avg Days SQL → SQO',value:velocityData.sqlSqo.avg,n:velocityData.sqlSqo.n},
+                    {label:'Avg Days SQO → Won',value:velocityData.sqoWon.avg,n:velocityData.sqoWon.n},
+                    {label:'Avg Days MQL → Won',value:velocityData.mqlWon.avg,n:velocityData.mqlWon.n},
                   ].map(c=>(
                     <div key={c.label} style={{background:C.surface3,border:`1px solid ${C.border}`,borderRadius:10,padding:12}}>
                       <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:8}}>{c.label}</div>
