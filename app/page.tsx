@@ -3228,6 +3228,9 @@ export default function Dashboard() {
             const chartRows=rows.slice(0,8).reverse()
             const maxRate=Math.max(1,...chartRows.flatMap(r=>[r.mqls>0?r.sqls/r.mqls*100:0,r.sqls>0?r.sqos/r.sqls*100:0]))
 
+            // Comparison label
+            const compLabel=convSeg==='year'?'previous year':convSeg==='quarter'?'previous quarter':convSeg==='month'?'previous month':'previous week'
+
             return (
               <div style={{...card,marginBottom:24}}>
                 <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14,flexWrap:'wrap',gap:8}}>
@@ -3237,7 +3240,7 @@ export default function Dashboard() {
                       <button key={s} onClick={()=>setConvSeg(s)} style={filterPill(convSeg===s)}>{s.charAt(0).toUpperCase()+s.slice(1)}</button>
                     ))}
                     <button onClick={()=>setConvCompare(!convCompare)} style={{...filterPill(convCompare,C.amber),fontSize:10,marginLeft:4}}>
-                      {convCompare?'✕ Compare':'⇄ Compare'}
+                      {convCompare?`✕ vs ${compLabel}`:`⇄ vs ${compLabel}`}
                     </button>
                   </div>
                 </div>
@@ -3260,51 +3263,58 @@ export default function Dashboard() {
                   ))}
                 </div>
 
-                {/* Funnel visualization */}
-                <div style={{display:'flex',alignItems:'center',gap:4,marginBottom:18,padding:'12px 0'}}>
-                  {[
-                    {label:'MQL',count:totalMqls,pct:100,color:C.text2},
-                    {label:'SQL',count:totalSqls,pct:mqlToSqlRate,color:'#60d4f4'},
-                    {label:'SQO',count:totalSqos,pct:mqlToSqoRate,color:'#c084fc'},
-                  ].map((stage,i)=>(
-                    <React.Fragment key={stage.label}>
-                      {i>0&&<div style={{fontSize:16,color:C.text3,padding:'0 4px'}}>→</div>}
-                      <div style={{flex:Math.max(stage.pct,15),background:`${stage.color}18`,border:`1px solid ${stage.color}40`,borderRadius:8,padding:'10px 14px',textAlign:'center',transition:'flex 0.3s'}}>
-                        <div style={{fontSize:18,fontWeight:800,color:stage.color}}>{stage.count}</div>
-                        <div style={{fontSize:10,fontWeight:700,color:stage.color}}>{stage.label}</div>
-                        <div style={{fontSize:9,color:C.text3}}>{stage.pct}%</div>
-                      </div>
-                    </React.Fragment>
-                  ))}
-                </div>
-
-                {/* Conversion over time chart */}
+                {/* Conversion rate over time — line chart */}
                 {chartRows.length>1&&(
                   <div style={{marginBottom:18}}>
                     <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:10}}>Conversion Rate Over Time</div>
-                    <div style={{display:'flex',gap:3,alignItems:'flex-end',height:100}}>
-                      {chartRows.map((r,i)=>{
-                        const mqlSql=r.mqls>0?r.sqls/r.mqls*100:0
-                        const sqlSqo=r.sqls>0?r.sqos/r.sqls*100:0
-                        return (
-                          <div key={i} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:2,height:'100%',justifyContent:'flex-end'}}>
-                            <div style={{display:'flex',gap:2,alignItems:'flex-end',width:'100%',justifyContent:'center'}}>
-                              <div style={{width:'35%',height:`${mqlSql/Math.max(maxRate,1)*90}%`,background:C.green,borderRadius:'2px 2px 0 0',minHeight:mqlSql>0?3:1}}/>
-                              <div style={{width:'35%',height:`${sqlSqo/Math.max(maxRate,1)*90}%`,background:C.amber,borderRadius:'2px 2px 0 0',minHeight:sqlSqo>0?3:1}}/>
-                            </div>
-                            <div style={{fontSize:7,color:C.text3,whiteSpace:'nowrap'}}>{r.label}</div>
-                          </div>
-                        )
-                      })}
+                    <div style={{position:'relative',height:160,padding:'0 8px'}}>
+                      {/* Y-axis labels */}
+                      {[0,25,50,75,100].map(v=>(
+                        <div key={v} style={{position:'absolute',left:0,right:0,bottom:`${v/100*140+10}px`,display:'flex',alignItems:'center'}}>
+                          <span style={{fontSize:8,color:C.text3,width:24,textAlign:'right',flexShrink:0}}>{v}%</span>
+                          <div style={{flex:1,height:1,background:v===0?C.border2:C.border,marginLeft:6,opacity:0.5}}/>
+                        </div>
+                      ))}
+                      {/* Lines + data points */}
+                      <svg viewBox={`0 0 ${chartRows.length*100} 160`} style={{width:'100%',height:'100%',overflow:'visible',paddingLeft:30}} preserveAspectRatio="none">
+                        {/* MQL→SQL line (green) */}
+                        <polyline
+                          fill="none" stroke={C.green} strokeWidth="2.5" strokeLinejoin="round"
+                          points={chartRows.map((r,i)=>{const v=r.mqls>0?r.sqls/r.mqls*100:0;return `${i*100/(chartRows.length-1)*90+5},${150-v/100*140}`}).join(' ')}
+                        />
+                        {/* SQL→SQO line (amber) */}
+                        <polyline
+                          fill="none" stroke={C.amber} strokeWidth="2.5" strokeLinejoin="round"
+                          points={chartRows.map((r,i)=>{const v=r.sqls>0?r.sqos/r.sqls*100:0;return `${i*100/(chartRows.length-1)*90+5},${150-v/100*140}`}).join(' ')}
+                        />
+                        {/* Data points + labels */}
+                        {chartRows.map((r,i)=>{
+                          const x=i*100/(chartRows.length-1)*90+5
+                          const mqlSql=r.mqls>0?Math.round(r.sqls/r.mqls*100):0
+                          const sqlSqo=r.sqls>0?Math.round(r.sqos/r.sqls*100):0
+                          const y1=150-mqlSql/100*140
+                          const y2=150-sqlSqo/100*140
+                          return (
+                            <g key={i}>
+                              <circle cx={x} cy={y1} r="3.5" fill={C.green}/>
+                              <text x={x} y={y1-8} textAnchor="middle" style={{fontSize:'8px',fill:C.green,fontWeight:700}}>{mqlSql}%</text>
+                              <circle cx={x} cy={y2} r="3.5" fill={C.amber}/>
+                              <text x={x} y={y2>y1?y2+14:y2-8} textAnchor="middle" style={{fontSize:'8px',fill:C.amber,fontWeight:700}}>{sqlSqo}%</text>
+                              <text x={x} y={158} textAnchor="middle" style={{fontSize:'7px',fill:C.text3}}>{r.label}</text>
+                            </g>
+                          )
+                        })}
+                      </svg>
                     </div>
-                    <div style={{display:'flex',gap:12,marginTop:6,justifyContent:'center'}}>
-                      <div style={{display:'flex',alignItems:'center',gap:3}}><span style={{width:8,height:8,borderRadius:2,background:C.green}}/><span style={{fontSize:9,color:C.text3}}>MQL→SQL %</span></div>
-                      <div style={{display:'flex',alignItems:'center',gap:3}}><span style={{width:8,height:8,borderRadius:2,background:C.amber}}/><span style={{fontSize:9,color:C.text3}}>SQL→SQO %</span></div>
+                    <div style={{display:'flex',gap:12,marginTop:4,justifyContent:'center'}}>
+                      <div style={{display:'flex',alignItems:'center',gap:3}}><span style={{width:12,height:2.5,borderRadius:1,background:C.green}}/><span style={{fontSize:9,color:C.text3}}>MQL→SQL %</span></div>
+                      <div style={{display:'flex',alignItems:'center',gap:3}}><span style={{width:12,height:2.5,borderRadius:1,background:C.amber}}/><span style={{fontSize:9,color:C.text3}}>SQL→SQO %</span></div>
                     </div>
                   </div>
                 )}
 
                 {/* Conversion detail table */}
+                {convCompare&&<div style={{fontSize:10,color:C.text3,marginBottom:6}}>Comparing each period against {compLabel}. <span style={{color:C.green}}>Green ↑ = improving</span> · <span style={{color:C.red}}>Red ↓ = declining</span>. For avg days, lower is better.</div>}
                 <div style={{overflowX:'auto'}}>
                   <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
                     <thead>
@@ -3321,13 +3331,20 @@ export default function Dashboard() {
                         const full=r.mqls>0?Math.round(r.sqos/r.mqls*100):0
                         const avgMs=avgDays(r.mqlToSqlDays)
                         const avgSs=avgDays(r.sqlToSqoDays)
-                        // Comparison
+                        // Comparison — rates: higher=better (green). Days: lower=better (green).
                         const prevRow=convCompare?rowMap.get(getPrevKey(r.key)):null
                         const prevMs=prevRow&&prevRow.mqls>0?Math.round(prevRow.sqls/prevRow.mqls*100):null
                         const prevSs=prevRow&&prevRow.sqls>0?Math.round(prevRow.sqos/prevRow.sqls*100):null
-                        const delta=(cur:number,prev:number|null)=>{if(prev===null)return null;const d=cur-prev;return {d,color:d>0?C.green:d<0?C.red:C.text3,arrow:d>0?'↑':d<0?'↓':'→'}}
-                        const msD=delta(ms,prevMs)
-                        const ssD=delta(ss,prevSs)
+                        const prevAvgMs=prevRow?avgDays(prevRow.mqlToSqlDays):null
+                        const prevAvgSs=prevRow?avgDays(prevRow.sqlToSqoDays):null
+                        // For rates: higher is better
+                        const rateDelta=(cur:number,prev:number|null)=>{if(prev===null)return null;const d=cur-prev;return {d,color:d>0?C.green:d<0?C.red:C.text3,arrow:d>0?'↑':d<0?'↓':'→'}}
+                        // For days: lower is better
+                        const daysDelta=(cur:number|null,prev:number|null)=>{if(cur===null||prev===null)return null;const d=cur-prev;return {d,color:d<0?C.green:d>0?C.red:C.text3,arrow:d<0?'↑':d>0?'↓':'→'}}
+                        const msD=rateDelta(ms,prevMs)
+                        const ssD=rateDelta(ss,prevSs)
+                        const avgMsD=daysDelta(avgMs,prevAvgMs)
+                        const avgSsD=daysDelta(avgSs,prevAvgSs)
                         return (
                           <tr key={r.key} style={{borderBottom:`1px solid ${C.border}`}}>
                             <td style={{padding:'7px 8px',fontWeight:600,color:C.text}}>{r.label}</td>
@@ -3337,8 +3354,8 @@ export default function Dashboard() {
                             <td style={{padding:'7px 8px',textAlign:'right',color:'#c084fc'}}>{r.sqos}</td>
                             <td style={{padding:'7px 8px',textAlign:'right',fontWeight:700,color:C.amber}}>{ss}%{ssD&&<span style={{fontSize:8,color:ssD.color,marginLeft:3}}>{ssD.arrow}{Math.abs(ssD.d)}</span>}</td>
                             <td style={{padding:'7px 8px',textAlign:'right',color:'#e879f9'}}>{full}%</td>
-                            <td style={{padding:'7px 8px',textAlign:'right',color:avgMs!==null?C.text2:C.text3}}>{avgMs!==null?`${avgMs}d`:'—'}</td>
-                            <td style={{padding:'7px 8px',textAlign:'right',color:avgSs!==null?C.text2:C.text3}}>{avgSs!==null?`${avgSs}d`:'—'}</td>
+                            <td style={{padding:'7px 8px',textAlign:'right',color:avgMs!==null?C.text2:C.text3}}>{avgMs!==null?`${avgMs}d`:'—'}{avgMsD&&<span style={{fontSize:8,color:avgMsD.color,marginLeft:3}}>{avgMsD.arrow}{Math.abs(avgMsD.d)}d</span>}</td>
+                            <td style={{padding:'7px 8px',textAlign:'right',color:avgSs!==null?C.text2:C.text3}}>{avgSs!==null?`${avgSs}d`:'—'}{avgSsD&&<span style={{fontSize:8,color:avgSsD.color,marginLeft:3}}>{avgSsD.arrow}{Math.abs(avgSsD.d)}d</span>}</td>
                           </tr>
                         )
                       })}
