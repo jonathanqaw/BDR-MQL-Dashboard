@@ -3290,26 +3290,53 @@ export default function Dashboard() {
                             </div>
                           </div>
                         )})}
-                        {/* Lines via SVG overlay */}
-                        <svg style={{position:'absolute',top:0,left:0,width:'100%',height:chartH,overflow:'visible'}}>
-                          <polyline fill="none" stroke={C.green} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round"
-                            points={points.map((p,i)=>`${n>1?i/(n-1)*100:50}%,${yPos(p.mqlSql)}`).join(' ')}/>
-                          <polyline fill="none" stroke={C.amber} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round"
-                            points={points.map((p,i)=>`${n>1?i/(n-1)*100:50}%,${yPos(p.sqlSqo)}`).join(' ')}/>
-                        </svg>
-                        {/* Data points + labels */}
+                        {/* Smooth curve lines — only connect active months (at least 1 SQL or SQO) */}
+                        {(()=>{
+                          // Build active-only point arrays for each line
+                          const xPct=(i:number)=>n>1?i/(n-1)*100:50
+                          const activeGreen=points.map((p,i)=>({x:xPct(i),y:yPos(p.mqlSql),val:p.mqlSql,active:p.mqlSql>0||p.sqlSqo>0})).filter(p=>p.active)
+                          const activeAmber=points.map((p,i)=>({x:xPct(i),y:yPos(p.sqlSqo),val:p.sqlSqo,active:p.mqlSql>0||p.sqlSqo>0})).filter(p=>p.active)
+
+                          // Build smooth cubic bezier path from points
+                          const smoothPath=(pts:{x:number;y:number}[]):string=>{
+                            if(pts.length<2) return ''
+                            // Use monotone cubic interpolation for smooth curves
+                            let d=`M${pts[0].x},${pts[0].y}`
+                            for(let i=1;i<pts.length;i++){
+                              const prev=pts[i-1],cur=pts[i]
+                              const cpx=(prev.x+cur.x)/2
+                              d+=` C${cpx},${prev.y} ${cpx},${cur.y} ${cur.x},${cur.y}`
+                            }
+                            return d
+                          }
+
+                          // SVG uses viewBox coordinates matching the container
+                          const svgW=1000
+                          const toSvgX=(pct:number)=>pct/100*svgW
+                          const greenSvg=activeGreen.map(p=>({x:toSvgX(p.x),y:p.y}))
+                          const amberSvg=activeAmber.map(p=>({x:toSvgX(p.x),y:p.y}))
+
+                          return (
+                            <svg viewBox={`0 0 ${svgW} ${chartH}`} style={{position:'absolute',top:0,left:0,width:'100%',height:chartH,overflow:'visible'}} preserveAspectRatio="xMidYMid meet">
+                              {greenSvg.length>=2&&<path d={smoothPath(greenSvg)} fill="none" stroke={C.green} strokeWidth="3" strokeLinecap="round"/>}
+                              {amberSvg.length>=2&&<path d={smoothPath(amberSvg)} fill="none" stroke={C.amber} strokeWidth="3" strokeLinecap="round"/>}
+                            </svg>
+                          )
+                        })()}
+                        {/* Data points + labels — show all months, dim inactive ones */}
                         {points.map((p,i)=>{
                           const xPct=n>1?i/(n-1)*100:50
+                          const isActive=p.mqlSql>0||p.sqlSqo>0
                           return (
                             <React.Fragment key={i}>
                               {/* MQL→SQL dot + label */}
-                              <div style={{position:'absolute',left:`${xPct}%`,top:yPos(p.mqlSql),transform:'translate(-50%,-50%)',width:7,height:7,borderRadius:'50%',background:C.green,zIndex:2}}/>
-                              <div style={{position:'absolute',left:`${xPct}%`,top:yPos(p.mqlSql)-14,transform:'translateX(-50%)',fontSize:9,fontWeight:700,color:C.green,whiteSpace:'nowrap',zIndex:2}}>{p.mqlSql}%</div>
+                              <div style={{position:'absolute',left:`${xPct}%`,top:yPos(p.mqlSql),transform:'translate(-50%,-50%)',width:7,height:7,borderRadius:'50%',background:isActive?C.green:C.text3,opacity:isActive?1:0.3,zIndex:2}}/>
+                              {isActive&&<div style={{position:'absolute',left:`${xPct}%`,top:yPos(p.mqlSql)-14,transform:'translateX(-50%)',fontSize:9,fontWeight:700,color:C.green,whiteSpace:'nowrap',zIndex:2}}>{p.mqlSql}%</div>}
                               {/* SQL→SQO dot + label */}
-                              <div style={{position:'absolute',left:`${xPct}%`,top:yPos(p.sqlSqo),transform:'translate(-50%,-50%)',width:7,height:7,borderRadius:'50%',background:C.amber,zIndex:2}}/>
-                              <div style={{position:'absolute',left:`${xPct}%`,top:Math.abs(yPos(p.sqlSqo)-yPos(p.mqlSql))<18?yPos(p.sqlSqo)+10:yPos(p.sqlSqo)-14,transform:'translateX(-50%)',fontSize:9,fontWeight:700,color:C.amber,whiteSpace:'nowrap',zIndex:2}}>{p.sqlSqo}%</div>
+                              <div style={{position:'absolute',left:`${xPct}%`,top:yPos(p.sqlSqo),transform:'translate(-50%,-50%)',width:7,height:7,borderRadius:'50%',background:isActive?C.amber:C.text3,opacity:isActive?1:0.3,zIndex:2}}/>
+                              {isActive&&<div style={{position:'absolute',left:`${xPct}%`,top:Math.abs(yPos(p.sqlSqo)-yPos(p.mqlSql))<18?yPos(p.sqlSqo)+10:yPos(p.sqlSqo)-14,transform:'translateX(-50%)',fontSize:9,fontWeight:700,color:C.amber,whiteSpace:'nowrap',zIndex:2}}>{p.sqlSqo}%</div>}
                               {/* X label */}
-                              <div style={{position:'absolute',left:`${xPct}%`,top:chartH+6,transform:'translateX(-50%)',fontSize:8,color:C.text3,whiteSpace:'nowrap'}}>{p.label}</div>
+                              <div style={{position:'absolute',left:`${xPct}%`,top:chartH+6,transform:'translateX(-50%)',fontSize:8,color:isActive?C.text3:'rgba(255,255,255,0.2)',whiteSpace:'nowrap'}}>{p.label}</div>
                             </React.Fragment>
                           )
                         })}
