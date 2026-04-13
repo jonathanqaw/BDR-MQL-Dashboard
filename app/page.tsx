@@ -3166,13 +3166,13 @@ export default function Dashboard() {
             const segKey=(dateStr:string):string=>{
               if(!dateStr)return '';const d=new Date(dateStr);if(isNaN(d.getTime()))return ''
               if(convSeg==='year')return String(d.getFullYear())
-              if(convSeg==='quarter')return `Q${Math.floor(d.getMonth()/3)+1} ${d.getFullYear()}`
+              if(convSeg==='quarter')return `${d.getFullYear()}-Q${Math.floor(d.getMonth()/3)+1}`
               if(convSeg==='month')return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
               const ws=new Date(d);ws.setDate(d.getDate()-d.getDay());return ws.toISOString().split('T')[0]
             }
             const segLabel=(k:string):string=>{
               if(convSeg==='year')return k
-              if(convSeg==='quarter')return k
+              if(convSeg==='quarter'){const m=k.match(/^(\d+)-Q(\d)$/);return m?`Q${m[2]} ${m[1]}`:k}
               if(convSeg==='month'){const [y,m]=k.split('-').map(Number);return new Date(y,m-1).toLocaleString('en-US',{month:'short',year:'2-digit'})}
               return `Wk ${new Date(k).toLocaleDateString('en-US',{month:'short',day:'numeric'})}`
             }
@@ -3219,7 +3219,7 @@ export default function Dashboard() {
             // Previous period comparison (shift each row back by one segment)
             const getPrevKey=(k:string):string=>{
               if(convSeg==='year')return String(Number(k)-1)
-              if(convSeg==='quarter'){const m=k.match(/Q(\d) (\d+)/);if(!m)return '';const q=Number(m[1]),y=Number(m[2]);return q===1?`Q4 ${y-1}`:`Q${q-1} ${y}`}
+              if(convSeg==='quarter'){const m=k.match(/^(\d+)-Q(\d)$/);if(!m)return '';const y=Number(m[1]),q=Number(m[2]);return q===1?`${y-1}-Q4`:`${y}-Q${q-1}`}
               if(convSeg==='month'){const [y,mo]=k.split('-').map(Number);const d=new Date(y,mo-2,1);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`}
               const d=new Date(k);d.setDate(d.getDate()-7);return d.toISOString().split('T')[0]
             }
