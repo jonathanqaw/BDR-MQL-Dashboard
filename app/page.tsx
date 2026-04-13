@@ -3263,55 +3263,64 @@ export default function Dashboard() {
                   ))}
                 </div>
 
-                {/* Conversion rate over time — line chart */}
-                {chartRows.length>1&&(
-                  <div style={{marginBottom:18}}>
-                    <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:10}}>Conversion Rate Over Time</div>
-                    <div style={{position:'relative',height:160,padding:'0 8px'}}>
-                      {/* Y-axis labels */}
-                      {[0,25,50,75,100].map(v=>(
-                        <div key={v} style={{position:'absolute',left:0,right:0,bottom:`${v/100*140+10}px`,display:'flex',alignItems:'center'}}>
-                          <span style={{fontSize:8,color:C.text3,width:24,textAlign:'right',flexShrink:0}}>{v}%</span>
-                          <div style={{flex:1,height:1,background:v===0?C.border2:C.border,marginLeft:6,opacity:0.5}}/>
-                        </div>
-                      ))}
-                      {/* Lines + data points */}
-                      <svg viewBox={`0 0 ${chartRows.length*100} 160`} style={{width:'100%',height:'100%',overflow:'visible',paddingLeft:30}} preserveAspectRatio="none">
-                        {/* MQL→SQL line (green) */}
-                        <polyline
-                          fill="none" stroke={C.green} strokeWidth="2.5" strokeLinejoin="round"
-                          points={chartRows.map((r,i)=>{const v=r.mqls>0?r.sqls/r.mqls*100:0;return `${i*100/(chartRows.length-1)*90+5},${150-v/100*140}`}).join(' ')}
-                        />
-                        {/* SQL→SQO line (amber) */}
-                        <polyline
-                          fill="none" stroke={C.amber} strokeWidth="2.5" strokeLinejoin="round"
-                          points={chartRows.map((r,i)=>{const v=r.sqls>0?r.sqos/r.sqls*100:0;return `${i*100/(chartRows.length-1)*90+5},${150-v/100*140}`}).join(' ')}
-                        />
+                {/* Conversion rate over time — line chart (CSS-positioned, no SVG scaling issues) */}
+                {chartRows.length>1&&(()=>{
+                  // Compute data points
+                  const points=chartRows.map(r=>({
+                    mqlSql:r.mqls>0?Math.round(r.sqls/r.mqls*100):0,
+                    sqlSqo:r.sqls>0?Math.round(r.sqos/r.sqls*100):0,
+                    label:r.label,
+                  }))
+                  // Auto-scale Y axis: round up to nearest 10 above max value, minimum 20
+                  const allVals=points.flatMap(p=>[p.mqlSql,p.sqlSqo])
+                  const yMax=Math.max(20,Math.ceil(Math.max(...allVals)/10)*10+10)
+                  const chartH=140
+                  const yPos=(v:number)=>chartH-(v/yMax*chartH)
+                  const n=points.length
+                  return (
+                    <div style={{marginBottom:18}}>
+                      <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:10}}>Conversion Rate Over Time</div>
+                      <div style={{position:'relative',height:chartH+30,marginLeft:30,marginRight:10}}>
+                        {/* Y gridlines */}
+                        {Array.from({length:5},(_,i)=>{const v=Math.round(yMax/4*i);return (
+                          <div key={i} style={{position:'absolute',left:-30,right:0,top:yPos(v)}}>
+                            <div style={{display:'flex',alignItems:'center'}}>
+                              <span style={{fontSize:8,color:C.text3,width:26,textAlign:'right',flexShrink:0}}>{v}%</span>
+                              <div style={{flex:1,height:1,background:C.border,marginLeft:4,opacity:0.4}}/>
+                            </div>
+                          </div>
+                        )})}
+                        {/* Lines via SVG overlay */}
+                        <svg style={{position:'absolute',top:0,left:0,width:'100%',height:chartH,overflow:'visible'}}>
+                          <polyline fill="none" stroke={C.green} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round"
+                            points={points.map((p,i)=>`${n>1?i/(n-1)*100:50}%,${yPos(p.mqlSql)}`).join(' ')}/>
+                          <polyline fill="none" stroke={C.amber} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round"
+                            points={points.map((p,i)=>`${n>1?i/(n-1)*100:50}%,${yPos(p.sqlSqo)}`).join(' ')}/>
+                        </svg>
                         {/* Data points + labels */}
-                        {chartRows.map((r,i)=>{
-                          const x=i*100/(chartRows.length-1)*90+5
-                          const mqlSql=r.mqls>0?Math.round(r.sqls/r.mqls*100):0
-                          const sqlSqo=r.sqls>0?Math.round(r.sqos/r.sqls*100):0
-                          const y1=150-mqlSql/100*140
-                          const y2=150-sqlSqo/100*140
+                        {points.map((p,i)=>{
+                          const xPct=n>1?i/(n-1)*100:50
                           return (
-                            <g key={i}>
-                              <circle cx={x} cy={y1} r="3.5" fill={C.green}/>
-                              <text x={x} y={y1-8} textAnchor="middle" style={{fontSize:'8px',fill:C.green,fontWeight:700}}>{mqlSql}%</text>
-                              <circle cx={x} cy={y2} r="3.5" fill={C.amber}/>
-                              <text x={x} y={y2>y1?y2+14:y2-8} textAnchor="middle" style={{fontSize:'8px',fill:C.amber,fontWeight:700}}>{sqlSqo}%</text>
-                              <text x={x} y={158} textAnchor="middle" style={{fontSize:'7px',fill:C.text3}}>{r.label}</text>
-                            </g>
+                            <React.Fragment key={i}>
+                              {/* MQL→SQL dot + label */}
+                              <div style={{position:'absolute',left:`${xPct}%`,top:yPos(p.mqlSql),transform:'translate(-50%,-50%)',width:7,height:7,borderRadius:'50%',background:C.green,zIndex:2}}/>
+                              <div style={{position:'absolute',left:`${xPct}%`,top:yPos(p.mqlSql)-14,transform:'translateX(-50%)',fontSize:9,fontWeight:700,color:C.green,whiteSpace:'nowrap',zIndex:2}}>{p.mqlSql}%</div>
+                              {/* SQL→SQO dot + label */}
+                              <div style={{position:'absolute',left:`${xPct}%`,top:yPos(p.sqlSqo),transform:'translate(-50%,-50%)',width:7,height:7,borderRadius:'50%',background:C.amber,zIndex:2}}/>
+                              <div style={{position:'absolute',left:`${xPct}%`,top:Math.abs(yPos(p.sqlSqo)-yPos(p.mqlSql))<18?yPos(p.sqlSqo)+10:yPos(p.sqlSqo)-14,transform:'translateX(-50%)',fontSize:9,fontWeight:700,color:C.amber,whiteSpace:'nowrap',zIndex:2}}>{p.sqlSqo}%</div>
+                              {/* X label */}
+                              <div style={{position:'absolute',left:`${xPct}%`,top:chartH+6,transform:'translateX(-50%)',fontSize:8,color:C.text3,whiteSpace:'nowrap'}}>{p.label}</div>
+                            </React.Fragment>
                           )
                         })}
-                      </svg>
+                      </div>
+                      <div style={{display:'flex',gap:12,marginTop:4,justifyContent:'center'}}>
+                        <div style={{display:'flex',alignItems:'center',gap:3}}><span style={{width:12,height:2.5,borderRadius:1,background:C.green}}/><span style={{fontSize:9,color:C.text3}}>MQL→SQL %</span></div>
+                        <div style={{display:'flex',alignItems:'center',gap:3}}><span style={{width:12,height:2.5,borderRadius:1,background:C.amber}}/><span style={{fontSize:9,color:C.text3}}>SQL→SQO %</span></div>
+                      </div>
                     </div>
-                    <div style={{display:'flex',gap:12,marginTop:4,justifyContent:'center'}}>
-                      <div style={{display:'flex',alignItems:'center',gap:3}}><span style={{width:12,height:2.5,borderRadius:1,background:C.green}}/><span style={{fontSize:9,color:C.text3}}>MQL→SQL %</span></div>
-                      <div style={{display:'flex',alignItems:'center',gap:3}}><span style={{width:12,height:2.5,borderRadius:1,background:C.amber}}/><span style={{fontSize:9,color:C.text3}}>SQL→SQO %</span></div>
-                    </div>
-                  </div>
-                )}
+                  )
+                })()}
 
                 {/* Conversion detail table */}
                 {convCompare&&<div style={{fontSize:10,color:C.text3,marginBottom:6}}>Comparing each period against {compLabel}. <span style={{color:C.green}}>Green ↑ = improving</span> · <span style={{color:C.red}}>Red ↓ = declining</span>. For avg days, lower is better.</div>}
@@ -3362,6 +3371,112 @@ export default function Dashboard() {
                     </tbody>
                   </table>
                 </div>
+
+                {/* Velocity & Success Metrics */}
+                {(()=>{
+                  // Collect velocity data from leads with actual dates
+                  const mqlToSqlDays:number[]=[]
+                  const sqlToSqoDays:number[]=[]
+                  const mqlToSqoDays:number[]=[]
+                  // Same for current month and previous month
+                  const now2=new Date()
+                  const curMk=`${now2.getFullYear()}-${String(now2.getMonth()+1).padStart(2,'0')}`
+                  const prevMk=(()=>{const d=new Date(now2.getFullYear(),now2.getMonth()-1,1);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`})()
+                  const curMqlSql:number[]=[];const prevMqlSql:number[]=[]
+                  const curSqlSqo:number[]=[];const prevSqlSqo:number[]=[]
+
+                  entries.forEach(e=>{
+                    if(e.mqlToSql!==null){
+                      mqlToSqlDays.push(e.mqlToSql)
+                      const mk=e.sqlDate?`${new Date(e.sqlDate).getFullYear()}-${String(new Date(e.sqlDate).getMonth()+1).padStart(2,'0')}`:''
+                      if(mk===curMk) curMqlSql.push(e.mqlToSql)
+                      if(mk===prevMk) prevMqlSql.push(e.mqlToSql)
+                    }
+                    if(e.sqlToSqo!==null){
+                      sqlToSqoDays.push(e.sqlToSqo)
+                      const mk=e.sqoDate?`${new Date(e.sqoDate).getFullYear()}-${String(new Date(e.sqoDate).getMonth()+1).padStart(2,'0')}`:''
+                      if(mk===curMk) curSqlSqo.push(e.sqlToSqo)
+                      if(mk===prevMk) prevSqlSqo.push(e.sqlToSqo)
+                    }
+                    if(e.mqlToSql!==null&&e.sqlToSqo!==null) mqlToSqoDays.push(e.mqlToSql+e.sqlToSqo)
+                  })
+
+                  const avg=(arr:number[])=>arr.length?Math.round(arr.reduce((s,n)=>s+n,0)/arr.length):null
+                  const median=(arr:number[])=>{if(!arr.length)return null;const s=[...arr].sort((a,b)=>a-b);const m=Math.floor(s.length/2);return s.length%2?s[m]:Math.round((s[m-1]+s[m])/2)}
+                  // Velocity delta: lower is better → green for decrease
+                  const velDelta=(cur:number[]|null,prev:number[]|null)=>{
+                    const c=cur&&cur.length?avg(cur):null;const p=prev&&prev.length?avg(prev):null
+                    if(c===null||p===null)return null
+                    const d=c-p;return {d,color:d<0?C.green:d>0?C.red:C.text3,arrow:d<0?'↑ faster':d>0?'↓ slower':'→ same'}
+                  }
+                  const mqlSqlVel=velDelta(curMqlSql,prevMqlSql)
+                  const sqlSqoVel=velDelta(curSqlSqo,prevSqlSqo)
+
+                  // Win rate: SQOs that became Closed-Won / total SQOs
+                  const sqoLeadsAll=entries.filter(e=>e.isSqo)
+                  const wonCount=sqoLeadsAll.filter(e=>{const st=statuses[e.email]||'new';return (details[e.email]?.closedWon||'')==='Yes'||st==='closedwon'}).length
+                  const winRate=sqoLeadsAll.length>0?Math.round(wonCount/sqoLeadsAll.length*100):0
+
+                  // Drop-off rate: Lost + DQ / total leads
+                  const dropCount=entries.filter(e=>{const st=statuses[e.email]||'new';return st==='lost'||st==='dq'}).length
+                  const dropRate=entries.length>0?Math.round(dropCount/entries.length*100):0
+
+                  return (
+                    <div style={{marginTop:16}}>
+                      <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:10}}>Velocity & Success Metrics</div>
+                      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10}}>
+                        {/* MQL→SQL velocity */}
+                        <div style={{background:C.surface3,borderRadius:8,padding:'10px 12px',border:`1px solid ${C.border}`}}>
+                          <div style={{fontSize:9,fontWeight:700,color:C.text3,textTransform:'uppercase',marginBottom:6}}>MQL → SQL</div>
+                          <div style={{display:'flex',alignItems:'baseline',gap:6}}>
+                            <span style={{fontSize:18,fontWeight:800,color:C.green}}>{avg(mqlToSqlDays)!==null?`${avg(mqlToSqlDays)}d`:'—'}</span>
+                            <span style={{fontSize:10,color:C.text3}}>avg</span>
+                          </div>
+                          <div style={{fontSize:10,color:C.text2,marginTop:2}}>Median: {median(mqlToSqlDays)!==null?`${median(mqlToSqlDays)}d`:'—'}</div>
+                          {mqlSqlVel&&<div style={{fontSize:9,color:mqlSqlVel.color,fontWeight:600,marginTop:4}}>{mqlSqlVel.arrow} vs prev month ({Math.abs(mqlSqlVel.d)}d)</div>}
+                          <div style={{fontSize:9,color:C.text3,marginTop:2}}>{mqlToSqlDays.length} leads measured</div>
+                        </div>
+                        {/* SQL→SQO velocity */}
+                        <div style={{background:C.surface3,borderRadius:8,padding:'10px 12px',border:`1px solid ${C.border}`}}>
+                          <div style={{fontSize:9,fontWeight:700,color:C.text3,textTransform:'uppercase',marginBottom:6}}>SQL → SQO</div>
+                          <div style={{display:'flex',alignItems:'baseline',gap:6}}>
+                            <span style={{fontSize:18,fontWeight:800,color:C.amber}}>{avg(sqlToSqoDays)!==null?`${avg(sqlToSqoDays)}d`:'—'}</span>
+                            <span style={{fontSize:10,color:C.text3}}>avg</span>
+                          </div>
+                          <div style={{fontSize:10,color:C.text2,marginTop:2}}>Median: {median(sqlToSqoDays)!==null?`${median(sqlToSqoDays)}d`:'—'}</div>
+                          {sqlSqoVel&&<div style={{fontSize:9,color:sqlSqoVel.color,fontWeight:600,marginTop:4}}>{sqlSqoVel.arrow} vs prev month ({Math.abs(sqlSqoVel.d)}d)</div>}
+                          <div style={{fontSize:9,color:C.text3,marginTop:2}}>{sqlToSqoDays.length} leads measured</div>
+                        </div>
+                        {/* Full funnel velocity */}
+                        <div style={{background:C.surface3,borderRadius:8,padding:'10px 12px',border:`1px solid ${C.border}`}}>
+                          <div style={{fontSize:9,fontWeight:700,color:C.text3,textTransform:'uppercase',marginBottom:6}}>MQL → SQO (full)</div>
+                          <div style={{display:'flex',alignItems:'baseline',gap:6}}>
+                            <span style={{fontSize:18,fontWeight:800,color:'#e879f9'}}>{avg(mqlToSqoDays)!==null?`${avg(mqlToSqoDays)}d`:'—'}</span>
+                            <span style={{fontSize:10,color:C.text3}}>avg</span>
+                          </div>
+                          <div style={{fontSize:10,color:C.text2,marginTop:2}}>Median: {median(mqlToSqoDays)!==null?`${median(mqlToSqoDays)}d`:'—'}</div>
+                          <div style={{fontSize:9,color:C.text3,marginTop:4}}>{mqlToSqoDays.length} leads measured</div>
+                        </div>
+                        {/* Win rate + Drop-off */}
+                        <div style={{background:C.surface3,borderRadius:8,padding:'10px 12px',border:`1px solid ${C.border}`}}>
+                          <div style={{fontSize:9,fontWeight:700,color:C.text3,textTransform:'uppercase',marginBottom:6}}>Outcomes</div>
+                          <div style={{display:'flex',alignItems:'baseline',gap:6}}>
+                            <span style={{fontSize:18,fontWeight:800,color:C.green}}>{winRate}%</span>
+                            <span style={{fontSize:10,color:C.text3}}>win rate</span>
+                          </div>
+                          <div style={{fontSize:10,color:C.text2,marginTop:2}}>{wonCount} won / {sqoLeadsAll.length} SQOs</div>
+                          <div style={{borderTop:`1px solid ${C.border}`,marginTop:6,paddingTop:6}}>
+                            <div style={{display:'flex',alignItems:'baseline',gap:6}}>
+                              <span style={{fontSize:14,fontWeight:800,color:C.red}}>{dropRate}%</span>
+                              <span style={{fontSize:10,color:C.text3}}>drop-off</span>
+                            </div>
+                            <div style={{fontSize:9,color:C.text3,marginTop:1}}>{dropCount} lost/DQ of {entries.length} leads</div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })()}
               </div>
             )
           })()}
