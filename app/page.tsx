@@ -23,11 +23,13 @@ type DashView = 'pipeline' | 'analytics' | 'reporting' | 'commissions' | 'leader
 interface UserCredential { email:string; password:string; role:UserRole; name:string; allowedViews:DashView[]|'all' }
 const USER_CREDENTIALS: UserCredential[] = [
   { email:'jonathankim@qawolf.com', password:'johnnywolfpack2026', role:'manager', name:'Jonathan Kim', allowedViews:'all' },
-  { email:'scott@qawolf.com',       password:'ScottQAW2026',       role:'cmo',     name:'Scott Wilson', allowedViews:'all' },
+  { email:'scott@qawolf.com',       password:'ScottQAW2026',       role:'cmo',     name:'Scott Wilson', allowedViews:['pipeline','analytics','reporting','leaderboard','revops_commissions'] },
   { email:'arnav@qawolf.com',       password:'PMLQAW2026',         role:'perf_marketing', name:'Arnav Shome', allowedViews:['revops_commissions'] },
   { email:'meenal@qawolf.com',      password:'RevOpsQAW#123',      role:'revops',  name:'Meenal Gupta', allowedViews:['revops_commissions'] },
 ]
-const MANAGER_ROLES: UserRole[] = ['manager','cmo'] // full access roles that can edit reps, data, etc.
+const MANAGER_ROLES: UserRole[] = ['manager','cmo'] // full access roles that can edit reps, manage pipeline, etc.
+// BDM-only: commission adjustments, cap attainment, manager commission view
+const isBdmEmail=(email?:string):boolean=>email==='jonathankim@qawolf.com'
 
 type AuthState = { role: UserRole; email?: string; allowedViews: DashView[]|'all' } | { role: 'rep'; repId: string; allowedViews: DashView[]|'all' } | null
 
@@ -1443,6 +1445,7 @@ export default function Dashboard() {
   },[])
 
   const isManagerRole=(a:AuthState):boolean=>!!a&&'role' in a&&MANAGER_ROLES.includes(a.role as UserRole)
+  const isBdm=auth&&'email' in auth&&isBdmEmail(auth.email)
   const canView=(v:DashView):boolean=>{
     if (!auth) return false
     if (!('allowedViews' in auth) || !auth.allowedViews || auth.allowedViews==='all') return true
@@ -4104,7 +4107,7 @@ export default function Dashboard() {
 
           // Determine which data to show based on rep filter
           // For non-manager roles, always show their own data
-          const effectiveRepFilter = isManagerRole(auth) ? commRepFilter : (currentRep?.id || 'all')
+          const effectiveRepFilter = isBdm ? commRepFilter : (currentRep?.id || 'all')
           const commData = effectiveRepFilter === 'all'
             ? buildRepCommissions(allLeadsUnfilteredComm, true) // "All" uses overrides since Jonathan's data dominates
             : (() => {
@@ -4116,23 +4119,23 @@ export default function Dashboard() {
           const currentMonthAdj = getMonthAdj(currentMonthKey, adjRepId)
 
           // For manager view: use perRepCommData
-          const managerRepData = isManagerRole(auth) ? perRepCommData : []
+          const managerRepData = isBdm ? perRepCommData : []
 
           return (<>
-          <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:16,marginBottom:isManagerRole(auth)?12:28}}>
+          <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:16,marginBottom:isBdm?12:28}}>
             <div>
               <div style={{fontSize:26,fontWeight:800,letterSpacing:'-0.02em',lineHeight:1.15}}>Commissions<br/><span style={{color:C.green}}>Tracker.</span></div>
               <div style={{fontSize:12,color:C.text3,marginTop:4}}>ICP meeting bonuses · SQL payouts · accelerators</div>
             </div>
-            {isManagerRole(auth)&&(
+            {isBdm&&(
               <button onClick={()=>{setEditingAdj({id:`adj-${Date.now()}`,repId:effectiveRepFilter==='all'?'all':effectiveRepFilter,month:currentMonthKey,amount:0,reason:'',createdAt:new Date().toISOString()});setShowAdjModal(true)}} style={{fontSize:11,fontWeight:700,padding:'8px 14px',borderRadius:8,border:`1px solid ${C.border2}`,background:C.surface,color:C.text2,cursor:'pointer'}}>
                 ± Adjust Commission
               </button>
             )}
           </div>
 
-          {/* ── Rep filter (manager only) ── */}
-          {isManagerRole(auth)&&(
+          {/* ── Rep filter (BDM only) ── */}
+          {isBdm&&(
             <div style={{display:'flex',gap:5,marginBottom:16,flexWrap:'wrap'}}>
               <button onClick={()=>setCommRepFilter('all')} style={filterPill(commRepFilter==='all','#60d4f4')}>All Reps</button>
               {reps.filter(r=>r.slackId).map(r=>(
@@ -4154,7 +4157,7 @@ export default function Dashboard() {
           )}
 
           {/* ── Undo history (persistent) ── */}
-          {isManagerRole(auth)&&adjUndoStack.length>0&&!adjUndoMsg&&(
+          {isBdm&&adjUndoStack.length>0&&!adjUndoMsg&&(
             <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12}}>
               <button onClick={undoAdj} style={{fontSize:10,fontWeight:600,padding:'4px 10px',borderRadius:5,border:`1px solid ${C.border2}`,background:'transparent',color:C.text3,cursor:'pointer'}}>
                 ↩ Undo last change ({adjUndoStack.length} in history)
@@ -4564,8 +4567,8 @@ export default function Dashboard() {
             </table>
           </div>
 
-          {/* ── YTD Totals ── */}
-          <div style={{...card,marginBottom:20}}>
+          {/* ── YTD Totals — BDM only ── */}
+          {isBdm&&<div style={{...card,marginBottom:20}}>
             <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:14}}>Year-to-Date · {now.getFullYear()}</div>
             <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12}}>
               <div style={{background:C.surface3,border:`1px solid ${C.border}`,borderRadius:10,padding:14}}>
@@ -4610,10 +4613,10 @@ export default function Dashboard() {
                 </div>
               })()}
             </div>
-          </div>
+          </div>}
 
-          {/* ── Manager View: All Reps Comparison ── */}
-          {isManagerRole(auth)&&(
+          {/* ── Manager View: All Reps Comparison — BDM only ── */}
+          {isBdm&&(
             <div style={{...card,marginBottom:20}}>
               <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:14}}>Manager View · All Reps</div>
               <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
@@ -4649,7 +4652,7 @@ export default function Dashboard() {
           )}
 
           {/* ── Adjustments Log ── */}
-          {isManagerRole(auth)&&commAdjustments.length>0&&(
+          {isBdm&&commAdjustments.length>0&&(
             <div style={{...card,marginBottom:20}}>
               <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:14}}>Commission Adjustments</div>
               <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
@@ -4687,7 +4690,7 @@ export default function Dashboard() {
           )}
 
           {/* ── Adjustment Modal ── */}
-          {showAdjModal&&isManagerRole(auth)&&editingAdj&&(
+          {showAdjModal&&isBdm&&editingAdj&&(
             <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',zIndex:200,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={()=>{setShowAdjModal(false);setEditingAdj(null)}}>
               <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,padding:28,width:400}} onClick={e=>e.stopPropagation()}>
                 <div style={{fontSize:16,fontWeight:800,marginBottom:20}}>Commission Adjustment</div>
