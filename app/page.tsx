@@ -3977,7 +3977,7 @@ export default function Dashboard() {
           )}
 
           {/* ── Compensation Tracker — Jonathan Kim only ── */}
-          {currentRep?.id==='jonathan'&&(()=>{
+          {currentRep?.id==='jonathan'&&auth&&'email' in auth&&auth.email==='jonathankim@qawolf.com'&&(()=>{
             // ── Comp plan constants ──────────────────────────────────────────────
             // Jonathan was promoted from SDR to BDM on Feb 18, 2026.
             // Pre-promotion (Jan 2026): $80K base, $40K variable, $120K OTE
