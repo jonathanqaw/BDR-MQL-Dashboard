@@ -3808,7 +3808,7 @@ export default function Dashboard() {
             })(),
           }
 
-          const buildRepCommissions = (repLeads: AppLead[]) => {
+          const buildRepCommissions = (repLeads: AppLead[], useOverrides = true) => {
             // Gather all meeting events and SQL events with their months
             const meetingEvents: { email: string; account: string; month: string; date: string }[] = []
             const sqlEvents: { email: string; account: string; month: string; date: string }[] = []
@@ -3839,13 +3839,12 @@ export default function Dashboard() {
             const allMonthKeys = new Set<string>()
             meetingEvents.forEach(e => allMonthKeys.add(e.month))
             sqlEvents.forEach(e => allMonthKeys.add(e.month))
-            Object.keys(COMMISSION_OVERRIDES).forEach(k => allMonthKeys.add(k))
+            if (useOverrides) Object.keys(COMMISSION_OVERRIDES).forEach(k => allMonthKeys.add(k))
             const sortedMonths = Array.from(allMonthKeys).sort()
 
-            // Build monthly breakdown — use overrides for frozen months
+            // Build monthly breakdown — use overrides for frozen months (only when useOverrides is true)
             const months: CommissionMonth[] = sortedMonths.map(mk => {
-              // If this month has a frozen override, use it directly
-              if (COMMISSION_OVERRIDES[mk]) return COMMISSION_OVERRIDES[mk]
+              if (useOverrides && COMMISSION_OVERRIDES[mk]) return COMMISSION_OVERRIDES[mk]
 
               const mMeetings = meetingEvents.filter(e => e.month === mk)
               const mSqls = sqlEvents.filter(e => e.month === mk)
@@ -3927,7 +3926,7 @@ export default function Dashboard() {
           const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`
 
           // Build for current rep
-          const commData = buildRepCommissions(allLeads)
+          const commData = buildRepCommissions(allLeads, currentRep?.id === 'jonathan')
           const currentMonth = commData.months.find(m => m.key === currentMonthKey)
           const currentMonthAdj = getMonthAdj(currentMonthKey, currentRep?.id)
 
@@ -3936,7 +3935,7 @@ export default function Dashboard() {
             const repLeads = rep.id === 'jonathan'
               ? allLeads
               : allLeads.filter(l => l.repSlackId && l.repSlackId === rep.slackId)
-            const data = buildRepCommissions(repLeads)
+            const data = buildRepCommissions(repLeads, rep.id === 'jonathan')
             return { rep, ...data }
           }) : []
 
