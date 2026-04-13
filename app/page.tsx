@@ -1605,6 +1605,8 @@ export default function Dashboard() {
   const [commRepFilter,setCommRepFilter]=useState('all')
   const [sqoTimeSeg,setSqoTimeSeg]=useState<'year'|'quarter'|'month'|'week'>('quarter')
   const [sqoExpandedAcct,setSqoExpandedAcct]=useState<string|null>(null)
+  const [convSeg,setConvSeg]=useState<'year'|'quarter'|'month'|'week'>('month')
+  const [convCompare,setConvCompare]=useState(false)
   const [spiffs,setSpiffs]=useState<Spiff[]>([])
   const [showSpiffModal,setShowSpiffModal]=useState(false)
   const [editingSpiff,setEditingSpiff]=useState<Spiff|null>(null)
@@ -3157,6 +3159,195 @@ export default function Dashboard() {
               </div>
             </div>
           </div>
+
+          {/* ── MQL → SQL → SQO Conversion Funnel ── */}
+          {(()=>{
+            // Segment helpers
+            const segKey=(dateStr:string):string=>{
+              if(!dateStr)return '';const d=new Date(dateStr);if(isNaN(d.getTime()))return ''
+              if(convSeg==='year')return String(d.getFullYear())
+              if(convSeg==='quarter')return `Q${Math.floor(d.getMonth()/3)+1} ${d.getFullYear()}`
+              if(convSeg==='month')return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
+              const ws=new Date(d);ws.setDate(d.getDate()-d.getDay());return ws.toISOString().split('T')[0]
+            }
+            const segLabel=(k:string):string=>{
+              if(convSeg==='year')return k
+              if(convSeg==='quarter')return k
+              if(convSeg==='month'){const [y,m]=k.split('-').map(Number);return new Date(y,m-1).toLocaleString('en-US',{month:'short',year:'2-digit'})}
+              return `Wk ${new Date(k).toLocaleDateString('en-US',{month:'short',day:'numeric'})}`
+            }
+
+            // Gather all leads with their stage dates
+            // MQL date = receivedAt or date (when the lead entered the system)
+            // SQL date = details.sqlDate (when sqlDq = Yes)
+            // SQO date = details.sqoDate (when sqo = Yes)
+            const entries=allLeads.map(l=>{
+              const det=details[l.email]||EMPTY_DETAIL
+              const mqlDate=l.date||l.receivedAt||''
+              const sqlDate=((det.sqlDq||'').toLowerCase()==='yes')?det.sqlDate:'';
+              const sqoDate=((det.sqo||'').toLowerCase()==='yes')?det.sqoDate:''
+              const isSql=!!sqlDate
+              const isSqo=!!sqoDate
+              // Avg days calculations
+              const mqlToSql=mqlDate&&sqlDate?Math.max(0,Math.round((new Date(sqlDate).getTime()-new Date(mqlDate).getTime())/864e5)):null
+              const sqlToSqo=sqlDate&&sqoDate?Math.max(0,Math.round((new Date(sqoDate).getTime()-new Date(sqlDate).getTime())/864e5)):null
+              return {email:l.email,mqlDate,sqlDate,sqoDate,isSql,isSqo,mqlToSql,sqlToSqo,
+                account:nameOverrides[l.email]||l.account||formatDomain(l.domain)||l.email}
+            })
+
+            // Build period rows
+            type ConvRow={key:string;label:string;mqls:number;sqls:number;sqos:number;mqlToSqlDays:number[];sqlToSqoDays:number[];leads:typeof entries}
+            const rowMap=new Map<string,ConvRow>()
+            entries.forEach(e=>{
+              const k=segKey(e.mqlDate);if(!k)return
+              if(!rowMap.has(k))rowMap.set(k,{key:k,label:segLabel(k),mqls:0,sqls:0,sqos:0,mqlToSqlDays:[],sqlToSqoDays:[],leads:[]})
+              const r=rowMap.get(k)!;r.mqls++;r.leads.push(e)
+              if(e.isSql){r.sqls++;if(e.mqlToSql!==null)r.mqlToSqlDays.push(e.mqlToSql)}
+              if(e.isSqo){r.sqos++;if(e.sqlToSqo!==null)r.sqlToSqoDays.push(e.sqlToSqo)}
+            })
+            const rows=Array.from(rowMap.values()).sort((a,b)=>b.key.localeCompare(a.key))
+
+            // Totals
+            const totalMqls=entries.length
+            const totalSqls=entries.filter(e=>e.isSql).length
+            const totalSqos=entries.filter(e=>e.isSqo).length
+            const mqlToSqlRate=totalMqls>0?Math.round(totalSqls/totalMqls*100):0
+            const sqlToSqoRate=totalSqls>0?Math.round(totalSqos/totalSqls*100):0
+            const mqlToSqoRate=totalMqls>0?Math.round(totalSqos/totalMqls*100):0
+            const avgDays=(arr:number[])=>arr.length>0?Math.round(arr.reduce((s,n)=>s+n,0)/arr.length):null
+
+            // Previous period comparison (shift each row back by one segment)
+            const getPrevKey=(k:string):string=>{
+              if(convSeg==='year')return String(Number(k)-1)
+              if(convSeg==='quarter'){const m=k.match(/Q(\d) (\d+)/);if(!m)return '';const q=Number(m[1]),y=Number(m[2]);return q===1?`Q4 ${y-1}`:`Q${q-1} ${y}`}
+              if(convSeg==='month'){const [y,mo]=k.split('-').map(Number);const d=new Date(y,mo-2,1);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`}
+              const d=new Date(k);d.setDate(d.getDate()-7);return d.toISOString().split('T')[0]
+            }
+
+            // For the conversion-over-time chart, use up to 8 most recent periods
+            const chartRows=rows.slice(0,8).reverse()
+            const maxRate=Math.max(1,...chartRows.flatMap(r=>[r.mqls>0?r.sqls/r.mqls*100:0,r.sqls>0?r.sqos/r.sqls*100:0]))
+
+            return (
+              <div style={{...card,marginBottom:24}}>
+                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14,flexWrap:'wrap',gap:8}}>
+                  <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em'}}>MQL → SQL → SQO Conversion</div>
+                  <div style={{display:'flex',gap:5,alignItems:'center'}}>
+                    {(['year','quarter','month','week'] as const).map(s=>(
+                      <button key={s} onClick={()=>setConvSeg(s)} style={filterPill(convSeg===s)}>{s.charAt(0).toUpperCase()+s.slice(1)}</button>
+                    ))}
+                    <button onClick={()=>setConvCompare(!convCompare)} style={{...filterPill(convCompare,C.amber),fontSize:10,marginLeft:4}}>
+                      {convCompare?'✕ Compare':'⇄ Compare'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Summary cards */}
+                <div style={{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:10,marginBottom:18}}>
+                  {[
+                    {label:'MQLs',value:totalMqls,color:C.text,sub:'all leads'},
+                    {label:'SQLs',value:totalSqls,color:'#60d4f4',sub:'qualified'},
+                    {label:'SQOs',value:totalSqos,color:'#c084fc',sub:'opportunities'},
+                    {label:'MQL→SQL',value:`${mqlToSqlRate}%`,color:C.green,sub:`${totalSqls} of ${totalMqls}`},
+                    {label:'SQL→SQO',value:`${sqlToSqoRate}%`,color:C.amber,sub:`${totalSqos} of ${totalSqls}`},
+                    {label:'MQL→SQO',value:`${mqlToSqoRate}%`,color:'#e879f9',sub:'full funnel'},
+                  ].map(s=>(
+                    <div key={s.label} style={{background:C.surface3,border:`1px solid ${C.border}`,borderRadius:8,padding:'10px 12px'}}>
+                      <div style={{fontSize:9,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:6}}>{s.label}</div>
+                      <div style={{fontSize:20,fontWeight:800,color:s.color}}>{s.value}</div>
+                      <div style={{fontSize:9,color:C.text3,marginTop:3}}>{s.sub}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Funnel visualization */}
+                <div style={{display:'flex',alignItems:'center',gap:4,marginBottom:18,padding:'12px 0'}}>
+                  {[
+                    {label:'MQL',count:totalMqls,pct:100,color:C.text2},
+                    {label:'SQL',count:totalSqls,pct:mqlToSqlRate,color:'#60d4f4'},
+                    {label:'SQO',count:totalSqos,pct:mqlToSqoRate,color:'#c084fc'},
+                  ].map((stage,i)=>(
+                    <React.Fragment key={stage.label}>
+                      {i>0&&<div style={{fontSize:16,color:C.text3,padding:'0 4px'}}>→</div>}
+                      <div style={{flex:Math.max(stage.pct,15),background:`${stage.color}18`,border:`1px solid ${stage.color}40`,borderRadius:8,padding:'10px 14px',textAlign:'center',transition:'flex 0.3s'}}>
+                        <div style={{fontSize:18,fontWeight:800,color:stage.color}}>{stage.count}</div>
+                        <div style={{fontSize:10,fontWeight:700,color:stage.color}}>{stage.label}</div>
+                        <div style={{fontSize:9,color:C.text3}}>{stage.pct}%</div>
+                      </div>
+                    </React.Fragment>
+                  ))}
+                </div>
+
+                {/* Conversion over time chart */}
+                {chartRows.length>1&&(
+                  <div style={{marginBottom:18}}>
+                    <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:10}}>Conversion Rate Over Time</div>
+                    <div style={{display:'flex',gap:3,alignItems:'flex-end',height:100}}>
+                      {chartRows.map((r,i)=>{
+                        const mqlSql=r.mqls>0?r.sqls/r.mqls*100:0
+                        const sqlSqo=r.sqls>0?r.sqos/r.sqls*100:0
+                        return (
+                          <div key={i} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:2,height:'100%',justifyContent:'flex-end'}}>
+                            <div style={{display:'flex',gap:2,alignItems:'flex-end',width:'100%',justifyContent:'center'}}>
+                              <div style={{width:'35%',height:`${mqlSql/Math.max(maxRate,1)*90}%`,background:C.green,borderRadius:'2px 2px 0 0',minHeight:mqlSql>0?3:1}}/>
+                              <div style={{width:'35%',height:`${sqlSqo/Math.max(maxRate,1)*90}%`,background:C.amber,borderRadius:'2px 2px 0 0',minHeight:sqlSqo>0?3:1}}/>
+                            </div>
+                            <div style={{fontSize:7,color:C.text3,whiteSpace:'nowrap'}}>{r.label}</div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                    <div style={{display:'flex',gap:12,marginTop:6,justifyContent:'center'}}>
+                      <div style={{display:'flex',alignItems:'center',gap:3}}><span style={{width:8,height:8,borderRadius:2,background:C.green}}/><span style={{fontSize:9,color:C.text3}}>MQL→SQL %</span></div>
+                      <div style={{display:'flex',alignItems:'center',gap:3}}><span style={{width:8,height:8,borderRadius:2,background:C.amber}}/><span style={{fontSize:9,color:C.text3}}>SQL→SQO %</span></div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Conversion detail table */}
+                <div style={{overflowX:'auto'}}>
+                  <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
+                    <thead>
+                      <tr style={{borderBottom:`2px solid ${C.border2}`}}>
+                        {['Period','MQLs','SQLs','MQL→SQL','SQOs','SQL→SQO','MQL→SQO','Avg MQL→SQL','Avg SQL→SQO'].map(h=>(
+                          <th key={h} style={{padding:'7px 8px',textAlign:h==='Period'?'left':'right',fontSize:9,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',whiteSpace:'nowrap'}}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map(r=>{
+                        const ms=r.mqls>0?Math.round(r.sqls/r.mqls*100):0
+                        const ss=r.sqls>0?Math.round(r.sqos/r.sqls*100):0
+                        const full=r.mqls>0?Math.round(r.sqos/r.mqls*100):0
+                        const avgMs=avgDays(r.mqlToSqlDays)
+                        const avgSs=avgDays(r.sqlToSqoDays)
+                        // Comparison
+                        const prevRow=convCompare?rowMap.get(getPrevKey(r.key)):null
+                        const prevMs=prevRow&&prevRow.mqls>0?Math.round(prevRow.sqls/prevRow.mqls*100):null
+                        const prevSs=prevRow&&prevRow.sqls>0?Math.round(prevRow.sqos/prevRow.sqls*100):null
+                        const delta=(cur:number,prev:number|null)=>{if(prev===null)return null;const d=cur-prev;return {d,color:d>0?C.green:d<0?C.red:C.text3,arrow:d>0?'↑':d<0?'↓':'→'}}
+                        const msD=delta(ms,prevMs)
+                        const ssD=delta(ss,prevSs)
+                        return (
+                          <tr key={r.key} style={{borderBottom:`1px solid ${C.border}`}}>
+                            <td style={{padding:'7px 8px',fontWeight:600,color:C.text}}>{r.label}</td>
+                            <td style={{padding:'7px 8px',textAlign:'right',color:C.text}}>{r.mqls}</td>
+                            <td style={{padding:'7px 8px',textAlign:'right',color:'#60d4f4'}}>{r.sqls}</td>
+                            <td style={{padding:'7px 8px',textAlign:'right',fontWeight:700,color:C.green}}>{ms}%{msD&&<span style={{fontSize:8,color:msD.color,marginLeft:3}}>{msD.arrow}{Math.abs(msD.d)}</span>}</td>
+                            <td style={{padding:'7px 8px',textAlign:'right',color:'#c084fc'}}>{r.sqos}</td>
+                            <td style={{padding:'7px 8px',textAlign:'right',fontWeight:700,color:C.amber}}>{ss}%{ssD&&<span style={{fontSize:8,color:ssD.color,marginLeft:3}}>{ssD.arrow}{Math.abs(ssD.d)}</span>}</td>
+                            <td style={{padding:'7px 8px',textAlign:'right',color:'#e879f9'}}>{full}%</td>
+                            <td style={{padding:'7px 8px',textAlign:'right',color:avgMs!==null?C.text2:C.text3}}>{avgMs!==null?`${avgMs}d`:'—'}</td>
+                            <td style={{padding:'7px 8px',textAlign:'right',color:avgSs!==null?C.text2:C.text3}}>{avgSs!==null?`${avgSs}d`:'—'}</td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )
+          })()}
 
           {/* SQO & Closed-Won ACV — donuts + time filter + drill-down */}
           {(()=>{
