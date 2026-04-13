@@ -1596,6 +1596,9 @@ export default function Dashboard() {
   const [editingAdj,setEditingAdj]=useState<{id:string;repId:string;month:string;amount:number;reason:string;createdAt:string}|null>(null)
   const [adjUndoStack,setAdjUndoStack]=useState<{snapshot:typeof commAdjustments;label:string}[]>([])
   const [adjUndoMsg,setAdjUndoMsg]=useState<string|null>(null)
+  const [compPeriod,setCompPeriod]=useState<'comp_change'|'ytd'|'quarter'|'month'|'custom'>('comp_change')
+  const [compFrom,setCompFrom]=useState('')
+  const [compTo,setCompTo]=useState('')
   const [spiffs,setSpiffs]=useState<Spiff[]>([])
   const [showSpiffModal,setShowSpiffModal]=useState(false)
   const [editingSpiff,setEditingSpiff]=useState<Spiff|null>(null)
@@ -3973,123 +3976,222 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* ── Tracker to Goal — Jonathan Kim only ── */}
+          {/* ── Compensation Tracker — Jonathan Kim only ── */}
           {currentRep?.id==='jonathan'&&(()=>{
-            const yr=now.getFullYear()
-            const currentMo=now.getMonth() // 0-indexed
-            // Months elapsed this year (1-indexed count through current month)
-            const monthsElapsed=currentMo+1
-
-            // Comp structure: Jan 2026 = SDR, Feb 2026+ = BDM
-            const SDR_BASE_MONTHLY=6667
-            const BDM_BASE_MONTHLY=10000
-            const SDR_OTE_ANNUAL=120000
-            const BDM_OTE_ANNUAL=150000
-            const SDR_VARIABLE_ANNUAL=40000
+            // ── Comp plan constants ──────────────────────────────────────────────
+            // Jonathan was promoted from SDR to BDM on Feb 18, 2026.
+            // Pre-promotion (Jan 2026): $80K base, $40K variable, $120K OTE
+            // Post-promotion (Feb 18, 2026+): $120K base, $30K variable, $150K OTE
+            const COMP_CHANGE_DATE=new Date(2026,1,18) // Feb 18, 2026
+            const BDM_BASE_ANNUAL=120000
             const BDM_VARIABLE_ANNUAL=30000
+            const BDM_OTE_ANNUAL=150000
+            const BDM_BASE_MONTHLY=10000
+            const SDR_BASE_MONTHLY=6667
+            const SDR_OTE_ANNUAL=120000
+            const SDR_VARIABLE_ANNUAL=40000
 
-            // Count months at each level (calendar year 2026)
-            const sdrMonths=yr===2026?1:0 // Jan only
-            const bdmMonths=yr===2026?Math.max(0,monthsElapsed-1):monthsElapsed
+            const yr=now.getFullYear()
+            const monthsElapsed=now.getMonth()+1
 
-            // Base salary earned YTD
-            const baseYtd=(sdrMonths*SDR_BASE_MONTHLY)+(bdmMonths*BDM_BASE_MONTHLY)
+            // ── Period filter logic ──────────────────────────────────────────────
+            let filterStart:Date, filterEnd:Date, filterLabel:string
+            if(compPeriod==='comp_change'){
+              filterStart=COMP_CHANGE_DATE; filterEnd=now; filterLabel='Since Comp Change (Feb 18)'
+            } else if(compPeriod==='ytd'){
+              filterStart=new Date(yr,0,1); filterEnd=now; filterLabel=`Calendar YTD · ${yr}`
+            } else if(compPeriod==='quarter'){
+              filterStart=new Date(yr,Math.floor(now.getMonth()/3)*3,1); filterEnd=now; filterLabel='This Quarter'
+            } else if(compPeriod==='month'){
+              filterStart=new Date(yr,now.getMonth(),1); filterEnd=now; filterLabel='This Month'
+            } else {
+              filterStart=compFrom?new Date(compFrom):new Date(yr,0,1)
+              filterEnd=compTo?new Date(compTo+'T23:59:59'):now
+              filterLabel='Custom Range'
+            }
 
-            // Commission earned YTD (from existing data + adjustments)
-            const commissionYtd=commData.ytdGrandTotal+getYtdAdj('jonathan')
+            // ── Filter commission months to the selected period ──────────────────
+            const filteredMonths=commData.months.filter(m=>{
+              const [y,mo]=m.key.split('-').map(Number)
+              const monthEnd=new Date(y,mo,0,23,59,59) // last day of that month
+              const monthStart=new Date(y,mo-1,1)
+              return monthEnd>=filterStart&&monthStart<=filterEnd
+            })
+            const filteredMeetingTotal=filteredMonths.reduce((s,m)=>s+m.meetingTotal,0)
+            const filteredSqlBase=filteredMonths.reduce((s,m)=>s+(m.sqlTotal-m.acceleratorTotal),0)
+            const filteredAccelTotal=filteredMonths.reduce((s,m)=>s+m.acceleratorTotal,0)
+            const filteredCommTotal=filteredMonths.reduce((s,m)=>s+m.total,0)
+            // Adjustments within the filter period
+            const filteredAdj=commAdjustments.filter(a=>{
+              const [y,mo]=a.month.split('-').map(Number)
+              const aDate=new Date(y,mo-1,15) // mid-month proxy
+              return aDate>=filterStart&&aDate<=filterEnd&&(a.repId==='jonathan'||a.repId==='all')
+            }).reduce((s,a)=>s+a.amount,0)
+            const variableEarned=filteredCommTotal+filteredAdj
 
-            // Total comp YTD
-            const totalCompYtd=baseYtd+commissionYtd
-
-            // Prorated OTE through current month
-            const proratedOte=(sdrMonths*(SDR_OTE_ANNUAL/12))+(bdmMonths*(BDM_OTE_ANNUAL/12))
-
-            // OTE progress
-            const otePct=proratedOte>0?Math.round(totalCompYtd/proratedOte*100):0
-
-            // Commission variable tracker
-            const variableTargetYtd=(sdrMonths*(SDR_VARIABLE_ANNUAL/12))+(bdmMonths*(BDM_VARIABLE_ANNUAL/12))
-            const variableAttainment=variableTargetYtd>0?Math.round(commissionYtd/variableTargetYtd*100):0
+            // ── Pace & projection logic (based on current comp plan) ─────────────
+            // Elapsed days under BDM plan since Feb 18, 2026
+            const compPlanStart=COMP_CHANGE_DATE
+            const msElapsed=Math.max(0,now.getTime()-compPlanStart.getTime())
+            const daysElapsed=msElapsed/(1000*60*60*24)
+            const daysInYear=365
+            // Pro-rated variable target for elapsed time under BDM plan
+            const proratedTarget=BDM_VARIABLE_ANNUAL*(daysElapsed/daysInYear)
+            // Commission earned since comp change (for pace calc)
+            const compChangeMonths=commData.months.filter(m=>{
+              const [y,mo]=m.key.split('-').map(Number)
+              return new Date(y,mo,0)>=compPlanStart
+            })
+            const commSinceChange=compChangeMonths.reduce((s,m)=>s+m.total,0)+commAdjustments.filter(a=>{
+              const [y,mo]=a.month.split('-').map(Number)
+              return new Date(y,mo-1,15)>=compPlanStart&&(a.repId==='jonathan'||a.repId==='all')
+            }).reduce((s,a)=>s+a.amount,0)
+            const variableAttainmentPct=proratedTarget>0?Math.round(commSinceChange/proratedTarget*100):0
+            // Projected annual variable at current pace
+            const dailyRate=daysElapsed>0?commSinceChange/daysElapsed:0
+            const remainingDays=daysInYear-daysElapsed
+            const projectedVariable=Math.round(commSinceChange+(dailyRate*remainingDays))
+            const projectedTotalComp=BDM_BASE_ANNUAL+projectedVariable
+            const overVariable=Math.max(0,commSinceChange-proratedTarget)
+            const overOte=Math.max(0,projectedTotalComp-BDM_OTE_ANNUAL)
 
             // Pace indicator
-            const paceLabel=otePct>=105?'Ahead of pace':otePct>=95?'On pace':'Behind pace'
-            const paceColor=otePct>=105?C.green:otePct>=95?C.amber:C.red
+            const pacePct=variableAttainmentPct
+            const paceLabel=pacePct>=110?'Above pace':pacePct>=90?'On pace':'Below pace'
+            const paceColor=pacePct>=110?C.green:pacePct>=90?C.amber:C.red
+            const remaining=Math.max(0,BDM_VARIABLE_ANNUAL-commSinceChange)
 
-            // Monthly earnings for chart
+            // ── Monthly breakdown for the detail table ──────────────────────────
+            const breakdownMonths=filteredMonths.map(m=>{
+              const adj=getMonthAdj(m.key,'jonathan')
+              return {
+                ...m,
+                adj,
+                totalWithAdj:m.total+adj,
+                sqlCount:m.sqls.length,
+                accelHit:m.sqls.length>SQL_ACCELERATOR_THRESHOLD,
+              }
+            })
+
+            // ── Earnings composition ─────────────────────────────────────────────
+            const compParts=[
+              {label:'Meeting Bonuses',value:filteredMeetingTotal,color:C.green},
+              {label:'SQL Bonuses (base)',value:filteredSqlBase,color:'#c084fc'},
+              {label:'Accelerator Bonuses',value:filteredAccelTotal,color:C.amber},
+              ...(filteredAdj!==0?[{label:'Adjustments',value:filteredAdj,color:filteredAdj<0?C.red:'#60d4f4'}]:[]),
+            ]
+            const compTotal=compParts.reduce((s,p)=>s+p.value,0)
+
+            // ── Monthly earnings for chart (always calendar YTD) ─────────────────
             const monthlyEarnings=Array.from({length:monthsElapsed},(_,i)=>{
               const mk=`${yr}-${String(i+1).padStart(2,'0')}`
               const base=i===0&&yr===2026?SDR_BASE_MONTHLY:BDM_BASE_MONTHLY
               const monthComm=commData.months.find(m=>m.key===mk)
               const comm=(monthComm?.total??0)+getMonthAdj(mk,'jonathan')
               const oteMonthly=i===0&&yr===2026?SDR_OTE_ANNUAL/12:BDM_OTE_ANNUAL/12
-              return {label:new Date(yr,i).toLocaleString('en-US',{month:'short'}),base,comm,total:base+comm,oteMonthly}
+              return {label:new Date(yr,i).toLocaleString('en-US',{month:'short'}),mk,base,comm,total:base+comm,oteMonthly}
             })
             const maxMonthly=Math.max(1,...monthlyEarnings.map(m=>Math.max(m.total,m.oteMonthly)))
 
-            return (
+            return (<>
               <div style={{...card,marginBottom:20,background:'linear-gradient(135deg, rgba(0,229,160,0.06) 0%, rgba(123,110,246,0.06) 100%)',border:`1px solid rgba(0,229,160,0.2)`}}>
-                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:16}}>
+                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
                   <div>
-                    <div style={{fontSize:13,fontWeight:800,color:C.text}}>Tracker to Goal</div>
-                    <div style={{fontSize:10,color:C.text3,marginTop:2}}>OTE progress · {yr} blended (SDR Jan → BDM Feb+)</div>
+                    <div style={{fontSize:13,fontWeight:800,color:C.text}}>Compensation Tracker</div>
+                    <div style={{fontSize:10,color:C.text3,marginTop:2}}>BDM comp plan · $120K base + $30K variable · OTE $150K</div>
                   </div>
                   <div style={{display:'flex',alignItems:'center',gap:6}}>
                     <span style={{width:8,height:8,borderRadius:'50%',background:paceColor}}/>
-                    <span style={{fontSize:11,fontWeight:700,color:paceColor}}>{paceLabel}</span>
+                    <span style={{fontSize:11,fontWeight:700,color:paceColor}}>{paceLabel} ({pacePct}%)</span>
                   </div>
                 </div>
 
-                {/* Top-level gauges */}
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:18}}>
-                  {/* OTE Progress */}
+                {/* Period filter */}
+                <div style={{display:'flex',gap:5,marginBottom:16,flexWrap:'wrap'}}>
+                  {(['comp_change','ytd','quarter','month'] as const).map(p=>(
+                    <button key={p} onClick={()=>{setCompPeriod(p);setCompFrom('');setCompTo('')}} style={filterPill(compPeriod===p,'#60d4f4')}>
+                      {{comp_change:'Since Comp Change',ytd:'Calendar YTD',quarter:'This Quarter',month:'This Month'}[p]}
+                    </button>
+                  ))}
+                  <button onClick={()=>setCompPeriod('custom')} style={filterPill(compPeriod==='custom',C.amber)}>Custom</button>
+                  {compPeriod==='custom'&&(
+                    <div style={{display:'flex',alignItems:'center',gap:4}}>
+                      <input type="date" value={compFrom} onChange={e=>setCompFrom(e.target.value)} style={{fontSize:10,padding:'3px 6px',border:`1px solid ${C.border2}`,borderRadius:5,background:C.surface3,color:C.text2,outline:'none',colorScheme:'dark'}}/>
+                      <span style={{fontSize:10,color:C.text3}}>→</span>
+                      <input type="date" value={compTo} onChange={e=>setCompTo(e.target.value)} style={{fontSize:10,padding:'3px 6px',border:`1px solid ${C.border2}`,borderRadius:5,background:C.surface3,color:C.text2,outline:'none',colorScheme:'dark'}}/>
+                    </div>
+                  )}
+                </div>
+
+                {/* ── Progress to Goal ── */}
+                <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12,marginBottom:16}}>
+                  {/* Variable Earned */}
                   <div style={{background:C.surface3,borderRadius:10,padding:14,border:`1px solid ${C.border}`}}>
-                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:8}}>
-                      <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em'}}>Total Comp vs OTE</div>
-                      <div style={{fontSize:18,fontWeight:800,color:otePct>=100?C.green:C.text}}>{otePct}%</div>
+                    <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:6}}>Variable Earned</div>
+                    <div style={{fontSize:20,fontWeight:800,color:C.green}}>${Math.round(variableEarned).toLocaleString()}</div>
+                    <div style={{fontSize:10,color:C.text3,marginTop:2}}>{filterLabel}</div>
+                    <div style={{height:6,borderRadius:3,background:C.surface,marginTop:8}}>
+                      <div style={{height:6,borderRadius:3,background:C.green,width:`${Math.min(100,commSinceChange/BDM_VARIABLE_ANNUAL*100)}%`,transition:'width 0.4s'}}/>
                     </div>
-                    <div style={{height:8,borderRadius:4,background:C.surface,marginBottom:8}}>
-                      <div style={{height:8,borderRadius:4,background:otePct>=100?C.green:otePct>=90?C.amber:C.purple,width:`${Math.min(100,otePct)}%`,transition:'width 0.4s'}}/>
-                    </div>
-                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8}}>
-                      <div><div style={{fontSize:14,fontWeight:700,color:C.text}}>${Math.round(totalCompYtd).toLocaleString()}</div><div style={{fontSize:9,color:C.text3}}>earned YTD</div></div>
-                      <div><div style={{fontSize:14,fontWeight:700,color:C.text3}}>${Math.round(proratedOte).toLocaleString()}</div><div style={{fontSize:9,color:C.text3}}>prorated OTE</div></div>
-                      <div><div style={{fontSize:14,fontWeight:700,color:C.text2}}>${Math.round(baseYtd).toLocaleString()}</div><div style={{fontSize:9,color:C.text3}}>base salary</div></div>
+                    <div style={{fontSize:9,color:C.text3,marginTop:4}}>${Math.round(commSinceChange).toLocaleString()} / ${BDM_VARIABLE_ANNUAL.toLocaleString()} annual target · {Math.round(commSinceChange/BDM_VARIABLE_ANNUAL*100)}%</div>
+                  </div>
+
+                  {/* Remaining + Projected */}
+                  <div style={{background:C.surface3,borderRadius:10,padding:14,border:`1px solid ${C.border}`}}>
+                    <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:6}}>Remaining to Goal</div>
+                    <div style={{fontSize:20,fontWeight:800,color:remaining>0?C.text:C.green}}>{remaining>0?`$${Math.round(remaining).toLocaleString()}`:'Goal reached'}</div>
+                    <div style={{fontSize:10,color:C.text3,marginTop:2}}>of $30K annual variable</div>
+                    <div style={{borderTop:`1px solid ${C.border}`,marginTop:10,paddingTop:8}}>
+                      <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:4}}>Projected Variable</div>
+                      <div style={{fontSize:16,fontWeight:800,color:projectedVariable>BDM_VARIABLE_ANNUAL?C.green:C.text}}>${projectedVariable.toLocaleString()}</div>
+                      <div style={{fontSize:9,color:C.text3}}>at current daily pace of ${Math.round(dailyRate).toLocaleString()}/day</div>
                     </div>
                   </div>
 
-                  {/* Variable Attainment */}
+                  {/* OTE Status + Projected Total */}
                   <div style={{background:C.surface3,borderRadius:10,padding:14,border:`1px solid ${C.border}`}}>
-                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:8}}>
-                      <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em'}}>Commission Attainment</div>
-                      <div style={{fontSize:18,fontWeight:800,color:variableAttainment>=100?C.green:C.text}}>{variableAttainment}%</div>
-                    </div>
-                    <div style={{height:8,borderRadius:4,background:C.surface,marginBottom:8}}>
-                      <div style={{height:8,borderRadius:4,background:variableAttainment>=150?C.green:variableAttainment>=100?'#60d4f4':C.purple,width:`${Math.min(100,variableAttainment/2)}%`,transition:'width 0.4s'}}/>
-                    </div>
-                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8}}>
-                      <div><div style={{fontSize:14,fontWeight:700,color:C.green}}>${Math.round(commissionYtd).toLocaleString()}</div><div style={{fontSize:9,color:C.text3}}>commission YTD</div></div>
-                      <div><div style={{fontSize:14,fontWeight:700,color:C.text3}}>${Math.round(variableTargetYtd).toLocaleString()}</div><div style={{fontSize:9,color:C.text3}}>target YTD</div></div>
-                      <div><div style={{fontSize:14,fontWeight:700,color:C.text2}}>${(variableAttainment>=100?'+':'')+(Math.round(commissionYtd-variableTargetYtd)).toLocaleString()}</div><div style={{fontSize:9,color:C.text3}}>{commissionYtd>=variableTargetYtd?'above target':'below target'}</div></div>
-                    </div>
+                    <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:6}}>Projected Total Comp</div>
+                    <div style={{fontSize:20,fontWeight:800,color:projectedTotalComp>BDM_OTE_ANNUAL?C.green:C.text}}>${projectedTotalComp.toLocaleString()}</div>
+                    <div style={{fontSize:10,color:C.text3,marginTop:2}}>base $120K + projected variable</div>
+                    {overOte>0&&(
+                      <div style={{marginTop:8,padding:'6px 8px',background:'rgba(0,229,160,0.1)',borderRadius:6,border:'1px solid rgba(0,229,160,0.25)'}}>
+                        <div style={{fontSize:11,fontWeight:700,color:C.green}}>+${overOte.toLocaleString()} above OTE</div>
+                      </div>
+                    )}
+                    {overVariable>0&&(
+                      <div style={{marginTop:4,fontSize:10,color:C.green,fontWeight:600}}>+${Math.round(overVariable).toLocaleString()} above prorated variable target</div>
+                    )}
                   </div>
                 </div>
 
-                {/* Monthly earnings chart */}
-                <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:10}}>Monthly Earnings vs OTE Pace</div>
+                {/* ── Earnings Composition ── */}
+                <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:8}}>Earnings Composition · {filterLabel}</div>
+                <div style={{display:'flex',gap:10,marginBottom:16}}>
+                  {compParts.filter(p=>p.value!==0).map(p=>{
+                    const pctOfTotal=compTotal!==0?Math.round(Math.abs(p.value)/Math.abs(compTotal)*100):0
+                    return (
+                      <div key={p.label} style={{flex:Math.max(1,pctOfTotal),background:C.surface3,borderRadius:8,padding:'10px 12px',borderLeft:`3px solid ${p.color}`,minWidth:0}}>
+                        <div style={{fontSize:14,fontWeight:800,color:p.color}}>${Math.abs(p.value).toLocaleString()}{p.value<0&&<span style={{fontSize:10}}> (redacted)</span>}</div>
+                        <div style={{fontSize:9,color:C.text3,marginTop:2}}>{p.label} · {pctOfTotal}%</div>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                {/* ── Monthly Earnings Chart (always calendar YTD) ── */}
+                <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:10}}>Monthly Earnings vs OTE Pace · Calendar YTD</div>
                 <div style={{display:'flex',gap:4,alignItems:'flex-end',height:120}}>
                   {monthlyEarnings.map((m,i)=>{
                     const barH=maxMonthly>0?(m.total/maxMonthly*100):0
                     const baseH=maxMonthly>0?(m.base/maxMonthly*100):0
                     const commH=barH-baseH
                     const oteLine=maxMonthly>0?(m.oteMonthly/maxMonthly*100):0
+                    const inFilter=new Date(yr,i,15)>=filterStart&&new Date(yr,i,15)<=filterEnd
                     return (
-                      <div key={i} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',position:'relative',height:'100%'}}>
-                        {/* OTE pace line */}
+                      <div key={i} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',position:'relative',height:'100%',opacity:inFilter?1:0.35}}>
                         <div style={{position:'absolute',bottom:`${oteLine}%`,left:0,right:0,height:2,background:C.amber,borderRadius:1,opacity:0.6,zIndex:1}}/>
                         <div style={{flex:1}}/>
-                        {/* Commission portion */}
                         {commH>0&&<div style={{width:'70%',height:`${commH}%`,background:C.green,borderRadius:'3px 3px 0 0',minHeight:commH>0?2:0}}/>}
-                        {/* Base portion */}
                         <div style={{width:'70%',height:`${baseH}%`,background:C.purple,borderRadius:commH>0?0:'3px 3px 0 0',minHeight:2}}/>
                         <div style={{fontSize:8,color:C.text3,marginTop:3}}>{m.label}</div>
                       </div>
@@ -4100,9 +4202,54 @@ export default function Dashboard() {
                   <div style={{display:'flex',alignItems:'center',gap:4}}><span style={{width:8,height:8,borderRadius:2,background:C.purple}}/><span style={{fontSize:9,color:C.text3}}>Base</span></div>
                   <div style={{display:'flex',alignItems:'center',gap:4}}><span style={{width:8,height:8,borderRadius:2,background:C.green}}/><span style={{fontSize:9,color:C.text3}}>Commission</span></div>
                   <div style={{display:'flex',alignItems:'center',gap:4}}><span style={{width:14,height:2,borderRadius:1,background:C.amber}}/><span style={{fontSize:9,color:C.text3}}>OTE Pace</span></div>
+                  <div style={{display:'flex',alignItems:'center',gap:4}}><span style={{width:8,height:4,borderRadius:1,background:C.text3,opacity:0.35}}/><span style={{fontSize:9,color:C.text3}}>Outside filter</span></div>
                 </div>
               </div>
-            )
+
+              {/* ── Monthly Commission Breakdown (auditable) ── */}
+              {breakdownMonths.length>0&&(
+                <div style={{...card,marginBottom:20}}>
+                  <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:14}}>Monthly Commission Detail · {filterLabel}</div>
+                  <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+                    <thead>
+                      <tr style={{borderBottom:`2px solid ${C.border2}`}}>
+                        {['Month','Meetings','Meeting $','SQLs','SQL $ (base)','Accel $','Adjustments','Total Earned','Accel Hit'].map(h=>(
+                          <th key={h} style={{padding:'7px 8px',textAlign:h==='Month'?'left':'right',fontSize:9,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em'}}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {breakdownMonths.map(m=>(
+                        <tr key={m.key} style={{borderBottom:`1px solid ${C.border}`,background:m.key===currentMonthKey?'rgba(0,229,160,0.06)':'transparent'}}>
+                          <td style={{padding:'8px',fontWeight:m.key===currentMonthKey?700:500,color:m.key===currentMonthKey?C.green:C.text}}>{m.label}</td>
+                          <td style={{padding:'8px',textAlign:'right',color:C.text}}>{m.meetings.length}</td>
+                          <td style={{padding:'8px',textAlign:'right',color:C.green,fontWeight:600}}>${m.meetingTotal.toLocaleString()}</td>
+                          <td style={{padding:'8px',textAlign:'right',color:C.text}}>{m.sqlCount}</td>
+                          <td style={{padding:'8px',textAlign:'right',color:'#c084fc',fontWeight:600}}>${(m.sqlTotal-m.acceleratorTotal).toLocaleString()}</td>
+                          <td style={{padding:'8px',textAlign:'right',color:m.acceleratorTotal>0?C.amber:C.text3}}>{m.acceleratorTotal>0?`$${m.acceleratorTotal.toLocaleString()}`:'—'}</td>
+                          <td style={{padding:'8px',textAlign:'right',color:m.adj!==0?(m.adj<0?C.red:C.green):C.text3}}>{m.adj!==0?`${m.adj<0?'−':'+'} $${Math.abs(m.adj).toLocaleString()}`:'—'}</td>
+                          <td style={{padding:'8px',textAlign:'right',fontWeight:700,color:C.text}}>${m.totalWithAdj.toLocaleString()}</td>
+                          <td style={{padding:'8px',textAlign:'right'}}>{m.accelHit?<span style={{fontSize:9,fontWeight:700,color:C.amber,background:'rgba(245,166,35,0.15)',padding:'1px 5px',borderRadius:3}}>YES ({m.sqlCount} SQLs)</span>:<span style={{fontSize:9,color:C.text3}}>No</span>}</td>
+                        </tr>
+                      ))}
+                      {breakdownMonths.length>1&&(
+                        <tr style={{borderTop:`2px solid ${C.border2}`,background:C.surface2}}>
+                          <td style={{padding:'8px',fontWeight:800,color:C.text}}>Total</td>
+                          <td style={{padding:'8px',textAlign:'right',fontWeight:700,color:C.text}}>{breakdownMonths.reduce((s,m)=>s+m.meetings.length,0)}</td>
+                          <td style={{padding:'8px',textAlign:'right',fontWeight:700,color:C.green}}>${filteredMeetingTotal.toLocaleString()}</td>
+                          <td style={{padding:'8px',textAlign:'right',fontWeight:700,color:C.text}}>{breakdownMonths.reduce((s,m)=>s+m.sqlCount,0)}</td>
+                          <td style={{padding:'8px',textAlign:'right',fontWeight:700,color:'#c084fc'}}>${filteredSqlBase.toLocaleString()}</td>
+                          <td style={{padding:'8px',textAlign:'right',fontWeight:700,color:C.amber}}>${filteredAccelTotal.toLocaleString()}</td>
+                          <td style={{padding:'8px',textAlign:'right',fontWeight:700,color:filteredAdj<0?C.red:filteredAdj>0?C.green:C.text3}}>{filteredAdj!==0?`${filteredAdj<0?'−':'+'} $${Math.abs(filteredAdj).toLocaleString()}`:'—'}</td>
+                          <td style={{padding:'8px',textAlign:'right',fontWeight:800,color:C.text}}>${Math.round(variableEarned).toLocaleString()}</td>
+                          <td/>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>)
           })()}
 
           {/* ── Monthly Summary Cards ── */}
@@ -4268,10 +4415,10 @@ export default function Dashboard() {
                 const ytdAdj=getYtdAdj(currentRep?.id)
                 const adjusted=commData.ytdGrandTotal+ytdAdj
                 return <div style={{background:C.surface3,border:`1px solid ${C.border}`,borderRadius:10,padding:14}}>
-                  <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:8}}>Grand Total</div>
+                  <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:8}}>Total Variable Earned</div>
                   <div style={{fontSize:22,fontWeight:800,color:C.text}}>${adjusted.toLocaleString()}</div>
                   {ytdAdj!==0&&<div style={{fontSize:10,color:ytdAdj<0?C.red:C.green,marginTop:4,fontWeight:600}}>{ytdAdj<0?'':'+'}{ytdAdj.toLocaleString()} adjustments</div>}
-                  <div style={{fontSize:10,color:C.text3,marginTop:ytdAdj!==0?2:6}}>all commission YTD</div>
+                  <div style={{fontSize:10,color:C.text3,marginTop:ytdAdj!==0?2:6}}>calendar YTD commission</div>
                 </div>
               })()}
             </div>
