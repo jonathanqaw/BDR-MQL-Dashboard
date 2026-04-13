@@ -4931,10 +4931,9 @@ export default function Dashboard() {
             {/* Commission rules reference */}
             <div style={{...card,opacity:0.7}}>
               <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:10}}>Commission Structure Reference</div>
-              <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12,fontSize:11,color:C.text2}}>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:12,fontSize:11,color:C.text2}}>
                 <div><strong style={{color:C.text}}>Meeting Booked:</strong> $150/ICP meeting (A/B/E tier)</div>
                 <div><strong style={{color:C.text}}>SQL:</strong> $620/SQL · $930 accelerator if &gt;3/month</div>
-                <div><strong style={{color:C.text}}>Caps:</strong> Meeting $18K/yr · SQL $22.3K/yr</div>
               </div>
               <div style={{fontSize:10,color:C.text3,marginTop:8}}>Payout: following month, 2nd half pay cycle. Meeting + SQL can stack on the same account.</div>
             </div>
