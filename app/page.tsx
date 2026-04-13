@@ -242,6 +242,86 @@ const C = {
   green:'#00e5a0', purple:'#7b6ef6', purpleL:'#a89cf8', amber:'#f5a623', red:'#ff5c5c',
 }
 
+// ─── Frozen commission override data (Spiff-verified) ────────────────────────
+// Used by both Commissions Tracker and RevOps views.
+const FROZEN_COMMISSION_EVENTS: Record<string,{meetings:{email:string;account:string;date:string;amount:number}[];sqls:{email:string;account:string;date:string;amount:number}[]}> = {
+  '2025-09':{meetings:[],sqls:[
+    {email:'josh.barrett@pep.com',account:'Josh Barrett — pep, LLC',date:'2025-09-10',amount:500},
+    {email:'joseph.sintum@quantummetric.com',account:'Joseph Sintum — Quantum Metric',date:'2025-09-05',amount:500},
+    {email:'mani.suri@follett.com',account:'Mani Suri — Follett Higher Education',date:'2025-09-05',amount:500},
+    {email:'sean.grice@ny.gov',account:'Sean Grice — New York State',date:'2025-09-19',amount:500},
+    {email:'wei.si@wyze.com',account:'Wei Si — Wyze',date:'2025-09-22',amount:500},
+  ]},
+  '2025-10':{meetings:[],sqls:[
+    {email:'alejandro.mallea@dakotasoft.com',account:'Alejandro Mallea — Dakota Software',date:'2025-10-17',amount:500},
+    {email:'srinivasan.dayalan@trimble.com',account:'Srinivasan Dayalan — Trimble',date:'2025-10-21',amount:500},
+    {email:'arthur.miller@sixfold.com',account:'Arthur Miller — Sixfold',date:'2025-10-02',amount:500},
+    {email:'devario.johnson@imentor.org',account:'Devario Johnson — iMentor',date:'2025-10-09',amount:500},
+  ]},
+  '2025-11':{sqls:[],meetings:[
+    {email:'michael.wahl@tweddlegroup.com',account:'Michael Wahl — Tweddle Group',date:'2025-11-06',amount:100},
+    {email:'geraldine.bai@deloitte.com',account:'Geraldine Bai — Deloitte',date:'2025-11-22',amount:100},
+    {email:'suzanne.robinson@gentrack.com',account:'Suzanne Robinson — Gentrack',date:'2025-11-09',amount:100},
+    {email:'ilir.kosumi@enmacc.com',account:'Ilir Kosumi — enmacc',date:'2025-11-17',amount:100},
+  ]},
+  '2025-12':{meetings:[
+    {email:'richard.tep@textnow.com',account:'Richard Tep — TextNow',date:'2025-12-08',amount:100},
+    {email:'jf.cantin@lgi.com',account:'Jean-Francois Cantin — LGI Healthcare',date:'2025-12-08',amount:100},
+    {email:'kenanadvantage@historical',account:'Dave Derecskey — Kenan Advantage Group',date:'2025-12-12',amount:100},
+  ],sqls:[
+    {email:'michael.wahl@tweddlegroup.com',account:'Michael Wahl — Tweddle Group',date:'2025-12-04',amount:400},
+  ]},
+  '2026-01':{meetings:[
+    {email:'logicmonitor@historical',account:'Jitender Prasad — LogicMonitor',date:'2025-12-11',amount:150},
+    {email:'everydayhealth@historical',account:'Kholilur Rahman — Everyday Health',date:'2026-01-13',amount:150},
+    {email:'vidmob@historical',account:'Ben Holm — Vidmob',date:'2026-01-15',amount:150},
+    {email:'circlemedical@historical',account:'Florian Denu — Circle Medical',date:'2026-01-22',amount:150},
+    {email:'tradera@historical',account:'Emma Carlsson — Tradera',date:'2026-01-22',amount:150},
+    {email:'bloomcoaching@historical',account:'Thomas Stevens — Bloom Coaching',date:'2026-01-23',amount:150},
+  ],sqls:[
+    {email:'everydayhealth@historical',account:'Kholilur Rahman — Everyday Health',date:'2026-01-13',amount:620},
+    {email:'harrys@historical',account:"Simon Anguish — Harry's",date:'2026-01-15',amount:620},
+    {email:'trackunit@historical',account:'Philip Quinn — Trackunit',date:'2026-01-19',amount:620},
+    {email:'bloomcoaching@historical',account:'Thomas Stevens — Bloom Coaching',date:'2026-01-23',amount:930},
+    {email:'vidmob@historical',account:'Ben Holm — Vidmob',date:'2026-01-27',amount:930},
+    {email:'sharkninja@historical',account:'Jake Rutter — SharkNinja',date:'2026-01-28',amount:930},
+    {email:'pods@historical',account:'Randy Withrow — PODS',date:'2026-01-29',amount:930},
+    {email:'gavin.williams@f1arcade.com',account:'Gavin Williams — F1 Arcade',date:'2026-01-30',amount:930},
+    {email:'logicmonitor@historical',account:'Jitender Prasad — LogicMonitor',date:'2026-01-13',amount:930},
+    {email:'harry.selvaratnam@iterate.ai',account:'Harry Selvaratnam — Iterate.ai',date:'2026-01-13',amount:930},
+    {email:'suzanne.robinson@gentrack.com',account:'Suzanne Robinson — Gentrack',date:'2026-01-13',amount:930},
+  ]},
+  '2026-02':{meetings:[
+    {email:'sharkninja@historical',account:'Jake Rutter — SharkNinja',date:'2026-02-01',amount:150},
+    {email:'bloomcoaching@historical',account:'Thomas Stevens — Bloom Coaching',date:'2026-02-01',amount:150},
+    {email:'quince@historical',account:'Prabhanjan Jha — Quince',date:'2026-02-12',amount:150},
+    {email:'prophetx@historical',account:'Nathan Busscher — ProphetX',date:'2026-02-17',amount:150},
+    {email:'westjet@historical',account:'Santhosha C. — WestJet',date:'2026-02-20',amount:150},
+    {email:'robbinsresearch@historical',account:'Nick Jensen — Robbins Research',date:'2026-02-23',amount:150},
+  ],sqls:[
+    {email:'quartr@historical',account:'Fabricio Vergara — Quartr',date:'2026-02-11',amount:620},
+    {email:'prophetx@historical',account:'Nathan Busscher — ProphetX',date:'2026-02-18',amount:620},
+  ]},
+  '2026-03':{meetings:[
+    {email:'onephase@historical',account:'Louis Velez — onPhase',date:'2026-03-06',amount:150},
+    {email:'enablecomp@historical',account:'Keith Clayton — EnableComp',date:'2026-03-12',amount:150},
+    {email:'nuqleous@historical',account:'Steven Williams — Nuqleous',date:'2026-03-13',amount:150},
+    {email:'playtech@historical',account:'Borislav Zhezhev — Playtech',date:'2026-03-13',amount:150},
+    {email:'north@historical',account:'Forum Vyas — North',date:'2026-03-17',amount:150},
+    {email:'cradle@historical',account:'Melanie Burger — Cradle',date:'2026-03-17',amount:150},
+    {email:'novemberfive@historical',account:'Antonio Marquez — November Five',date:'2026-03-18',amount:150},
+    {email:'azets@historical',account:'Kristijonas Bulzgis — Azets',date:'2026-03-25',amount:150},
+  ],sqls:[
+    {email:'brandon.hall@everyonesocial.com',account:'Brandon Hall — EveryoneSocial',date:'2026-03-03',amount:620},
+    {email:'bhargav.mehta@octaura.com',account:'Bhargav Mehta — Octaura',date:'2026-03-04',amount:620},
+    {email:'onephase@historical',account:'Louis Velez — onPhase',date:'2026-03-06',amount:620},
+    {email:'nuqleous@historical',account:'Steven Williams — Nuqleous',date:'2026-03-13',amount:930},
+    {email:'north@historical',account:'Forum Vyas — North American Bancard',date:'2026-03-17',amount:930},
+    {email:'enablecomp@historical',account:'Keith Clayton — EnableComp',date:'2026-03-13',amount:930},
+  ]},
+}
+function getCommissionOverride(mk:string){return FROZEN_COMMISSION_EVENTS[mk]||null}
+
 // ─── Dropdown options ─────────────────────────────────────────────────────────
 const SOURCE_CHANNELS  = ['','#growth-wins','#leads-bot','leads-platform waitlist','gated-content','QA Wolf inbox','webinar','AE assist','gen OB','Swan','leads-lonescale','Other']
 const OUTBOUND_SOURCES = new Set(['Swan','gen OB','AE assist','leads-lonescale'])
@@ -4573,30 +4653,64 @@ export default function Dashboard() {
             ...liveLeads.filter(l => !HISTORICAL_LEADS.some(h => h.email === l.email) && !manualLeads.some(m => m.email === l.email) && !new Set(HISTORICAL_LEADS.map(h=>h.domain)).has(l.domain)),
           ].filter(l => !deletedEmails.has(l.email))
 
-          // Build per-rep data
+          // Reference the same commission overrides used by the Commissions Tracker
+          // (defined inside the commissions IIFE — we access it via a module-level ref)
+          const mkPayoutLabelRO=(mk:string)=>{const [y,m]=mk.split('-').map(Number);return `${new Date(y,m,1).toLocaleString('en-US',{month:'short',year:'numeric'})} (2nd half)`}
+          const OVERRIDE_MONTHS = new Set(['2025-09','2025-10','2025-11','2025-12','2026-01','2026-02','2026-03'])
+
+          type RevOpsEvent = { email:string; account:string; meetingDate:string|null; sqlDate:string|null; sqoDate:string|null; mqlQuality:string; accountTier:string; sourceChannel:string; ae:string; acv:string; isMeeting:boolean; isSql:boolean; amount:number }
+
+          // Build per-rep data — use frozen overrides for override months, dynamic for others
           const repData = reps.filter(r=>r.slackId).map(rep => {
             const repLeads = rep.id === 'jonathan'
               ? allLeadsUnfiltered.filter(l => !l.repSlackId || l.repSlackId === rep.slackId)
               : allLeadsUnfiltered.filter(l => l.repSlackId === rep.slackId)
 
-            // Gather events
-            const events: { email:string; account:string; meetingDate:string|null; sqlDate:string|null; sqoDate:string|null; mqlQuality:string; accountTier:string; sourceChannel:string; ae:string; acv:string; isMeeting:boolean; isSql:boolean }[] = []
-
+            // Dynamic events — only for non-override months
+            const events: RevOpsEvent[] = []
             repLeads.forEach(l => {
               const det = details[l.email]
               if (!det) return
               const displayName = nameOverrides[l.email] || l.account || formatDomain(l.domain) || l.email
               const hasMeeting = !!(det.meetingDate && isIcp(l.email))
               const hasSql = (det.sqlDq||'').toLowerCase()==='yes' && !!det.sqlDate && isIcp(l.email)
-              if (hasMeeting || hasSql) {
-                events.push({
-                  email: l.email, account: displayName,
-                  meetingDate: det.meetingDate||null, sqlDate: det.sqlDate||null, sqoDate: det.sqoDate||null,
-                  mqlQuality: det.mqlQuality||'', accountTier: det.accountTier||'', sourceChannel: det.sourceChannel||'', ae: det.ae||'', acv: det.acv||'',
-                  isMeeting: hasMeeting, isSql: hasSql,
-                })
-              }
+              if (!hasMeeting && !hasSql) return
+              // Check if this event falls in an override month — skip if so
+              const meetMonth = det.meetingDate ? `${new Date(det.meetingDate).getFullYear()}-${String(new Date(det.meetingDate).getMonth()+1).padStart(2,'0')}` : ''
+              const sqlMonth = det.sqlDate ? `${new Date(det.sqlDate).getFullYear()}-${String(new Date(det.sqlDate).getMonth()+1).padStart(2,'0')}` : ''
+              const meetingInOverride = meetMonth && OVERRIDE_MONTHS.has(meetMonth)
+              const sqlInOverride = sqlMonth && OVERRIDE_MONTHS.has(sqlMonth)
+              const effectiveMeeting = hasMeeting && !meetingInOverride
+              const effectiveSql = hasSql && !sqlInOverride
+              if (!effectiveMeeting && !effectiveSql) return
+              let amount = 0
+              if (effectiveMeeting) amount += MEETING_BONUS
+              if (effectiveSql) amount += SQL_BONUS
+              events.push({
+                email: l.email, account: displayName,
+                meetingDate: effectiveMeeting ? det.meetingDate : null,
+                sqlDate: effectiveSql ? det.sqlDate : null,
+                sqoDate: det.sqoDate||null,
+                mqlQuality: det.mqlQuality||'', accountTier: det.accountTier||'', sourceChannel: det.sourceChannel||'', ae: det.ae||'', acv: det.acv||'',
+                isMeeting: effectiveMeeting, isSql: effectiveSql, amount,
+              })
             })
+
+            // Inject frozen override events (only for Jonathan since overrides are his data)
+            if (rep.id === 'jonathan') {
+              OVERRIDE_MONTHS.forEach(mk => {
+                // Use the same override data as the Commissions Tracker
+                // We inline the frozen data reference here
+                const overrideData = getCommissionOverride(mk)
+                if (!overrideData) return
+                overrideData.meetings.forEach(m => {
+                  events.push({ email:m.email, account:m.account, meetingDate:m.date, sqlDate:null, sqoDate:null, mqlQuality:'hq', accountTier:'', sourceChannel:'', ae:'', acv:'', isMeeting:true, isSql:false, amount:m.amount })
+                })
+                overrideData.sqls.forEach(s => {
+                  events.push({ email:s.email, account:s.account, meetingDate:null, sqlDate:s.date, sqoDate:null, mqlQuality:'hq', accountTier:'', sourceChannel:'', ae:'', acv:'', isMeeting:false, isSql:true, amount:s.amount })
+                })
+              })
+            }
 
             // Monthly totals
             const monthMap = new Map<string,{meetings:number;sqls:number;meetingAmt:number;sqlAmt:number;accelAmt:number}>()
@@ -4605,29 +4719,24 @@ export default function Dashboard() {
                 const d = new Date(e.meetingDate)
                 const mk = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
                 if (!monthMap.has(mk)) monthMap.set(mk,{meetings:0,sqls:0,meetingAmt:0,sqlAmt:0,accelAmt:0})
-                const m=monthMap.get(mk)!; m.meetings++; m.meetingAmt+=MEETING_BONUS
+                const m=monthMap.get(mk)!; m.meetings++; m.meetingAmt+=e.amount
               }
               if (e.isSql && e.sqlDate) {
                 const d = new Date(e.sqlDate)
                 const mk = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
                 if (!monthMap.has(mk)) monthMap.set(mk,{meetings:0,sqls:0,meetingAmt:0,sqlAmt:0,accelAmt:0})
-                const m=monthMap.get(mk)!; m.sqls++
-                const bonus = m.sqls > SQL_ACCELERATOR_THRESHOLD ? SQL_ACCELERATOR : SQL_BONUS
-                if (m.sqls > SQL_ACCELERATOR_THRESHOLD) m.accelAmt += SQL_ACCELERATOR
-                else m.sqlAmt += SQL_BONUS
+                const m=monthMap.get(mk)!; m.sqls++; m.sqlAmt+=e.amount
               }
             })
 
             const currentYear = new Date().getFullYear()
-            const ytdMeetings = events.filter(e=>e.isMeeting&&e.meetingDate&&new Date(e.meetingDate).getFullYear()===currentYear).length
-            const ytdSqls = events.filter(e=>e.isSql&&e.sqlDate&&new Date(e.sqlDate).getFullYear()===currentYear).length
-            const ytdMeetingAmt = ytdMeetings * MEETING_BONUS
-            let ytdSqlAmt = 0; let ytdAccelAmt = 0
-            // Recalc SQL amounts per month for accuracy
-            Array.from(monthMap.entries()).filter(([k])=>k.startsWith(String(currentYear))).forEach(([,m])=>{
-              ytdSqlAmt += m.sqlAmt; ytdAccelAmt += m.accelAmt
-            })
-            const ytdTotal = ytdMeetingAmt + ytdSqlAmt + ytdAccelAmt
+            const ytdEvents = events.filter(e=>{const d=e.meetingDate||e.sqlDate;return d&&new Date(d).getFullYear()===currentYear})
+            const ytdMeetings = ytdEvents.filter(e=>e.isMeeting).length
+            const ytdSqls = ytdEvents.filter(e=>e.isSql).length
+            const ytdMeetingAmt = ytdEvents.filter(e=>e.isMeeting).reduce((s,e)=>s+e.amount,0)
+            const ytdSqlAmt = ytdEvents.filter(e=>e.isSql).reduce((s,e)=>s+e.amount,0)
+            const ytdAccelAmt = 0 // included in sqlAmt from overrides
+            const ytdTotal = ytdMeetingAmt + ytdSqlAmt
 
             return { rep, events, monthMap, ytdMeetings, ytdSqls, ytdMeetingAmt, ytdSqlAmt, ytdAccelAmt, ytdTotal }
           })
@@ -4780,9 +4889,9 @@ export default function Dashboard() {
                     <tbody>
                       {periodAllEvents.map((e,i)=>{
                         const types: string[] = []
-                        let amount = 0
-                        if (e.isMeeting) { types.push('Meeting'); amount += MEETING_BONUS }
-                        if (e.isSql) { types.push('SQL'); amount += SQL_BONUS }
+                        if (e.isMeeting) types.push('Meeting')
+                        if (e.isSql) types.push('SQL')
+                        const amount = e.amount
                         const qualityColor = e.mqlQuality==='hq'?C.amber:e.mqlQuality==='lq'?'#fb923c':C.text3
                         return (
                           <tr key={`${e.email}-${i}`} style={{borderBottom:`1px solid ${C.border}`}}>
