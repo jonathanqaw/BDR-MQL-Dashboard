@@ -322,6 +322,29 @@ const FROZEN_COMMISSION_EVENTS: Record<string,{meetings:{email:string;account:st
 }
 function getCommissionOverride(mk:string){return FROZEN_COMMISSION_EVENTS[mk]||null}
 
+// ─── Pipeline Opportunity Data (from Spiff reports) ──────────────────────────
+type OppStage = '1. Qualify'|'2. Evaluation'|'3. Proposal'|'Closed Won'|'Closed Lost'
+interface PipelineOpp { account:string; oppName:string; stage:OppStage; closeDate:string; acv:number; score:string; primaryChannel:string; oppOwner:string; sdr:string; createdMonth:string; createdQuarter:string }
+const PIPELINE_OPPS: PipelineOpp[] = [
+  {account:'PODS',oppName:'PODS — New Business',stage:'3. Proposal',closeDate:'2026-04-30',acv:96000,score:'A',primaryChannel:'Organic',oppOwner:'Charlie Pie',sdr:'Jonathan Kim',createdMonth:'2026-01',createdQuarter:'Q1 2026'},
+  {account:'ProphetX',oppName:'ProphetX — New Business',stage:'3. Proposal',closeDate:'2026-07-31',acv:50000,score:'B',primaryChannel:'PPC Ads',oppOwner:'Ben Barrett',sdr:'Jonathan Kim',createdMonth:'2026-02',createdQuarter:'Q1 2026'},
+  {account:'EnableComp',oppName:'EnableComp — New Business',stage:'1. Qualify',closeDate:'2026-06-30',acv:0,score:'B',primaryChannel:'BDR-Sourced',oppOwner:'Jason Minster',sdr:'Jonathan Kim',createdMonth:'2026-03',createdQuarter:'Q1 2026'},
+  {account:'Sixfold',oppName:'Sixfold — New Business',stage:'Closed Won',closeDate:'2025-12-15',acv:90000,score:'B',primaryChannel:'Newsletters',oppOwner:'Chris Burke',sdr:'Jonathan Kim',createdMonth:'2025-10',createdQuarter:'Q4 2025'},
+  {account:'Tweddle Group',oppName:'Tweddle Group — New Business',stage:'1. Qualify',closeDate:'2026-02-28',acv:72000,score:'B',primaryChannel:'BDR-Sourced',oppOwner:'Sally Lopez',sdr:'Jonathan Kim',createdMonth:'2025-11',createdQuarter:'Q4 2025'},
+  {account:"Harry's",oppName:"Harry's — New Business",stage:'1. Qualify',closeDate:'2026-03-31',acv:84000,score:'B',primaryChannel:'BDR-Sourced',oppOwner:'Devin Steinke',sdr:'Jonathan Kim',createdMonth:'2025-12',createdQuarter:'Q4 2025'},
+  {account:'Trimble',oppName:'Trimble — New Business',stage:'1. Qualify',closeDate:'2026-03-31',acv:78000,score:'A',primaryChannel:'BDR-Sourced',oppOwner:"Colin O'Connor",sdr:'Jonathan Kim',createdMonth:'2025-10',createdQuarter:'Q4 2025'},
+  {account:'iMentor',oppName:'iMentor — New Business',stage:'Closed Lost',closeDate:'2025-10-31',acv:72000,score:'C',primaryChannel:'BDR-Sourced',oppOwner:'Jordan Van Itallie',sdr:'Jonathan Kim',createdMonth:'2025-09',createdQuarter:'Q3 2025'},
+  {account:'Bristow & Sutor',oppName:'Bristow & Sutor — New Business',stage:'Closed Lost',closeDate:'2025-12-31',acv:80000,score:'C',primaryChannel:'Newsletters',oppOwner:'Stephen Stabile',sdr:'Jonathan Kim',createdMonth:'2025-10',createdQuarter:'Q4 2025'},
+  {account:'Vertical Plus',oppName:'Vertical Plus — New Business',stage:'Closed Lost',closeDate:'2025-12-31',acv:72000,score:'C',primaryChannel:'PPC Ads',oppOwner:'Jordan Van Itallie',sdr:'Jonathan Kim',createdMonth:'2025-10',createdQuarter:'Q4 2025'},
+  {account:'Vidmob',oppName:'Vidmob — New Business',stage:'Closed Lost',closeDate:'2026-01-31',acv:80000,score:'B',primaryChannel:'PPC Ads',oppOwner:'Jordan Van Itallie',sdr:'Jonathan Kim',createdMonth:'2026-01',createdQuarter:'Q1 2026'},
+  {account:'Everyday Health',oppName:'Everyday Health — New Business',stage:'Closed Lost',closeDate:'2026-02-28',acv:72000,score:'B',primaryChannel:'PPC Ads',oppOwner:'Kathryn Hajjar',sdr:'Jonathan Kim',createdMonth:'2026-01',createdQuarter:'Q1 2026'},
+  {account:'Trackunit',oppName:'Trackunit — New Business',stage:'Closed Lost',closeDate:'2026-03-31',acv:72000,score:'B',primaryChannel:'PPC Ads',oppOwner:'Ben Barrett',sdr:'Jonathan Kim',createdMonth:'2025-12',createdQuarter:'Q4 2025'},
+  {account:'Quartr',oppName:'Quartr — New Business',stage:'Closed Lost',closeDate:'2026-03-31',acv:0,score:'B',primaryChannel:'BDR-Sourced',oppOwner:'Veronika Fischer',sdr:'Jonathan Kim',createdMonth:'2026-02',createdQuarter:'Q1 2026'},
+  {account:'onPhase',oppName:'onPhase — New Business',stage:'Closed Lost',closeDate:'2026-03-31',acv:72000,score:'B',primaryChannel:'BDR-Sourced',oppOwner:'Stephen Stabile',sdr:'Jonathan Kim',createdMonth:'2026-03',createdQuarter:'Q1 2026'},
+  {account:'Cradle',oppName:'Cradle — New Business',stage:'Closed Lost',closeDate:'2026-04-30',acv:72000,score:'B',primaryChannel:'BDR-Sourced',oppOwner:'Stephen Stabile',sdr:'Jonathan Kim',createdMonth:'2026-03',createdQuarter:'Q1 2026'},
+]
+const ACTIVE_STAGES=new Set<OppStage>(['1. Qualify','2. Evaluation','3. Proposal'])
+
 // ─── Dropdown options ─────────────────────────────────────────────────────────
 const SOURCE_CHANNELS  = ['','#growth-wins','#leads-bot','leads-platform waitlist','gated-content','QA Wolf inbox','webinar','AE assist','gen OB','Swan','leads-lonescale','Other']
 const OUTBOUND_SOURCES = new Set(['Swan','gen OB','AE assist','leads-lonescale'])
@@ -1600,6 +1623,9 @@ export default function Dashboard() {
   const [compFrom,setCompFrom]=useState('')
   const [compTo,setCompTo]=useState('')
   const [commRepFilter,setCommRepFilter]=useState('all')
+  const [oppStageFilter,setOppStageFilter]=useState<'all'|'active'|'closed'>('all')
+  const [oppSortCol,setOppSortCol]=useState<'closeDate'|'acv'|'account'|'stage'>('closeDate')
+  const [oppSortAsc,setOppSortAsc]=useState(false)
   const [spiffs,setSpiffs]=useState<Spiff[]>([])
   const [showSpiffModal,setShowSpiffModal]=useState(false)
   const [editingSpiff,setEditingSpiff]=useState<Spiff|null>(null)
@@ -3277,6 +3303,196 @@ export default function Dashboard() {
               })}
             </div>
           </div>
+
+          {/* ── Pipeline ACV Breakdown ── */}
+          {(()=>{
+            const opps=PIPELINE_OPPS
+            const activeOpps=opps.filter(o=>ACTIVE_STAGES.has(o.stage))
+            const wonOpps=opps.filter(o=>o.stage==='Closed Won')
+            const lostOpps=opps.filter(o=>o.stage==='Closed Lost')
+            const activePipeline=activeOpps.reduce((s,o)=>s+o.acv,0)
+            const wonAcv=wonOpps.reduce((s,o)=>s+o.acv,0)
+            const lostAcv=lostOpps.reduce((s,o)=>s+o.acv,0)
+            const winRate=wonOpps.length+lostOpps.length>0?Math.round(wonOpps.length/(wonOpps.length+lostOpps.length)*100):0
+            const allAcvs=opps.filter(o=>o.acv>0).map(o=>o.acv)
+            const avgDeal=allAcvs.length>0?Math.round(allAcvs.reduce((s,v)=>s+v,0)/allAcvs.length):0
+
+            // Filter opps for table
+            const tableOpps=(oppStageFilter==='all'?opps:oppStageFilter==='active'?activeOpps:[...wonOpps,...lostOpps])
+              .slice().sort((a,b)=>{
+                const mul=oppSortAsc?1:-1
+                if(oppSortCol==='acv') return (a.acv-b.acv)*mul
+                if(oppSortCol==='account') return a.account.localeCompare(b.account)*mul
+                if(oppSortCol==='stage') return a.stage.localeCompare(b.stage)*mul
+                return a.closeDate.localeCompare(b.closeDate)*mul
+              })
+
+            const toggleSort=(col:typeof oppSortCol)=>{if(oppSortCol===col)setOppSortAsc(!oppSortAsc);else{setOppSortCol(col);setOppSortAsc(false)}}
+            const sortIcon=(col:typeof oppSortCol)=>oppSortCol===col?(oppSortAsc?'↑':'↓'):''
+
+            // ACV by created month (for chart)
+            const qColors:Record<string,string>={'Q3 2025':'#fb923c','Q4 2025':'#c084fc','Q1 2026':'#60d4f4','Q2 2026':C.green}
+            const monthAcv=new Map<string,{month:string;acv:number;quarter:string}>()
+            opps.filter(o=>o.acv>0).forEach(o=>{
+              const k=o.createdMonth
+              if(!monthAcv.has(k)) monthAcv.set(k,{month:k,acv:0,quarter:o.createdQuarter})
+              monthAcv.get(k)!.acv+=o.acv
+            })
+            const monthBars=Array.from(monthAcv.values()).sort((a,b)=>a.month.localeCompare(b.month))
+            const maxAcvBar=Math.max(1,...monthBars.map(b=>b.acv))
+
+            // ACV by stage
+            const stageGroups=(['1. Qualify','2. Evaluation','3. Proposal','Closed Won','Closed Lost'] as OppStage[]).map(st=>{
+              const stOpps=opps.filter(o=>o.stage===st)
+              return {stage:st,count:stOpps.length,acv:stOpps.reduce((s,o)=>s+o.acv,0)}
+            }).filter(g=>g.count>0)
+            const maxStageAcv=Math.max(1,...stageGroups.map(g=>g.acv))
+            const stageColors:Record<string,string>={'1. Qualify':C.amber,'2. Evaluation':'#60d4f4','3. Proposal':C.purple,'Closed Won':C.green,'Closed Lost':C.red}
+
+            // ACV by lead channel
+            const channelMap=new Map<string,number>()
+            opps.filter(o=>o.acv>0).forEach(o=>{channelMap.set(o.primaryChannel,(channelMap.get(o.primaryChannel)||0)+o.acv)})
+            const channelBars=Array.from(channelMap.entries()).map(([ch,acv])=>({ch,acv})).sort((a,b)=>b.acv-a.acv)
+            const maxChAcv=Math.max(1,...channelBars.map(b=>b.acv))
+            const chColors:Record<string,string>={'BDR-Sourced':C.green,'PPC Ads':'#60d4f4',Newsletters:'#c084fc',Organic:C.amber,'Word of Mouth':'#e879f9','Sponsored Content':'#fb923c'}
+
+            return (
+              <div style={{marginTop:24}}>
+                <div style={{fontSize:18,fontWeight:800,letterSpacing:'-0.02em',marginBottom:4}}>Pipeline ACV <span style={{color:C.green}}>Breakdown</span></div>
+                <div style={{fontSize:11,color:C.text3,marginBottom:20}}>Opportunity-level pipeline analysis from Spiff reports</div>
+
+                {/* Summary cards */}
+                <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:12,marginBottom:20}}>
+                  {[
+                    {label:'Active Pipeline',value:`$${activePipeline.toLocaleString()}`,sub:`${activeOpps.length} opps`,color:C.green},
+                    {label:'Closed Won',value:`$${wonAcv.toLocaleString()}`,sub:`${wonOpps.length} won`,color:C.amber},
+                    {label:'Closed Lost',value:`$${lostAcv.toLocaleString()}`,sub:`${lostOpps.length} lost`,color:C.red},
+                    {label:'Win Rate',value:`${winRate}%`,sub:`${wonOpps.length}W / ${lostOpps.length}L`,color:'#60d4f4'},
+                    {label:'Avg Deal Size',value:`$${avgDeal.toLocaleString()}`,sub:`${allAcvs.length} opps w/ ACV`,color:C.purpleL},
+                  ].map(s=>(
+                    <div key={s.label} style={card}>
+                      <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:8}}>{s.label}</div>
+                      <div style={{fontSize:22,fontWeight:800,color:s.color}}>{s.value}</div>
+                      <div style={{fontSize:10,color:C.text3,marginTop:4}}>{s.sub}</div>
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:20}}>
+                  {/* ACV by created month */}
+                  <div style={card}>
+                    <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:14}}>Pipeline ACV by Created Month</div>
+                    <div style={{display:'flex',gap:4,alignItems:'flex-end',height:140}}>
+                      {monthBars.map(b=>{
+                        const h=b.acv/maxAcvBar*100
+                        const [y,m]=b.month.split('-').map(Number)
+                        return (
+                          <div key={b.month} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center'}}>
+                            <div style={{fontSize:8,color:C.text3,marginBottom:2}}>${Math.round(b.acv/1000)}K</div>
+                            <div style={{width:'70%',height:`${h}%`,background:qColors[b.quarter]||C.purple,borderRadius:'3px 3px 0 0',minHeight:4}}/>
+                            <div style={{fontSize:7,color:C.text3,marginTop:3}}>{new Date(y,m-1).toLocaleString('en-US',{month:'short'})}</div>
+                            <div style={{fontSize:6,color:C.text3}}>{b.quarter.replace('20','')}</div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                    <div style={{display:'flex',gap:10,marginTop:8,justifyContent:'center',flexWrap:'wrap'}}>
+                      {Object.entries(qColors).map(([q,c])=>(
+                        <div key={q} style={{display:'flex',alignItems:'center',gap:3}}><span style={{width:8,height:8,borderRadius:2,background:c}}/><span style={{fontSize:8,color:C.text3}}>{q}</span></div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* ACV by stage */}
+                  <div style={card}>
+                    <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:14}}>Pipeline ACV by Stage</div>
+                    <div style={{display:'grid',gap:8}}>
+                      {stageGroups.map(g=>(
+                        <div key={g.stage} style={{display:'grid',gridTemplateColumns:'110px 1fr 70px',gap:8,alignItems:'center'}}>
+                          <div style={{fontSize:11,color:stageColors[g.stage]||C.text2,fontWeight:600,whiteSpace:'nowrap'}}>{g.stage}</div>
+                          <div style={{height:10,borderRadius:5,background:C.surface3,overflow:'hidden'}}>
+                            <div style={{height:10,borderRadius:5,background:stageColors[g.stage]||C.purple,width:`${g.acv/maxStageAcv*100}%`}}/>
+                          </div>
+                          <div style={{fontSize:11,fontWeight:700,color:C.text,textAlign:'right'}}>${g.acv>0?(g.acv/1000).toFixed(0)+'K':'TBD'} <span style={{fontSize:9,color:C.text3,fontWeight:400}}>({g.count})</span></div>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{marginTop:12,padding:'8px 10px',background:C.surface3,borderRadius:6,display:'flex',justifyContent:'space-between'}}>
+                      <span style={{fontSize:10,fontWeight:700,color:C.text3}}>Active Pipeline</span>
+                      <span style={{fontSize:12,fontWeight:800,color:C.green}}>${activePipeline.toLocaleString()}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ACV by lead channel */}
+                <div style={{...card,marginBottom:20}}>
+                  <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:14}}>Pipeline ACV by Lead Channel</div>
+                  <div style={{display:'grid',gap:8}}>
+                    {channelBars.map(b=>(
+                      <div key={b.ch} style={{display:'grid',gridTemplateColumns:'130px 1fr 80px',gap:8,alignItems:'center'}}>
+                        <div style={{fontSize:11,color:chColors[b.ch]||C.text2,fontWeight:600}}>{b.ch}</div>
+                        <div style={{height:10,borderRadius:5,background:C.surface3,overflow:'hidden'}}>
+                          <div style={{height:10,borderRadius:5,background:chColors[b.ch]||C.purple,width:`${b.acv/maxChAcv*100}%`}}/>
+                        </div>
+                        <div style={{fontSize:11,fontWeight:700,color:C.text,textAlign:'right'}}>${(b.acv/1000).toFixed(0)}K</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Opportunity detail table */}
+                <div style={{...card,marginBottom:20}}>
+                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14,flexWrap:'wrap',gap:8}}>
+                    <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em'}}>Opportunity Detail · {tableOpps.length} opps</div>
+                    <div style={{display:'flex',gap:5}}>
+                      {(['all','active','closed'] as const).map(f=>(
+                        <button key={f} onClick={()=>setOppStageFilter(f)} style={filterPill(oppStageFilter===f)}>{{all:'All',active:'Active',closed:'Closed'}[f]}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <div style={{overflowX:'auto'}}>
+                    <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
+                      <thead>
+                        <tr style={{borderBottom:`2px solid ${C.border2}`}}>
+                          {([
+                            {key:'account' as const,label:'Account'},
+                            {key:'stage' as const,label:'Stage'},
+                            {key:'acv' as const,label:'ACV'},
+                            {key:'closeDate' as const,label:'Close Date'},
+                          ] as const).map(h=>(
+                            <th key={h.key} onClick={()=>toggleSort(h.key)} style={{padding:'7px 8px',textAlign:h.key==='acv'?'right':'left',fontSize:9,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',cursor:'pointer',whiteSpace:'nowrap',userSelect:'none'}}>
+                              {h.label} {sortIcon(h.key)}
+                            </th>
+                          ))}
+                          {['Score','Channel','Opp Owner','Created'].map(h=>(
+                            <th key={h} style={{padding:'7px 8px',textAlign:'left',fontSize:9,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',whiteSpace:'nowrap'}}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {tableOpps.map((o,i)=>{
+                          const stColor=stageColors[o.stage]||C.text2
+                          const scoreColor=o.score==='A'?C.green:o.score==='B'?'#60d4f4':C.red
+                          return (
+                            <tr key={i} style={{borderBottom:`1px solid ${C.border}`}}>
+                              <td style={{padding:'8px',fontWeight:600,color:C.text}}>{o.account}</td>
+                              <td style={{padding:'8px'}}><span style={{fontSize:9,fontWeight:700,color:stColor,background:`${stColor}18`,padding:'1px 6px',borderRadius:3}}>{o.stage}</span></td>
+                              <td style={{padding:'8px',textAlign:'right',fontWeight:700,color:o.acv?C.text:C.text3}}>{o.acv?`$${o.acv.toLocaleString()}`:'TBD'}</td>
+                              <td style={{padding:'8px',color:C.text2,whiteSpace:'nowrap'}}>{new Date(o.closeDate).toLocaleDateString('en-US',{month:'short',year:'2-digit'})}</td>
+                              <td style={{padding:'8px'}}><span style={{fontSize:9,fontWeight:700,color:scoreColor,background:`${scoreColor}18`,padding:'1px 5px',borderRadius:3}}>{o.score}</span></td>
+                              <td style={{padding:'8px',color:C.text3,fontSize:10}}>{o.primaryChannel}</td>
+                              <td style={{padding:'8px',color:C.text2}}>{o.oppOwner}</td>
+                              <td style={{padding:'8px',color:C.text3,fontSize:10}}>{o.createdQuarter}</td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )
+          })()}
         </>)}
 
 
