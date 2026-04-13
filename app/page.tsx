@@ -3973,6 +3973,138 @@ export default function Dashboard() {
             </div>
           )}
 
+          {/* ── Tracker to Goal — Jonathan Kim only ── */}
+          {currentRep?.id==='jonathan'&&(()=>{
+            const yr=now.getFullYear()
+            const currentMo=now.getMonth() // 0-indexed
+            // Months elapsed this year (1-indexed count through current month)
+            const monthsElapsed=currentMo+1
+
+            // Comp structure: Jan 2026 = SDR, Feb 2026+ = BDM
+            const SDR_BASE_MONTHLY=6667
+            const BDM_BASE_MONTHLY=10000
+            const SDR_OTE_ANNUAL=120000
+            const BDM_OTE_ANNUAL=150000
+            const SDR_VARIABLE_ANNUAL=40000
+            const BDM_VARIABLE_ANNUAL=30000
+
+            // Count months at each level (calendar year 2026)
+            const sdrMonths=yr===2026?1:0 // Jan only
+            const bdmMonths=yr===2026?Math.max(0,monthsElapsed-1):monthsElapsed
+
+            // Base salary earned YTD
+            const baseYtd=(sdrMonths*SDR_BASE_MONTHLY)+(bdmMonths*BDM_BASE_MONTHLY)
+
+            // Commission earned YTD (from existing data + adjustments)
+            const commissionYtd=commData.ytdGrandTotal+getYtdAdj('jonathan')
+
+            // Total comp YTD
+            const totalCompYtd=baseYtd+commissionYtd
+
+            // Prorated OTE through current month
+            const proratedOte=(sdrMonths*(SDR_OTE_ANNUAL/12))+(bdmMonths*(BDM_OTE_ANNUAL/12))
+
+            // OTE progress
+            const otePct=proratedOte>0?Math.round(totalCompYtd/proratedOte*100):0
+
+            // Commission variable tracker
+            const variableTargetYtd=(sdrMonths*(SDR_VARIABLE_ANNUAL/12))+(bdmMonths*(BDM_VARIABLE_ANNUAL/12))
+            const variableAttainment=variableTargetYtd>0?Math.round(commissionYtd/variableTargetYtd*100):0
+
+            // Pace indicator
+            const paceLabel=otePct>=105?'Ahead of pace':otePct>=95?'On pace':'Behind pace'
+            const paceColor=otePct>=105?C.green:otePct>=95?C.amber:C.red
+
+            // Monthly earnings for chart
+            const monthlyEarnings=Array.from({length:monthsElapsed},(_,i)=>{
+              const mk=`${yr}-${String(i+1).padStart(2,'0')}`
+              const base=i===0&&yr===2026?SDR_BASE_MONTHLY:BDM_BASE_MONTHLY
+              const monthComm=commData.months.find(m=>m.key===mk)
+              const comm=(monthComm?.total??0)+getMonthAdj(mk,'jonathan')
+              const oteMonthly=i===0&&yr===2026?SDR_OTE_ANNUAL/12:BDM_OTE_ANNUAL/12
+              return {label:new Date(yr,i).toLocaleString('en-US',{month:'short'}),base,comm,total:base+comm,oteMonthly}
+            })
+            const maxMonthly=Math.max(1,...monthlyEarnings.map(m=>Math.max(m.total,m.oteMonthly)))
+
+            return (
+              <div style={{...card,marginBottom:20,background:'linear-gradient(135deg, rgba(0,229,160,0.06) 0%, rgba(123,110,246,0.06) 100%)',border:`1px solid rgba(0,229,160,0.2)`}}>
+                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:16}}>
+                  <div>
+                    <div style={{fontSize:13,fontWeight:800,color:C.text}}>Tracker to Goal</div>
+                    <div style={{fontSize:10,color:C.text3,marginTop:2}}>OTE progress · {yr} blended (SDR Jan → BDM Feb+)</div>
+                  </div>
+                  <div style={{display:'flex',alignItems:'center',gap:6}}>
+                    <span style={{width:8,height:8,borderRadius:'50%',background:paceColor}}/>
+                    <span style={{fontSize:11,fontWeight:700,color:paceColor}}>{paceLabel}</span>
+                  </div>
+                </div>
+
+                {/* Top-level gauges */}
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:18}}>
+                  {/* OTE Progress */}
+                  <div style={{background:C.surface3,borderRadius:10,padding:14,border:`1px solid ${C.border}`}}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:8}}>
+                      <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em'}}>Total Comp vs OTE</div>
+                      <div style={{fontSize:18,fontWeight:800,color:otePct>=100?C.green:C.text}}>{otePct}%</div>
+                    </div>
+                    <div style={{height:8,borderRadius:4,background:C.surface,marginBottom:8}}>
+                      <div style={{height:8,borderRadius:4,background:otePct>=100?C.green:otePct>=90?C.amber:C.purple,width:`${Math.min(100,otePct)}%`,transition:'width 0.4s'}}/>
+                    </div>
+                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8}}>
+                      <div><div style={{fontSize:14,fontWeight:700,color:C.text}}>${Math.round(totalCompYtd).toLocaleString()}</div><div style={{fontSize:9,color:C.text3}}>earned YTD</div></div>
+                      <div><div style={{fontSize:14,fontWeight:700,color:C.text3}}>${Math.round(proratedOte).toLocaleString()}</div><div style={{fontSize:9,color:C.text3}}>prorated OTE</div></div>
+                      <div><div style={{fontSize:14,fontWeight:700,color:C.text2}}>${Math.round(baseYtd).toLocaleString()}</div><div style={{fontSize:9,color:C.text3}}>base salary</div></div>
+                    </div>
+                  </div>
+
+                  {/* Variable Attainment */}
+                  <div style={{background:C.surface3,borderRadius:10,padding:14,border:`1px solid ${C.border}`}}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:8}}>
+                      <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em'}}>Commission Attainment</div>
+                      <div style={{fontSize:18,fontWeight:800,color:variableAttainment>=100?C.green:C.text}}>{variableAttainment}%</div>
+                    </div>
+                    <div style={{height:8,borderRadius:4,background:C.surface,marginBottom:8}}>
+                      <div style={{height:8,borderRadius:4,background:variableAttainment>=150?C.green:variableAttainment>=100?'#60d4f4':C.purple,width:`${Math.min(100,variableAttainment/2)}%`,transition:'width 0.4s'}}/>
+                    </div>
+                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8}}>
+                      <div><div style={{fontSize:14,fontWeight:700,color:C.green}}>${Math.round(commissionYtd).toLocaleString()}</div><div style={{fontSize:9,color:C.text3}}>commission YTD</div></div>
+                      <div><div style={{fontSize:14,fontWeight:700,color:C.text3}}>${Math.round(variableTargetYtd).toLocaleString()}</div><div style={{fontSize:9,color:C.text3}}>target YTD</div></div>
+                      <div><div style={{fontSize:14,fontWeight:700,color:C.text2}}>${(variableAttainment>=100?'+':'')+(Math.round(commissionYtd-variableTargetYtd)).toLocaleString()}</div><div style={{fontSize:9,color:C.text3}}>{commissionYtd>=variableTargetYtd?'above target':'below target'}</div></div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Monthly earnings chart */}
+                <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:10}}>Monthly Earnings vs OTE Pace</div>
+                <div style={{display:'flex',gap:4,alignItems:'flex-end',height:120}}>
+                  {monthlyEarnings.map((m,i)=>{
+                    const barH=maxMonthly>0?(m.total/maxMonthly*100):0
+                    const baseH=maxMonthly>0?(m.base/maxMonthly*100):0
+                    const commH=barH-baseH
+                    const oteLine=maxMonthly>0?(m.oteMonthly/maxMonthly*100):0
+                    return (
+                      <div key={i} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',position:'relative',height:'100%'}}>
+                        {/* OTE pace line */}
+                        <div style={{position:'absolute',bottom:`${oteLine}%`,left:0,right:0,height:2,background:C.amber,borderRadius:1,opacity:0.6,zIndex:1}}/>
+                        <div style={{flex:1}}/>
+                        {/* Commission portion */}
+                        {commH>0&&<div style={{width:'70%',height:`${commH}%`,background:C.green,borderRadius:'3px 3px 0 0',minHeight:commH>0?2:0}}/>}
+                        {/* Base portion */}
+                        <div style={{width:'70%',height:`${baseH}%`,background:C.purple,borderRadius:commH>0?0:'3px 3px 0 0',minHeight:2}}/>
+                        <div style={{fontSize:8,color:C.text3,marginTop:3}}>{m.label}</div>
+                      </div>
+                    )
+                  })}
+                </div>
+                <div style={{display:'flex',gap:14,marginTop:8,justifyContent:'center'}}>
+                  <div style={{display:'flex',alignItems:'center',gap:4}}><span style={{width:8,height:8,borderRadius:2,background:C.purple}}/><span style={{fontSize:9,color:C.text3}}>Base</span></div>
+                  <div style={{display:'flex',alignItems:'center',gap:4}}><span style={{width:8,height:8,borderRadius:2,background:C.green}}/><span style={{fontSize:9,color:C.text3}}>Commission</span></div>
+                  <div style={{display:'flex',alignItems:'center',gap:4}}><span style={{width:14,height:2,borderRadius:1,background:C.amber}}/><span style={{fontSize:9,color:C.text3}}>OTE Pace</span></div>
+                </div>
+              </div>
+            )
+          })()}
+
           {/* ── Monthly Summary Cards ── */}
           <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:12,marginBottom:20}}>
             <div style={card}>
