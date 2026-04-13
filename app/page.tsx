@@ -18,13 +18,13 @@ const DEFAULT_REPS: Rep[] = [
 ]
 
 // ─── User Credentials ────────────────────────────────────────────────────────
-type UserRole = 'manager' | 'cmo' | 'perf_marketing' | 'revops' | 'rep'
+type UserRole = 'manager' | 'cmo' | 'perf_marketing' | 'revops' | 'rep' | 'pm'
 type DashView = 'pipeline' | 'analytics' | 'reporting' | 'commissions' | 'leaderboard' | 'revops_commissions'
 interface UserCredential { email:string; password:string; role:UserRole; name:string; allowedViews:DashView[]|'all' }
 const USER_CREDENTIALS: UserCredential[] = [
   { email:'jonathankim@qawolf.com', password:'johnnywolfpack2026', role:'manager', name:'Jonathan Kim', allowedViews:'all' },
   { email:'scott@qawolf.com',       password:'ScottQAW2026',       role:'cmo',     name:'Scott Wilson', allowedViews:['pipeline','analytics','reporting','leaderboard','revops_commissions'] },
-  { email:'arnav@qawolf.com',       password:'PMLQAW2026',         role:'perf_marketing', name:'Arnav Shome', allowedViews:['revops_commissions'] },
+  { email:'arnav@qawolf.com',       password:'PMLQAW2026',         role:'pm', name:'Arnav Shome', allowedViews:['reporting','analytics','commissions','revops_commissions'] },
   { email:'meenal@qawolf.com',      password:'RevOpsQAW#123',      role:'revops',  name:'Meenal Gupta', allowedViews:['revops_commissions'] },
 ]
 const MANAGER_ROLES: UserRole[] = ['manager','cmo'] // full access roles that can edit reps, manage pipeline, etc.
@@ -2429,16 +2429,20 @@ export default function Dashboard() {
           {auth.role==='perf_marketing'&&(
             <div title="Performance Marketing" style={{fontSize:10,fontWeight:700,color:'#e879f9',background:'rgba(232,121,249,0.15)',borderRadius:5,padding:'2px 6px',border:'1px solid rgba(232,121,249,0.3)',flexShrink:0}}>PML</div>
           )}
+          {auth.role==='pm'&&(
+            <div title="Performance Marketing" style={{fontSize:10,fontWeight:700,color:'#60d4f4',background:'rgba(96,212,244,0.15)',borderRadius:5,padding:'2px 6px',border:'1px solid rgba(96,212,244,0.3)',flexShrink:0}}>PM</div>
+          )}
           <button onClick={()=>{setAuth(null);sessionStorage.removeItem('mql-auth');window.location.href='/'}} title="Sign out" style={{background:'none',border:'none',color:C.text3,cursor:'pointer',fontSize:14,padding:2,flexShrink:0}}
             onMouseEnter={e=>(e.currentTarget.style.color=C.red)} onMouseLeave={e=>(e.currentTarget.style.color=C.text3)}>⎋</button>
         </div>
 
-        {/* Limited-access sidebar (RevOps + Perf Marketing) */}
-        {(auth.role==='revops'||auth.role==='perf_marketing')&&(
+        {/* Limited-access sidebar (RevOps + Perf Marketing + PM) */}
+        {(auth.role==='revops'||auth.role==='perf_marketing'||auth.role==='pm')&&(
           <>
           <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.1em',padding:'6px 20px 4px'}}>Views</div>
           {([
-            ['analytics','📈','Analytics','Charts · trends · breakdown'] as const,
+            ['reporting','🧾','Reporting','Generated summaries'] as const,
+            ['analytics','📈','Analytics','Charts · trends · conversion'] as const,
             ['commissions','💲','Commissions','Bonus tracking · payouts'] as const,
             ['revops_commissions','📋','RevOps','Commission verification · payouts'] as const,
           ] as const).filter(([v])=>canView(v as DashView)).map(([v,icon,label,sub])=>(
@@ -2454,7 +2458,7 @@ export default function Dashboard() {
         )}
 
         {/* Manager rep switcher + editor — hidden in revops mode */}
-        {auth.role!=='revops'&&auth.role!=='perf_marketing'&&isManagerRole(auth)&&(
+        {auth.role!=='revops'&&auth.role!=='perf_marketing'&&auth.role!=='pm'&&isManagerRole(auth)&&(
           <div style={{padding:'0 20px 12px'}}>
             <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:6,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
               Reps
@@ -2541,7 +2545,7 @@ export default function Dashboard() {
           </div>
         )}
 
-        {auth.role!=='revops'&&auth.role!=='perf_marketing'&&<><div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.1em',padding:'6px 20px 4px'}}>Views</div>
+        {auth.role!=='revops'&&auth.role!=='perf_marketing'&&auth.role!=='pm'&&<><div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.1em',padding:'6px 20px 4px'}}>Views</div>
         {([
           ['pipeline','📊','Pipeline','Lead tracking · expandable'] as const,
           ['analytics','📈','Analytics','Charts · trends · breakdown'] as const,
