@@ -1599,6 +1599,7 @@ export default function Dashboard() {
   const [compPeriod,setCompPeriod]=useState<'comp_change'|'ytd'|'quarter'|'month'|'custom'>('comp_change')
   const [compFrom,setCompFrom]=useState('')
   const [compTo,setCompTo]=useState('')
+  const [commRepFilter,setCommRepFilter]=useState('all')
   const [spiffs,setSpiffs]=useState<Spiff[]>([])
   const [showSpiffModal,setShowSpiffModal]=useState(false)
   const [editingSpiff,setEditingSpiff]=useState<Spiff|null>(null)
@@ -3928,32 +3929,60 @@ export default function Dashboard() {
           const now = new Date()
           const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`
 
-          // Build for current rep
-          const commData = buildRepCommissions(allLeads, currentRep?.id === 'jonathan')
-          const currentMonth = commData.months.find(m => m.key === currentMonthKey)
-          const currentMonthAdj = getMonthAdj(currentMonthKey, currentRep?.id)
+          // All leads unfiltered by rep (for manager "All Reps" view)
+          const allLeadsUnfilteredComm: AppLead[] = [
+            ...HISTORICAL_LEADS,
+            ...manualLeads.filter(l => !HISTORICAL_LEADS.some(h => h.email === l.email)),
+            ...liveLeads.filter(l => !HISTORICAL_LEADS.some(h => h.email === l.email) && !manualLeads.some(m => m.email === l.email) && !new Set(HISTORICAL_LEADS.map(h=>h.domain)).has(l.domain)),
+          ].filter(l => !deletedEmails.has(l.email))
 
-          // For manager view: build per-rep
-          const managerRepData = isManagerRole(auth) ? reps.map(rep => {
+          // Build per-rep commission data
+          const perRepCommData = reps.filter(r=>r.slackId).map(rep => {
             const repLeads = rep.id === 'jonathan'
-              ? allLeads
-              : allLeads.filter(l => l.repSlackId && l.repSlackId === rep.slackId)
+              ? allLeadsUnfilteredComm.filter(l => !l.repSlackId || l.repSlackId === rep.slackId)
+              : allLeadsUnfilteredComm.filter(l => l.repSlackId === rep.slackId)
             const data = buildRepCommissions(repLeads, rep.id === 'jonathan')
             return { rep, ...data }
-          }) : []
+          })
+
+          // Determine which data to show based on rep filter
+          // For non-manager roles, always show their own data
+          const effectiveRepFilter = isManagerRole(auth) ? commRepFilter : (currentRep?.id || 'all')
+          const commData = effectiveRepFilter === 'all'
+            ? buildRepCommissions(allLeadsUnfilteredComm, true) // "All" uses overrides since Jonathan's data dominates
+            : (() => {
+                const found = perRepCommData.find(r => r.rep.id === effectiveRepFilter)
+                return found || buildRepCommissions([], false)
+              })()
+          const currentMonth = commData.months.find(m => m.key === currentMonthKey)
+          const adjRepId = effectiveRepFilter === 'all' ? undefined : effectiveRepFilter
+          const currentMonthAdj = getMonthAdj(currentMonthKey, adjRepId)
+
+          // For manager view: use perRepCommData
+          const managerRepData = isManagerRole(auth) ? perRepCommData : []
 
           return (<>
-          <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:16,marginBottom:28}}>
+          <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:16,marginBottom:isManagerRole(auth)?12:28}}>
             <div>
               <div style={{fontSize:26,fontWeight:800,letterSpacing:'-0.02em',lineHeight:1.15}}>Commissions<br/><span style={{color:C.green}}>Tracker.</span></div>
               <div style={{fontSize:12,color:C.text3,marginTop:4}}>ICP meeting bonuses · SQL payouts · accelerators</div>
             </div>
             {isManagerRole(auth)&&(
-              <button onClick={()=>{setEditingAdj({id:`adj-${Date.now()}`,repId:currentRep?.id||'all',month:currentMonthKey,amount:0,reason:'',createdAt:new Date().toISOString()});setShowAdjModal(true)}} style={{fontSize:11,fontWeight:700,padding:'8px 14px',borderRadius:8,border:`1px solid ${C.border2}`,background:C.surface,color:C.text2,cursor:'pointer'}}>
+              <button onClick={()=>{setEditingAdj({id:`adj-${Date.now()}`,repId:effectiveRepFilter==='all'?'all':effectiveRepFilter,month:currentMonthKey,amount:0,reason:'',createdAt:new Date().toISOString()});setShowAdjModal(true)}} style={{fontSize:11,fontWeight:700,padding:'8px 14px',borderRadius:8,border:`1px solid ${C.border2}`,background:C.surface,color:C.text2,cursor:'pointer'}}>
                 ± Adjust Commission
               </button>
             )}
           </div>
+
+          {/* ── Rep filter (manager only) ── */}
+          {isManagerRole(auth)&&(
+            <div style={{display:'flex',gap:5,marginBottom:16,flexWrap:'wrap'}}>
+              <button onClick={()=>setCommRepFilter('all')} style={filterPill(commRepFilter==='all','#60d4f4')}>All Reps</button>
+              {reps.filter(r=>r.slackId).map(r=>(
+                <button key={r.id} onClick={()=>setCommRepFilter(r.id)} style={filterPill(commRepFilter===r.id,'#60d4f4')}>{r.name}</button>
+              ))}
+            </div>
+          )}
 
           {/* ── Undo banner ── */}
           {adjUndoMsg&&adjUndoStack.length>0&&(
@@ -3978,6 +4007,8 @@ export default function Dashboard() {
 
           {/* ── Compensation Tracker — Jonathan Kim only ── */}
           {currentRep?.id==='jonathan'&&auth&&'email' in auth&&auth.email==='jonathankim@qawolf.com'&&(()=>{
+            // Always use Jonathan's own commission data regardless of rep filter
+            const jkCommData = perRepCommData.find(r=>r.rep.id==='jonathan') || commData
             // ── Comp plan constants ──────────────────────────────────────────────
             // Jonathan was promoted from SDR to BDM on Feb 18, 2026.
             // Pre-promotion (Jan 2026): $80K base, $40K variable, $120K OTE
@@ -4011,7 +4042,7 @@ export default function Dashboard() {
             }
 
             // ── Filter commission months to the selected period ──────────────────
-            const filteredMonths=commData.months.filter(m=>{
+            const filteredMonths=jkCommData.months.filter(m=>{
               const [y,mo]=m.key.split('-').map(Number)
               const monthEnd=new Date(y,mo,0,23,59,59) // last day of that month
               const monthStart=new Date(y,mo-1,1)
@@ -4038,7 +4069,7 @@ export default function Dashboard() {
             // Pro-rated variable target for elapsed time under BDM plan
             const proratedTarget=BDM_VARIABLE_ANNUAL*(daysElapsed/daysInYear)
             // Commission earned since comp change (for pace calc)
-            const compChangeMonths=commData.months.filter(m=>{
+            const compChangeMonths=jkCommData.months.filter(m=>{
               const [y,mo]=m.key.split('-').map(Number)
               return new Date(y,mo,0)>=compPlanStart
             })
@@ -4086,7 +4117,7 @@ export default function Dashboard() {
             const monthlyEarnings=Array.from({length:monthsElapsed},(_,i)=>{
               const mk=`${yr}-${String(i+1).padStart(2,'0')}`
               const base=i===0&&yr===2026?SDR_BASE_MONTHLY:BDM_BASE_MONTHLY
-              const monthComm=commData.months.find(m=>m.key===mk)
+              const monthComm=jkCommData.months.find(m=>m.key===mk)
               const comm=(monthComm?.total??0)+getMonthAdj(mk,'jonathan')
               const oteMonthly=i===0&&yr===2026?SDR_OTE_ANNUAL/12:BDM_OTE_ANNUAL/12
               return {label:new Date(yr,i).toLocaleString('en-US',{month:'short'}),mk,base,comm,total:base+comm,oteMonthly}
@@ -4317,7 +4348,7 @@ export default function Dashboard() {
                         <td style={{padding:'10px',textAlign:'right',color:'#c084fc',fontWeight:600}}>${(m.sqlTotal - m.acceleratorTotal).toLocaleString()}</td>
                         <td style={{padding:'10px',textAlign:'right',color:m.acceleratorTotal>0?C.amber:C.text3,fontWeight:m.acceleratorTotal>0?600:400}}>{m.acceleratorTotal>0?`$${m.acceleratorTotal.toLocaleString()}`:'—'}</td>
                         {(()=>{
-                          const adj=getMonthAdj(m.key,currentRep?.id)
+                          const adj=getMonthAdj(m.key,adjRepId)
                           const adjusted=m.total+adj
                           return <td style={{padding:'10px',textAlign:'right',fontWeight:700,color:C.text}}>
                             ${adjusted.toLocaleString()}
@@ -4412,7 +4443,7 @@ export default function Dashboard() {
                 <div style={{fontSize:10,color:C.text3,marginTop:6}}>from months with &gt;3 SQLs</div>
               </div>
               {(()=>{
-                const ytdAdj=getYtdAdj(currentRep?.id)
+                const ytdAdj=getYtdAdj(adjRepId)
                 const adjusted=commData.ytdGrandTotal+ytdAdj
                 return <div style={{background:C.surface3,border:`1px solid ${C.border}`,borderRadius:10,padding:14}}>
                   <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:8}}>Total Variable Earned</div>
