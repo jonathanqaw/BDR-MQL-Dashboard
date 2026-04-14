@@ -19,7 +19,7 @@ const DEFAULT_REPS: Rep[] = [
 
 // ─── User Credentials ────────────────────────────────────────────────────────
 type UserRole = 'manager' | 'cmo' | 'perf_marketing' | 'revops' | 'rep' | 'pm'
-type DashView = 'pipeline' | 'analytics' | 'reporting' | 'commissions' | 'leaderboard' | 'revops_commissions'
+type DashView = 'pipeline' | 'analytics' | 'reporting' | 'commissions' | 'leaderboard' | 'revops_commissions' | 'roundrobin'
 interface UserCredential { email:string; password:string; role:UserRole; name:string; allowedViews:DashView[]|'all' }
 const USER_CREDENTIALS: UserCredential[] = [
   { email:'jonathankim@qawolf.com', password:'johnnywolfpack2026', role:'manager', name:'Jonathan Kim', allowedViews:'all' },
@@ -35,7 +35,7 @@ type AuthState = { role: UserRole; email?: string; allowedViews: DashView[]|'all
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Status       = 'new' | 'contacted' | 'inprogress' | 'booked' | 'nurture' | 'lost' | 'na' | 'dq' | 'closedwon'
-type View         = 'pipeline' | 'analytics' | 'reporting' | 'commissions' | 'leaderboard' | 'revops_commissions'
+type View         = 'pipeline' | 'analytics' | 'reporting' | 'commissions' | 'leaderboard' | 'revops_commissions' | 'roundrobin'
 type LbMetric     = 'meetings' | 'meetings_held' | 'sqls' | 'sqos'
 type LbPeriod     = 'today' | 'week' | 'month' | 'quarter' | 'year' | 'all'
 interface Spiff { id:string; title:string; description:string; metric:LbMetric; target:number; reward:string; startDate:string; endDate:string; createdBy:string; active:boolean }
@@ -334,6 +334,43 @@ const SQL_OPTIONS      = ['','Yes','No','Pending']
 const SQO_OPTIONS      = ['','Yes','No']
 const CLOSED_WON_OPTIONS = ['','Yes','No']
 const MT_OPTIONS       = ['','Yes','No']
+
+// ─── AE Round Robin Roster ──────────────────────────────────────────────────
+interface AERosterEntry { name:string; calendarId:string; team:string }
+const AE_ROSTER:{west:{major:AERosterEntry[];commercial:AERosterEntry[]};east:{major:AERosterEntry[];commercial:AERosterEntry[]}} = {
+  west:{
+    major:[
+      {name:'Colin',calendarId:'colin@qawolf.com',team:'Yoshi'},
+      {name:'Kathryn',calendarId:'kathryn@qawolf.com',team:'Bowser'},
+    ],
+    commercial:[
+      {name:'Sally',calendarId:'sally@qawolf.com',team:'Bowser'},
+      {name:'Rob',calendarId:'rob@qawolf.com',team:'Yoshi'},
+      {name:'Burke',calendarId:'burke@qawolf.com',team:'Yoshi'},
+    ],
+  },
+  east:{
+    major:[
+      {name:'Devin',calendarId:'devin@qawolf.com',team:'Kirby'},
+      {name:'Charlie',calendarId:'charlie@s.qawolf.com',team:'Zelda'},
+      {name:'Ben',calendarId:'benbarrett@qawolf.com',team:'Zelda'},
+      {name:'Jason',calendarId:'jason@qawolf.com',team:'Sonic'},
+    ],
+    commercial:[
+      {name:'Stephen',calendarId:'stephen@qawolf.com',team:'Sonic'},
+      {name:'Jordan',calendarId:'jordan.vanitallie@qawolf.com',team:'Kirby'},
+    ],
+  },
+}
+const SE_TEAMS:Record<string,{se:string;members:string[];tz:string}>={
+  Yoshi:{se:'Ricky Moore',members:["Colin O'Connor",'Chris Burke','Robert Linsmayer'],tz:'PST'},
+  Bowser:{se:'Dion Pham',members:['Kathryn Hajjar','Sally Lopez','Daniel Tsimerman'],tz:'PST'},
+  Sonic:{se:'Ian Schaefer',members:['Stephen Stabile','Jason Minster','Sam McElrea'],tz:'EST'},
+  Kirby:{se:'Becca',members:['Devin Steinke','Veronika Fischer','Jordan Van Itallie'],tz:'CST/EST'},
+  Zelda:{se:'Jun Park',members:['Ben Barrett','Charlie Pie'],tz:'EST'},
+}
+interface RRAssignment { id:string; accountName:string; segment:'Major'|'Commercial'; region:'West'|'East'; assignedAE:string; calendarId:string; requestedTime:string; assignedAt:string; skippedAEs:{name:string;reason:string}[] }
+interface RRSkip { timestamp:string; accountName:string; skippedAE:string; reason:string; assignedTo:string }
 
 // ─── localStorage ─────────────────────────────────────────────────────────────
 const getSt        = (): Record<string,Status>     => { try { return JSON.parse(localStorage.getItem('mql-st')||'{}') } catch { return {} } }
@@ -1442,6 +1479,9 @@ export default function Dashboard() {
     // Load spiffs and commission adjustments from localStorage
     try { const s=JSON.parse(localStorage.getItem('mql-spiffs')||'[]'); if(Array.isArray(s)) setSpiffs(s) } catch {}
     try { const a=JSON.parse(localStorage.getItem('mql-comm-adj')||'[]'); if(Array.isArray(a)) setCommAdjustments(a) } catch {}
+    try { const a=JSON.parse(localStorage.getItem('rr-assignments')||'[]'); if(Array.isArray(a)) setRrAssignments(a) } catch {}
+    try { const a=JSON.parse(localStorage.getItem('rr-skips')||'[]'); if(Array.isArray(a)) setRrSkips(a) } catch {}
+    try { const a=JSON.parse(localStorage.getItem('rr-ooo')||'[]'); if(Array.isArray(a)) setRrOoo(new Set(a)) } catch {}
   },[])
 
   const isManagerRole=(a:AuthState):boolean=>!!a&&'role' in a&&MANAGER_ROLES.includes(a.role as UserRole)
@@ -1607,6 +1647,16 @@ export default function Dashboard() {
   const [sqoExpandedAcct,setSqoExpandedAcct]=useState<string|null>(null)
   const [convSeg,setConvSeg]=useState<'year'|'quarter'|'month'|'week'>('month')
   const [convCompare,setConvCompare]=useState(false)
+  // Round Robin state
+  const [rrAssignments,setRrAssignments]=useState<RRAssignment[]>([])
+  const [rrSkips,setRrSkips]=useState<RRSkip[]>([])
+  const [rrAcct,setRrAcct]=useState('')
+  const [rrSeg,setRrSeg]=useState<'Major'|'Commercial'>('Commercial')
+  const [rrRegion,setRrRegion]=useState<'West'|'East'>('East')
+  const [rrTime,setRrTime]=useState('')
+  const [rrResult,setRrResult]=useState<{ae:AERosterEntry;reason:string;runnerUp:AERosterEntry|null;skipped:{name:string;reason:string}[]}|null>(null)
+  const [rrOoo,setRrOoo]=useState<Set<string>>(new Set()) // AE names currently marked OOO
+  const [rrShowSkipLog,setRrShowSkipLog]=useState(false)
   const [spiffs,setSpiffs]=useState<Spiff[]>([])
   const [showSpiffModal,setShowSpiffModal]=useState(false)
   const [editingSpiff,setEditingSpiff]=useState<Spiff|null>(null)
@@ -2552,6 +2602,7 @@ export default function Dashboard() {
           ...(isManagerRole(auth) ? [['reporting','🧾','Reporting','Generated summaries · leadership-ready'] as const] : []),
           ['commissions','💲','Commissions','Bonus tracking · payouts'] as const,
           ['leaderboard','🏆','Leaderboard','Rep rankings · spiffs'] as const,
+          ...(isManagerRole(auth) ? [['roundrobin','🔄','Round Robin','AE meeting distribution'] as const] : []),
           ...(isManagerRole(auth) ? [['revops_commissions','📋','RevOps','Commission verification · payouts'] as const] : []),
         ] as const).filter(([v])=>canView(v as DashView)).map(([v,icon,label,sub])=>(
           <div key={v} style={navBtn(view===v as View)} onClick={()=>setView(v as View)}>
@@ -5728,6 +5779,296 @@ export default function Dashboard() {
               </div>
               <div style={{fontSize:10,color:C.text3,marginTop:8}}>Payout: following month, 2nd half pay cycle. Meeting + SQL can stack on the same account.</div>
             </div>
+          </>)
+        })()}
+
+
+        {/* ══════════════════════════════════════════════════════
+            ROUND ROBIN VIEW
+        ══════════════════════════════════════════════════════ */}
+        {view==='roundrobin'&&(()=>{
+          // ── Helpers ────────────────────────────────────────────
+          const saveAssignments=(a:RRAssignment[])=>{setRrAssignments(a);localStorage.setItem('rr-assignments',JSON.stringify(a))}
+          const saveSkips=(s:RRSkip[])=>{setRrSkips(s);localStorage.setItem('rr-skips',JSON.stringify(s))}
+          const saveOoo=(s:Set<string>)=>{setRrOoo(s);localStorage.setItem('rr-ooo',JSON.stringify([...s]))}
+
+          // Rolling 30-day assignment counts
+          const thirtyDaysAgo=new Date();thirtyDaysAgo.setDate(thirtyDaysAgo.getDate()-30)
+          const recentAssignments=rrAssignments.filter(a=>new Date(a.assignedAt)>=thirtyDaysAgo)
+          const countByAE=(name:string)=>recentAssignments.filter(a=>a.assignedAE===name).length
+          const lastAssigned=(name:string)=>{const a=rrAssignments.filter(x=>x.assignedAE===name).sort((a,b)=>b.assignedAt.localeCompare(a.assignedAt))[0];return a?.assignedAt||''}
+
+          // All AEs flattened with region/segment info
+          const allAEs=[
+            ...AE_ROSTER.west.major.map(a=>({...a,region:'West' as const,segments:['Major','Commercial'] as const})),
+            ...AE_ROSTER.west.commercial.map(a=>({...a,region:'West' as const,segments:['Commercial'] as const})),
+            ...AE_ROSTER.east.major.map(a=>({...a,region:'East' as const,segments:['Major','Commercial'] as const})),
+            ...AE_ROSTER.east.commercial.map(a=>({...a,region:'East' as const,segments:['Commercial'] as const})),
+          ]
+
+          // Build leaderboard
+          const leaderboard=allAEs.map(ae=>({
+            ...ae,
+            count:countByAE(ae.name),
+            lastDate:lastAssigned(ae.name),
+            isOoo:rrOoo.has(ae.name),
+          })).sort((a,b)=>a.count-b.count||a.lastDate.localeCompare(b.lastDate)||a.name.localeCompare(b.name))
+
+          const maxCount=Math.max(1,...leaderboard.map(a=>a.count))
+
+          // ── Round Robin Engine ─────────────────────────────────
+          const findBestAE=()=>{
+            // 1. Filter by region
+            const regionRoster=AE_ROSTER[rrRegion.toLowerCase() as 'west'|'east']
+            // 2. Filter by segment: Major → only major AEs; Commercial → all AEs in region
+            let eligible:AERosterEntry[]
+            if(rrSeg==='Major') eligible=[...regionRoster.major]
+            else eligible=[...regionRoster.major,...regionRoster.commercial]
+            // 3. Sort by meetings (30d), then last assigned, then alpha
+            eligible.sort((a,b)=>{
+              const ca=countByAE(a.name),cb=countByAE(b.name)
+              if(ca!==cb) return ca-cb
+              const la=lastAssigned(a.name),lb=lastAssigned(b.name)
+              if(la!==lb) return la.localeCompare(lb)
+              return a.name.localeCompare(b.name)
+            })
+            // 4. Find first available (not OOO)
+            const skipped:{name:string;reason:string}[]=[]
+            let recommended:AERosterEntry|null=null
+            let runnerUp:AERosterEntry|null=null
+            for(const ae of eligible){
+              if(rrOoo.has(ae.name)){skipped.push({name:ae.name,reason:'OOO'});continue}
+              if(!recommended){recommended=ae}
+              else if(!runnerUp){runnerUp=ae;break}
+            }
+            if(!recommended&&eligible.length>0){
+              // All OOO — recommend first anyway with warning
+              recommended=eligible[0]
+            }
+            if(recommended){
+              const reason=`Fewest meetings in rolling 30 days (${countByAE(recommended.name)} meetings).${rrOoo.has(recommended.name)?' ⚠ All eligible AEs OOO.':' Available.'}`
+              setRrResult({ae:recommended,reason,runnerUp,skipped})
+            }
+          }
+
+          // Assign
+          const assignAE=(ae:AERosterEntry,skipped:{name:string;reason:string}[])=>{
+            const assignment:RRAssignment={
+              id:`rr-${Date.now()}`,accountName:rrAcct,segment:rrSeg,region:rrRegion,
+              assignedAE:ae.name,calendarId:ae.calendarId,
+              requestedTime:rrTime||new Date().toISOString(),assignedAt:new Date().toISOString(),skippedAEs:skipped,
+            }
+            saveAssignments([assignment,...rrAssignments])
+            // Log skips
+            if(skipped.length>0){
+              const newSkips=skipped.map(s=>({timestamp:new Date().toISOString(),accountName:rrAcct,skippedAE:s.name,reason:s.reason,assignedTo:ae.name}))
+              saveSkips([...newSkips,...rrSkips])
+            }
+            setRrResult(null);setRrAcct('');setRrTime('')
+          }
+
+          return (<>
+            <div style={{marginBottom:28}}>
+              <div style={{fontSize:26,fontWeight:800,letterSpacing:'-0.02em',lineHeight:1.15}}>Round Robin<br/><span style={{color:C.green}}>AE Distribution.</span></div>
+              <div style={{fontSize:12,color:C.text3,marginTop:4}}>Equitable meeting assignment · rolling 30-day window</div>
+            </div>
+
+            {/* ── Input Form ── */}
+            <div style={{...card,marginBottom:20}}>
+              <div style={{display:'grid',gridTemplateColumns:'2fr 1fr 1fr 1.5fr auto',gap:12,alignItems:'end'}}>
+                <div>
+                  <div style={labelStyle}>Account Name</div>
+                  <input value={rrAcct} onChange={e=>setRrAcct(e.target.value)} placeholder="e.g. Acme Corp" style={inputStyle}/>
+                </div>
+                <div>
+                  <div style={labelStyle}>Segment</div>
+                  <select value={rrSeg} onChange={e=>setRrSeg(e.target.value as any)} style={selectStyle}>
+                    <option value="Commercial">Commercial</option>
+                    <option value="Major">Major</option>
+                  </select>
+                </div>
+                <div>
+                  <div style={labelStyle}>Region</div>
+                  <select value={rrRegion} onChange={e=>setRrRegion(e.target.value as any)} style={selectStyle}>
+                    <option value="East">East Coast</option>
+                    <option value="West">West Coast</option>
+                  </select>
+                </div>
+                <div>
+                  <div style={labelStyle}>Meeting Time</div>
+                  <input type="datetime-local" value={rrTime} onChange={e=>setRrTime(e.target.value)} style={{...inputStyle,colorScheme:'dark'}}/>
+                </div>
+                <button onClick={findBestAE} disabled={!rrAcct.trim()} style={{padding:'8px 18px',borderRadius:7,border:'none',background:rrAcct.trim()?C.green:'rgba(0,229,160,0.3)',color:C.bg,fontSize:12,fontWeight:700,cursor:rrAcct.trim()?'pointer':'default',whiteSpace:'nowrap'}}>
+                  Find Best AE
+                </button>
+              </div>
+            </div>
+
+            {/* ── Recommendation Result ── */}
+            {rrResult&&(
+              <div style={{...card,marginBottom:20,background:'linear-gradient(135deg, rgba(0,229,160,0.08) 0%, rgba(123,110,246,0.08) 100%)',border:`1px solid rgba(0,229,160,0.25)`}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:12}}>
+                  <div>
+                    <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:4}}>Recommended AE</div>
+                    <div style={{fontSize:24,fontWeight:800,color:C.green}}>{rrResult.ae.name}</div>
+                    <div style={{fontSize:12,color:C.text2,marginTop:2}}>Team {rrResult.ae.team} · {SE_TEAMS[rrResult.ae.team]?.tz||''}</div>
+                    <div style={{fontSize:10,color:C.text3,marginTop:4}}>SE: {SE_TEAMS[rrResult.ae.team]?.se||'—'} · {SE_TEAMS[rrResult.ae.team]?.members.join(', ')||''}</div>
+                  </div>
+                  <div style={{display:'flex',gap:6}}>
+                    <button onClick={()=>assignAE(rrResult.ae,rrResult.skipped)} style={{padding:'8px 16px',borderRadius:7,border:'none',background:C.green,color:C.bg,fontSize:12,fontWeight:700,cursor:'pointer'}}>Assign</button>
+                    {rrResult.runnerUp&&(
+                      <button onClick={()=>{
+                        const newSkipped=[...rrResult.skipped,{name:rrResult.ae.name,reason:'Manager Override'}]
+                        assignAE(rrResult.runnerUp!,newSkipped)
+                      }} style={{padding:'8px 16px',borderRadius:7,border:`1px solid ${C.border2}`,background:'transparent',color:C.text2,fontSize:12,fontWeight:600,cursor:'pointer'}}>
+                        Skip → {rrResult.runnerUp.name}
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div style={{fontSize:11,color:C.text2,padding:'8px 10px',background:C.surface3,borderRadius:6}}>{rrResult.reason}</div>
+                {rrResult.skipped.length>0&&(
+                  <div style={{fontSize:10,color:C.text3,marginTop:8}}>Skipped: {rrResult.skipped.map(s=>`${s.name} (${s.reason})`).join(', ')}</div>
+                )}
+              </div>
+            )}
+
+            {/* ── Distribution Dashboard ── */}
+            <div style={{display:'grid',gridTemplateColumns:'1.5fr 1fr',gap:16,marginBottom:20}}>
+              {/* Leaderboard Table */}
+              <div style={card}>
+                <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:14}}>AE Queue · Rolling 30 Days</div>
+                <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
+                  <thead>
+                    <tr style={{borderBottom:`2px solid ${C.border2}`}}>
+                      {['#','AE','Region','Team','Meetings','Last Assigned','Status'].map(h=>(
+                        <th key={h} style={{padding:'6px 8px',textAlign:h==='Meetings'?'right':'left',fontSize:9,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em'}}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {leaderboard.map((ae,i)=>(
+                      <tr key={ae.name} style={{borderBottom:`1px solid ${C.border}`}}>
+                        <td style={{padding:'6px 8px',fontWeight:700,color:C.text3}}>{i+1}</td>
+                        <td style={{padding:'6px 8px',fontWeight:600,color:C.text}}>{ae.name}</td>
+                        <td style={{padding:'6px 8px',color:ae.region==='West'?'#60d4f4':C.green,fontSize:10}}>{ae.region}</td>
+                        <td style={{padding:'6px 8px',color:C.text3,fontSize:10}}>{ae.team}</td>
+                        <td style={{padding:'6px 8px',textAlign:'right',fontWeight:700,color:C.text}}>{ae.count}</td>
+                        <td style={{padding:'6px 8px',color:C.text3,fontSize:10}}>{ae.lastDate?new Date(ae.lastDate).toLocaleDateString('en-US',{month:'short',day:'numeric'}):'—'}</td>
+                        <td style={{padding:'6px 8px'}}>
+                          <button onClick={()=>{const s=new Set(rrOoo);if(s.has(ae.name))s.delete(ae.name);else s.add(ae.name);saveOoo(s)}}
+                            style={{fontSize:9,fontWeight:700,padding:'2px 6px',borderRadius:3,border:'none',cursor:'pointer',
+                              background:ae.isOoo?'rgba(255,92,92,0.15)':'rgba(0,229,160,0.15)',
+                              color:ae.isOoo?C.red:C.green}}>
+                            {ae.isOoo?'OOO':'Available'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Bar Chart */}
+              <div style={card}>
+                <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:14}}>Meetings per AE · 30 Days</div>
+                <div style={{display:'grid',gap:6}}>
+                  {leaderboard.map(ae=>(
+                    <div key={ae.name} style={{display:'grid',gridTemplateColumns:'60px 1fr 30px',gap:8,alignItems:'center'}}>
+                      <div style={{fontSize:10,fontWeight:600,color:ae.isOoo?C.text3:C.text2,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{ae.name}</div>
+                      <div style={{height:10,borderRadius:5,background:C.surface3,overflow:'hidden'}}>
+                        <div style={{height:10,borderRadius:5,background:ae.region==='West'?'#60d4f4':C.green,width:`${ae.count/maxCount*100}%`,opacity:ae.isOoo?0.4:1}}/>
+                      </div>
+                      <div style={{fontSize:10,fontWeight:700,color:C.text,textAlign:'right'}}>{ae.count}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{display:'flex',gap:10,marginTop:10,justifyContent:'center'}}>
+                  <div style={{display:'flex',alignItems:'center',gap:3}}><span style={{width:8,height:8,borderRadius:2,background:'#60d4f4'}}/><span style={{fontSize:9,color:C.text3}}>West</span></div>
+                  <div style={{display:'flex',alignItems:'center',gap:3}}><span style={{width:8,height:8,borderRadius:2,background:C.green}}/><span style={{fontSize:9,color:C.text3}}>East</span></div>
+                </div>
+              </div>
+            </div>
+
+            {/* ── Recent Assignments ── */}
+            <div style={{...card,marginBottom:20}}>
+              <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:14}}>Recent Assignments · {recentAssignments.length} in 30 days</div>
+              {recentAssignments.length>0?(
+                <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
+                  <thead>
+                    <tr style={{borderBottom:`2px solid ${C.border2}`}}>
+                      {['Account','Segment','Region','Assigned To','Team','Requested Time','Assigned At'].map(h=>(
+                        <th key={h} style={{padding:'6px 8px',textAlign:'left',fontSize:9,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em'}}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recentAssignments.slice(0,20).map(a=>(
+                      <tr key={a.id} style={{borderBottom:`1px solid ${C.border}`}}>
+                        <td style={{padding:'6px 8px',fontWeight:600,color:C.text}}>{a.accountName}</td>
+                        <td style={{padding:'6px 8px',color:C.text2}}>{a.segment}</td>
+                        <td style={{padding:'6px 8px',color:a.region==='West'?'#60d4f4':C.green}}>{a.region}</td>
+                        <td style={{padding:'6px 8px',fontWeight:600,color:C.green}}>{a.assignedAE}</td>
+                        <td style={{padding:'6px 8px',color:C.text3}}>{allAEs.find(x=>x.name===a.assignedAE)?.team||'—'}</td>
+                        <td style={{padding:'6px 8px',color:C.text3,fontSize:10}}>{a.requestedTime?new Date(a.requestedTime).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}):'—'}</td>
+                        <td style={{padding:'6px 8px',color:C.text3,fontSize:10}}>{new Date(a.assignedAt).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ):<div style={{fontSize:11,color:C.text3}}>No assignments yet. Use the form above to assign meetings.</div>}
+            </div>
+
+            {/* ── Skip Log ── */}
+            <div style={{...card,marginBottom:20}}>
+              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:rrShowSkipLog?14:0}}>
+                <button onClick={()=>setRrShowSkipLog(!rrShowSkipLog)} style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',background:'none',border:'none',cursor:'pointer',padding:0}}>
+                  {rrShowSkipLog?'▼':'▶'} Skip Log · {rrSkips.length} records
+                </button>
+                {isManagerRole(auth)&&rrAssignments.length>0&&(
+                  <button onClick={()=>{
+                    const csv=['Account,Segment,Region,Assigned AE,Team,Requested Time,Assigned At,Skipped',...rrAssignments.map(a=>`"${a.accountName}",${a.segment},${a.region},${a.assignedAE},${allAEs.find(x=>x.name===a.assignedAE)?.team||''},${a.requestedTime},${a.assignedAt},"${a.skippedAEs.map(s=>s.name+':'+s.reason).join(';')}"`)].join('\n')
+                    const blob=new Blob([csv],{type:'text/csv'});const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=`rr-assignments-${new Date().toISOString().slice(0,10)}.csv`;a.click()
+                  }} style={{fontSize:10,fontWeight:600,padding:'4px 10px',borderRadius:5,border:`1px solid ${C.border2}`,background:'transparent',color:C.text3,cursor:'pointer'}}>
+                    ↓ Export CSV
+                  </button>
+                )}
+              </div>
+              {rrShowSkipLog&&rrSkips.length>0&&(
+                <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
+                  <thead>
+                    <tr style={{borderBottom:`2px solid ${C.border2}`}}>
+                      {['Time','Account','Skipped AE','Reason','Assigned To'].map(h=>(
+                        <th key={h} style={{padding:'6px 8px',textAlign:'left',fontSize:9,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em'}}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rrSkips.slice(0,30).map((s,i)=>(
+                      <tr key={i} style={{borderBottom:`1px solid ${C.border}`}}>
+                        <td style={{padding:'6px 8px',color:C.text3,fontSize:10}}>{new Date(s.timestamp).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}</td>
+                        <td style={{padding:'6px 8px',color:C.text2}}>{s.accountName}</td>
+                        <td style={{padding:'6px 8px',color:C.red}}>{s.skippedAE}</td>
+                        <td style={{padding:'6px 8px',color:C.text3}}>{s.reason}</td>
+                        <td style={{padding:'6px 8px',color:C.green}}>{s.assignedTo}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            {/* ── Manager Controls ── */}
+            {isManagerRole(auth)&&(
+              <div style={{...card,marginBottom:20,opacity:0.8}}>
+                <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:10}}>Manager Controls</div>
+                <div style={{display:'flex',gap:8}}>
+                  <button onClick={()=>{if(window.confirm('Reset all assignment counts? This clears the rolling 30-day history.')){saveAssignments([]);saveSkips([])}}} style={{fontSize:10,fontWeight:600,padding:'6px 12px',borderRadius:5,border:`1px solid ${C.red}`,background:'transparent',color:C.red,cursor:'pointer'}}>
+                    Reset Counts
+                  </button>
+                </div>
+              </div>
+            )}
           </>)
         })()}
       </main>
