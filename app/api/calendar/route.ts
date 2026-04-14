@@ -26,9 +26,12 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ events: [], timezone: null, error: 'not_authenticated' })
   }
 
-  const timeMin = new Date(weekStart + 'T00:00:00')
-  const timeMax = new Date(timeMin)
-  timeMax.setDate(timeMax.getDate() + 5)
+  // Use a wide UTC window to capture events in any timezone (Mon 00:00 UTC-12 to Sat 00:00 UTC+14)
+  const timeMin = new Date(weekStart + 'T00:00:00Z')
+  timeMin.setHours(timeMin.getHours() - 12) // buffer for westernmost timezone
+  const timeMax = new Date(weekStart + 'T00:00:00Z')
+  timeMax.setDate(timeMax.getDate() + 6) // through Saturday
+  timeMax.setHours(timeMax.getHours() + 14) // buffer for easternmost timezone
 
   try {
     const url = new URL(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`)
@@ -36,7 +39,9 @@ export async function GET(request: NextRequest) {
     url.searchParams.set('timeMax', timeMax.toISOString())
     url.searchParams.set('singleEvents', 'true')
     url.searchParams.set('orderBy', 'startTime')
-    url.searchParams.set('maxResults', '100')
+    url.searchParams.set('maxResults', '250') // more events to ensure full coverage
+    // Request events in the calendar owner's timezone for accurate display
+    url.searchParams.set('timeZone', 'America/New_York') // normalize to ET for consistent display
 
     const res = await fetch(url.toString(), {
       headers: { Authorization: `Bearer ${accessToken}` },

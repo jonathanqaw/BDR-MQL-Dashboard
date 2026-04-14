@@ -5861,30 +5861,40 @@ export default function Dashboard() {
           const weekLabel=`${weekDays[0].toLocaleDateString('en-US',{month:'short',day:'numeric'})} – ${weekDays[4].toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}`
 
           // ── Calendar event checking ────────────────────────────
-          // Check if a slot overlaps with any calendar event
+          // Check if a slot overlaps with any calendar event.
+          // Slots are in the user's local browser timezone.
+          // Events from Google API have timezone offsets — new Date() handles conversion.
+          const checkEventsForSlot=(events:{summary:string;start:string;end:string;isAllDay:boolean;isOOO:boolean}[],slotStart:Date,slotEnd:Date,dayStr:string):{hit:boolean;label:string|null;isOoo:boolean}=>{
+            for(const ev of events){
+              if(ev.isAllDay){
+                // All-day events use date strings (YYYY-MM-DD). Check if our day falls in range.
+                if(ev.start<=dayStr&&(ev.end>dayStr||ev.end===dayStr)){return {hit:true,label:ev.isOOO?'OOO':ev.summary,isOoo:ev.isOOO}}
+              } else {
+                const evStart=new Date(ev.start),evEnd=new Date(ev.end)
+                // Standard overlap check: event starts before slot ends AND event ends after slot starts
+                if(evStart<slotEnd&&evEnd>slotStart){return {hit:true,label:ev.summary,isOoo:ev.isOOO}}
+              }
+            }
+            return {hit:false,label:null,isOoo:false}
+          }
+
           const getSlotStatus=(day:Date,hour:number):{busy:boolean;label:string|null;isOoo:boolean;isSeBusy:boolean}=>{
-            const slotStart=new Date(day);slotStart.setHours(hour,0,0,0)
-            const slotEnd=new Date(day);slotEnd.setHours(hour+1,0,0,0)
+            const slotStart=new Date(day.getFullYear(),day.getMonth(),day.getDate(),hour,0,0)
+            const slotEnd=new Date(day.getFullYear(),day.getMonth(),day.getDate(),hour+1,0,0)
+            const dayStr=`${day.getFullYear()}-${String(day.getMonth()+1).padStart(2,'0')}-${String(day.getDate()).padStart(2,'0')}`
             let busy=false,label:string|null=null,isOoo=false,isSeBusy=false
             // Check AE calendar events
-            for(const ev of rrCalEvents){
-              const evStart=new Date(ev.start),evEnd=new Date(ev.end)
-              if(ev.isAllDay){const ds=day.toISOString().split('T')[0];if(ev.start<=ds&&ev.end>ds){busy=true;isOoo=ev.isOOO;label=ev.isOOO?'OOO':ev.summary;break}}
-              else if(evStart<slotEnd&&evEnd>slotStart){busy=true;label=ev.summary;isOoo=ev.isOOO;break}
-            }
+            const aeCheck=checkEventsForSlot(rrCalEvents,slotStart,slotEnd,dayStr)
+            if(aeCheck.hit){busy=true;label=aeCheck.label;isOoo=aeCheck.isOoo}
             // Check assignment history too
-            if(!busy){
-              const ds=day.toISOString().split('T')[0]
-              const match=rrAssignments.find(a=>{if(!a.meetingTime)return false;const mt=new Date(a.meetingTime);return mt.toISOString().split('T')[0]===ds&&mt.getHours()===hour&&a.assignedAE===currentAE?.name})
+            if(!busy&&currentAE){
+              const match=rrAssignments.find(a=>{if(!a.meetingTime||a.assignedAE!==currentAE.name)return false;const mt=new Date(a.meetingTime);return mt.getFullYear()===day.getFullYear()&&mt.getMonth()===day.getMonth()&&mt.getDate()===day.getDate()&&mt.getHours()===hour})
               if(match){busy=true;label=match.accountName}
             }
             // Check SE calendar if overlay is on
             if(rrShowSe){
-              for(const ev of rrSeEvents){
-                const evStart=new Date(ev.start),evEnd=new Date(ev.end)
-                if(ev.isAllDay){const ds=day.toISOString().split('T')[0];if(ev.start<=ds&&ev.end>ds){isSeBusy=true;break}}
-                else if(evStart<slotEnd&&evEnd>slotStart){isSeBusy=true;break}
-              }
+              const seCheck=checkEventsForSlot(rrSeEvents,slotStart,slotEnd,dayStr)
+              if(seCheck.hit) isSeBusy=true
             }
             return {busy,label,isOoo,isSeBusy}
           }
