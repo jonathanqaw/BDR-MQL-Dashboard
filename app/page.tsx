@@ -24,9 +24,9 @@ type DashView = 'pipeline' | 'analytics' | 'reporting' | 'commissions' | 'leader
 interface UserCredential { email:string; password:string; role:UserRole; name:string; allowedViews:DashView[]|'all' }
 const USER_CREDENTIALS: UserCredential[] = [
   { email:'jonathankim@qawolf.com', password:'johnnywolfpack2026', role:'manager', name:'Jonathan Kim', allowedViews:'all' },
-  { email:'scott@qawolf.com',       password:'ScottQAW2026',       role:'cmo',     name:'Scott Wilson', allowedViews:['pipeline','analytics','reporting','leaderboard','revops_commissions'] },
-  { email:'arnav@qawolf.com',       password:'PMLQAW2026',         role:'pm', name:'Arnav Shome', allowedViews:['reporting','analytics','revops_commissions'] },
-  { email:'meenal@qawolf.com',      password:'RevOpsQAW#123',      role:'revops',  name:'Meenal Gupta', allowedViews:['revops_commissions'] },
+  { email:'scott@qawolf.com',       password:'ScottQAW2026',       role:'cmo',     name:'Scott Wilson', allowedViews:['pipeline','analytics','reporting','leaderboard','revops_commissions','roundrobin'] },
+  { email:'arnav@qawolf.com',       password:'PMLQAW2026',         role:'pm', name:'Arnav Shome', allowedViews:['reporting','analytics','revops_commissions','roundrobin'] },
+  { email:'meenal@qawolf.com',      password:'RevOpsQAW#123',      role:'revops',  name:'Meenal Gupta', allowedViews:['revops_commissions','roundrobin'] },
 ]
 const MANAGER_ROLES: UserRole[] = ['manager','cmo'] // full access roles that can edit reps, manage pipeline, etc.
 // BDM-only: commission adjustments, cap attainment, manager commission view
@@ -1453,7 +1453,7 @@ export default function Dashboard() {
     } catch { sessionStorage.removeItem('mql-auth') } }
     // Check URL param for direct rep access (bypasses login)
     const params = new URLSearchParams(window.location.search)
-    const REP_VIEWS: DashView[] = ['pipeline','analytics','reporting','commissions','leaderboard']
+    const REP_VIEWS: DashView[] = ['pipeline','analytics','reporting','commissions','leaderboard','roundrobin']
     const repParam = params.get('rep')
     if (repParam) {
       const a:AuthState = { role:'rep', repId: repParam, allowedViews:REP_VIEWS }
@@ -1512,7 +1512,7 @@ export default function Dashboard() {
     }
     // Fall back: check rep passcodes (email + password, for reps set by manager)
     const rep = reps.find(r=>r.slackId && r.slackId.toLowerCase()===emailLower && r.passcode && r.passcode===loginPass)
-    const REP_VIEWS: DashView[] = ['pipeline','analytics','reporting','commissions','leaderboard']
+    const REP_VIEWS: DashView[] = ['pipeline','analytics','reporting','commissions','leaderboard','roundrobin']
     if (rep) {
       const a:AuthState = { role:'rep', repId: rep.id, allowedViews:REP_VIEWS }
       setAuth(a); sessionStorage.setItem('mql-auth', JSON.stringify(a))
@@ -2532,6 +2532,7 @@ export default function Dashboard() {
             ['analytics','📈','Analytics','Charts · trends · conversion'] as const,
             ['commissions','💲','Commissions','Bonus tracking · payouts'] as const,
             ['revops_commissions','📋','RevOps','Commission verification · payouts'] as const,
+            ['roundrobin','🔄','Round Robin','AE meeting distribution'] as const,
           ] as const).filter(([v])=>canView(v as DashView)).map(([v,icon,label,sub])=>(
             <div key={v} style={navBtn(view===v as View)} onClick={()=>setView(v as View)}>
               <div style={{width:26,height:26,borderRadius:6,background:view===v?C.purple:C.surface3,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,color:view===v?'#fff':C.text3,flexShrink:0}}>{icon}</div>
@@ -2639,7 +2640,7 @@ export default function Dashboard() {
           ...(isManagerRole(auth) ? [['reporting','🧾','Reporting','Generated summaries · leadership-ready'] as const] : []),
           ['commissions','💲','Commissions','Bonus tracking · payouts'] as const,
           ['leaderboard','🏆','Leaderboard','Rep rankings · spiffs'] as const,
-          ...(isManagerRole(auth) ? [['roundrobin','🔄','Round Robin','AE meeting distribution'] as const] : []),
+          ['roundrobin','🔄','Round Robin','AE meeting distribution'] as const,
           ...(isManagerRole(auth) ? [['revops_commissions','📋','RevOps','Commission verification · payouts'] as const] : []),
         ] as const).filter(([v])=>canView(v as DashView)).map(([v,icon,label,sub])=>(
           <div key={v} style={navBtn(view===v as View)} onClick={()=>setView(v as View)}>
