@@ -1482,7 +1482,7 @@ export default function Dashboard() {
     try { const a=JSON.parse(localStorage.getItem('mql-comm-adj')||'[]'); if(Array.isArray(a)) setCommAdjustments(a) } catch {}
     try { const a=JSON.parse(localStorage.getItem('rr-assignments')||'[]'); if(Array.isArray(a)) setRrAssignments(a) } catch {}
     try { const a=JSON.parse(localStorage.getItem('rr-skips')||'[]'); if(Array.isArray(a)) setRrSkips(a) } catch {}
-    try { const a=JSON.parse(localStorage.getItem('rr-manager')||'{}'); if(a&&typeof a==='object') setRrMgr(a) } catch {}
+    try { const a=JSON.parse(localStorage.getItem('rr-manager')||'{}'); if(a&&typeof a==='object'&&Array.isArray(a.removedAEs)) setRrMgr(a) } catch {}
     try { const s=localStorage.getItem('rr-seg'); if(s==='Major'||s==='Commercial') setRrSeg(s) } catch {}
     try { const r=localStorage.getItem('rr-region'); if(r==='West'||r==='East') setRrRegion(r) } catch {}
   },[])
@@ -5807,10 +5807,11 @@ export default function Dashboard() {
           const lastAssigned=(name:string)=>{const a=rrAssignments.filter(x=>x.assignedAE===name).sort((a,b)=>b.assignedAt.localeCompare(a.assignedAt))[0];return a?.assignedAt||''}
 
           // ── Queue computation ──────────────────────────────────
+          const removedAEs=rrMgr.removedAEs||[]
           const regionRoster=AE_ROSTER[rrRegion.toLowerCase() as 'west'|'east']
           const eligible:AERosterEntry[]=rrSeg==='Major'?[...regionRoster.major]:[...regionRoster.major,...regionRoster.commercial]
           const queue=eligible
-            .filter(ae=>!rrMgr.removedAEs.includes(ae.name))
+            .filter(ae=>!removedAEs.includes(ae.name))
             .map(ae=>({...ae,count:countByAE(ae.name),lastDate:lastAssigned(ae.name)}))
             .sort((a,b)=>a.count-b.count||a.lastDate.localeCompare(b.lastDate)||a.name.localeCompare(b.name))
 
@@ -5844,7 +5845,7 @@ export default function Dashboard() {
             ...AE_ROSTER.west.commercial.map(a=>({...a,region:'West' as const})),
             ...AE_ROSTER.east.major.map(a=>({...a,region:'East' as const})),
             ...AE_ROSTER.east.commercial.map(a=>({...a,region:'East' as const})),
-          ].map(ae=>({...ae,count:countByAE(ae.name),removed:rrMgr.removedAEs.includes(ae.name)}))
+          ].map(ae=>({...ae,count:countByAE(ae.name),removed:removedAEs.includes(ae.name)}))
             .sort((a,b)=>a.count-b.count||a.name.localeCompare(b.name))
           const maxCount=Math.max(1,...allAEs.map(a=>a.count))
 
@@ -6089,13 +6090,13 @@ export default function Dashboard() {
                 <div style={{display:'flex',gap:4,flexWrap:'wrap'}}>
                   {allAEs.map(ae=>(
                     <button key={ae.name} onClick={()=>{
-                      const removed=rrMgr.removedAEs.includes(ae.name)?rrMgr.removedAEs.filter(n=>n!==ae.name):[...rrMgr.removedAEs,ae.name]
+                      const removed=removedAEs.includes(ae.name)?removedAEs.filter(n=>n!==ae.name):[...removedAEs,ae.name]
                       saveMgr({...rrMgr,removedAEs:removed})
                     }} style={{fontSize:9,fontWeight:600,padding:'3px 8px',borderRadius:4,cursor:'pointer',
-                      border:`1px solid ${rrMgr.removedAEs.includes(ae.name)?C.red:C.border2}`,
-                      background:rrMgr.removedAEs.includes(ae.name)?'rgba(255,92,92,0.12)':'transparent',
-                      color:rrMgr.removedAEs.includes(ae.name)?C.red:C.text3}}>
-                      {ae.name}{rrMgr.removedAEs.includes(ae.name)?' ✕':''}
+                      border:`1px solid ${removedAEs.includes(ae.name)?C.red:C.border2}`,
+                      background:removedAEs.includes(ae.name)?'rgba(255,92,92,0.12)':'transparent',
+                      color:removedAEs.includes(ae.name)?C.red:C.text3}}>
+                      {ae.name}{removedAEs.includes(ae.name)?' ✕':''}
                     </button>
                   ))}
                 </div>
