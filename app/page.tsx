@@ -5957,7 +5957,7 @@ export default function Dashboard() {
             </div>
 
             {currentAE?(
-              <div style={{display:'grid',gridTemplateColumns:'280px 1fr',gap:16,marginBottom:20}}>
+              <div style={{display:'grid',gridTemplateColumns:'260px minmax(0,640px)',gap:16,marginBottom:20}}>
                 {/* ── Next Up Card ── */}
                 <div style={{...card,background:'linear-gradient(135deg, rgba(0,229,160,0.08) 0%, rgba(123,110,246,0.08) 100%)',border:`1px solid rgba(0,229,160,0.25)`}}>
                   <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:6}}>
