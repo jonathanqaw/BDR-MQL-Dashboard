@@ -1679,7 +1679,7 @@ export default function Dashboard() {
       const res=await fetch(`/api/calendar?calendarId=${encodeURIComponent(calendarId)}&weekStart=${weekStart}`)
       const data=await res.json()
       if(data.error==='not_authenticated'){setRrCalError('not_authenticated');setRrCalEvents([])}
-      else if(data.error){setRrCalError(data.error);setRrCalEvents([])}
+      else if(data.error){setRrCalError(data.error+(data.detail?': '+data.detail:''));setRrCalEvents([])}
       else{setRrCalEvents(data.events||[]);setRrCalError(null)}
     }catch{setRrCalError('fetch_failed');setRrCalEvents([])}
     finally{setRrCalLoading(false)}

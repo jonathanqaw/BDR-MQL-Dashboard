@@ -43,7 +43,9 @@ export async function GET(request: NextRequest) {
     })
 
     if (!res.ok) {
-      return NextResponse.json({ events: [], timezone: null, error: 'calendar_unavailable' })
+      const errBody = await res.text().catch(() => '')
+      console.error('Google Calendar API error:', res.status, errBody)
+      return NextResponse.json({ events: [], timezone: null, error: `calendar_error_${res.status}`, detail: errBody.slice(0, 200) })
     }
 
     const data = await res.json()
