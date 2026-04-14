@@ -335,42 +335,43 @@ const SQO_OPTIONS      = ['','Yes','No']
 const CLOSED_WON_OPTIONS = ['','Yes','No']
 const MT_OPTIONS       = ['','Yes','No']
 
-// ─── AE Round Robin Roster ──────────────────────────────────────────────────
-interface AERosterEntry { name:string; calendarId:string; team:string }
+// ─── AE Round Robin Roster (v2) ─────────────────────────────────────────────
+interface AERosterEntry { name:string; calendarId:string; team:string; se:string }
 const AE_ROSTER:{west:{major:AERosterEntry[];commercial:AERosterEntry[]};east:{major:AERosterEntry[];commercial:AERosterEntry[]}} = {
   west:{
     major:[
-      {name:'Colin',calendarId:'colin@qawolf.com',team:'Yoshi'},
-      {name:'Kathryn',calendarId:'kathryn@qawolf.com',team:'Bowser'},
+      {name:'Colin',calendarId:'colin@qawolf.com',team:'Yoshi',se:'Ricky'},
+      {name:'Kathryn',calendarId:'kathryn@qawolf.com',team:'Bowser',se:'Dion'},
     ],
     commercial:[
-      {name:'Sally',calendarId:'sally@qawolf.com',team:'Bowser'},
-      {name:'Rob',calendarId:'rob@qawolf.com',team:'Yoshi'},
-      {name:'Burke',calendarId:'burke@qawolf.com',team:'Yoshi'},
+      {name:'Sally',calendarId:'sally@qawolf.com',team:'Bowser',se:'Dion'},
+      {name:'Rob',calendarId:'rob@qawolf.com',team:'Yoshi',se:'Ricky'},
+      {name:'Burke',calendarId:'burke@qawolf.com',team:'Yoshi',se:'Ricky'},
     ],
   },
   east:{
     major:[
-      {name:'Devin',calendarId:'devin@qawolf.com',team:'Kirby'},
-      {name:'Charlie',calendarId:'charlie@s.qawolf.com',team:'Zelda'},
-      {name:'Ben',calendarId:'benbarrett@qawolf.com',team:'Zelda'},
-      {name:'Jason',calendarId:'jason@qawolf.com',team:'Sonic'},
+      {name:'Devin',calendarId:'devin@qawolf.com',team:'Kirby',se:'Becca'},
+      {name:'Charlie',calendarId:'charlie@s.qawolf.com',team:'Zelda',se:'Jun'},
+      {name:'Ben',calendarId:'benbarrett@qawolf.com',team:'Zelda',se:'Jun'},
+      {name:'Jason',calendarId:'jason@qawolf.com',team:'Sonic',se:'Ian'},
     ],
     commercial:[
-      {name:'Stephen',calendarId:'stephen@qawolf.com',team:'Sonic'},
-      {name:'Jordan',calendarId:'jordan.vanitallie@qawolf.com',team:'Kirby'},
+      {name:'Stephen',calendarId:'stephen@qawolf.com',team:'Sonic',se:'Ian'},
+      {name:'Jordan',calendarId:'jordan.vanitallie@qawolf.com',team:'Kirby',se:'Becca'},
     ],
   },
 }
-const SE_TEAMS:Record<string,{se:string;members:string[];tz:string}>={
-  Yoshi:{se:'Ricky Moore',members:["Colin O'Connor",'Chris Burke','Robert Linsmayer'],tz:'PST'},
-  Bowser:{se:'Dion Pham',members:['Kathryn Hajjar','Sally Lopez','Daniel Tsimerman'],tz:'PST'},
-  Sonic:{se:'Ian Schaefer',members:['Stephen Stabile','Jason Minster','Sam McElrea'],tz:'EST'},
-  Kirby:{se:'Becca',members:['Devin Steinke','Veronika Fischer','Jordan Van Itallie'],tz:'CST/EST'},
-  Zelda:{se:'Jun Park',members:['Ben Barrett','Charlie Pie'],tz:'EST'},
+const SE_ROSTER:Record<string,{name:string;calendarId:string;tz:string}>={
+  Ricky:{name:'Ricky Moore',calendarId:'ricky@qawolf.com',tz:'PST'},
+  Dion:{name:'Dion Pham',calendarId:'dinhan@qawolf.com',tz:'PST'},
+  Ian:{name:'Ian Schaefer',calendarId:'ian@qawolf.com',tz:'EST'},
+  Becca:{name:'Becca',calendarId:'becca@qawolf.com',tz:'CST/EST'},
+  Jun:{name:'Jun Park',calendarId:'jun@qawolf.com',tz:'EST'},
 }
-interface RRAssignment { id:string; accountName:string; segment:'Major'|'Commercial'; region:'West'|'East'; assignedAE:string; calendarId:string; requestedTime:string; assignedAt:string; skippedAEs:{name:string;reason:string}[] }
+interface RRAssignment { id:string; accountName:string; segment:'Major'|'Commercial'; region:'West'|'East'; assignedAE:string; calendarId:string; meetingTime:string; assignedAt:string; skippedAEs:{name:string;reason:string}[]; seIncluded?:string }
 interface RRSkip { timestamp:string; accountName:string; skippedAE:string; reason:string; assignedTo:string }
+interface RRManagerSettings { removedAEs:string[] }
 
 // ─── localStorage ─────────────────────────────────────────────────────────────
 const getSt        = (): Record<string,Status>     => { try { return JSON.parse(localStorage.getItem('mql-st')||'{}') } catch { return {} } }
@@ -1481,7 +1482,9 @@ export default function Dashboard() {
     try { const a=JSON.parse(localStorage.getItem('mql-comm-adj')||'[]'); if(Array.isArray(a)) setCommAdjustments(a) } catch {}
     try { const a=JSON.parse(localStorage.getItem('rr-assignments')||'[]'); if(Array.isArray(a)) setRrAssignments(a) } catch {}
     try { const a=JSON.parse(localStorage.getItem('rr-skips')||'[]'); if(Array.isArray(a)) setRrSkips(a) } catch {}
-    try { const a=JSON.parse(localStorage.getItem('rr-ooo')||'[]'); if(Array.isArray(a)) setRrOoo(new Set(a)) } catch {}
+    try { const a=JSON.parse(localStorage.getItem('rr-manager')||'{}'); if(a&&typeof a==='object') setRrMgr(a) } catch {}
+    try { const s=localStorage.getItem('rr-seg'); if(s==='Major'||s==='Commercial') setRrSeg(s) } catch {}
+    try { const r=localStorage.getItem('rr-region'); if(r==='West'||r==='East') setRrRegion(r) } catch {}
   },[])
 
   const isManagerRole=(a:AuthState):boolean=>!!a&&'role' in a&&MANAGER_ROLES.includes(a.role as UserRole)
@@ -1647,16 +1650,19 @@ export default function Dashboard() {
   const [sqoExpandedAcct,setSqoExpandedAcct]=useState<string|null>(null)
   const [convSeg,setConvSeg]=useState<'year'|'quarter'|'month'|'week'>('month')
   const [convCompare,setConvCompare]=useState(false)
-  // Round Robin state
+  // Round Robin state (v2 — click-to-book)
   const [rrAssignments,setRrAssignments]=useState<RRAssignment[]>([])
   const [rrSkips,setRrSkips]=useState<RRSkip[]>([])
-  const [rrAcct,setRrAcct]=useState('')
   const [rrSeg,setRrSeg]=useState<'Major'|'Commercial'>('Commercial')
   const [rrRegion,setRrRegion]=useState<'West'|'East'>('East')
-  const [rrTime,setRrTime]=useState('')
-  const [rrResult,setRrResult]=useState<{ae:AERosterEntry;reason:string;runnerUp:AERosterEntry|null;skipped:{name:string;reason:string}[]}|null>(null)
-  const [rrOoo,setRrOoo]=useState<Set<string>>(new Set()) // AE names currently marked OOO
+  const [rrMgr,setRrMgr]=useState<RRManagerSettings>({removedAEs:[]})
+  const [rrViewAeIdx,setRrViewAeIdx]=useState(0) // which AE in the queue is currently shown
+  const [rrWeekOffset,setRrWeekOffset]=useState(0) // 0=this week, 1=next, -1=prev
+  const [rrShowSe,setRrShowSe]=useState(false)
+  const [rrBookSlot,setRrBookSlot]=useState<{day:string;hour:number}|null>(null) // clicked slot
+  const [rrBookAcct,setRrBookAcct]=useState('')
   const [rrShowSkipLog,setRrShowSkipLog]=useState(false)
+  const [rrShowRecent,setRrShowRecent]=useState(false)
   const [spiffs,setSpiffs]=useState<Spiff[]>([])
   const [showSpiffModal,setShowSpiffModal]=useState(false)
   const [editingSpiff,setEditingSpiff]=useState<Spiff|null>(null)
@@ -5784,288 +5790,314 @@ export default function Dashboard() {
 
 
         {/* ══════════════════════════════════════════════════════
-            ROUND ROBIN VIEW
+            ROUND ROBIN VIEW (v2 — click-to-book)
         ══════════════════════════════════════════════════════ */}
         {view==='roundrobin'&&(()=>{
-          // ── Helpers ────────────────────────────────────────────
+          // ── Persistence helpers ────────────────────────────────
           const saveAssignments=(a:RRAssignment[])=>{setRrAssignments(a);localStorage.setItem('rr-assignments',JSON.stringify(a))}
           const saveSkips=(s:RRSkip[])=>{setRrSkips(s);localStorage.setItem('rr-skips',JSON.stringify(s))}
-          const saveOoo=(s:Set<string>)=>{setRrOoo(s);localStorage.setItem('rr-ooo',JSON.stringify([...s]))}
+          const saveMgr=(m:RRManagerSettings)=>{setRrMgr(m);localStorage.setItem('rr-manager',JSON.stringify(m))}
+          const setSeg=(s:'Major'|'Commercial')=>{setRrSeg(s);localStorage.setItem('rr-seg',s);setRrViewAeIdx(0);setRrBookSlot(null)}
+          const setRegion=(r:'West'|'East')=>{setRrRegion(r);localStorage.setItem('rr-region',r);setRrViewAeIdx(0);setRrBookSlot(null)}
 
-          // Rolling 30-day assignment counts
+          // ── Rolling 30-day counts ──────────────────────────────
           const thirtyDaysAgo=new Date();thirtyDaysAgo.setDate(thirtyDaysAgo.getDate()-30)
           const recentAssignments=rrAssignments.filter(a=>new Date(a.assignedAt)>=thirtyDaysAgo)
           const countByAE=(name:string)=>recentAssignments.filter(a=>a.assignedAE===name).length
           const lastAssigned=(name:string)=>{const a=rrAssignments.filter(x=>x.assignedAE===name).sort((a,b)=>b.assignedAt.localeCompare(a.assignedAt))[0];return a?.assignedAt||''}
 
-          // All AEs flattened with region/segment info
-          const allAEs=[
-            ...AE_ROSTER.west.major.map(a=>({...a,region:'West' as const,segments:['Major','Commercial'] as const})),
-            ...AE_ROSTER.west.commercial.map(a=>({...a,region:'West' as const,segments:['Commercial'] as const})),
-            ...AE_ROSTER.east.major.map(a=>({...a,region:'East' as const,segments:['Major','Commercial'] as const})),
-            ...AE_ROSTER.east.commercial.map(a=>({...a,region:'East' as const,segments:['Commercial'] as const})),
-          ]
+          // ── Queue computation ──────────────────────────────────
+          const regionRoster=AE_ROSTER[rrRegion.toLowerCase() as 'west'|'east']
+          const eligible:AERosterEntry[]=rrSeg==='Major'?[...regionRoster.major]:[...regionRoster.major,...regionRoster.commercial]
+          const queue=eligible
+            .filter(ae=>!rrMgr.removedAEs.includes(ae.name))
+            .map(ae=>({...ae,count:countByAE(ae.name),lastDate:lastAssigned(ae.name)}))
+            .sort((a,b)=>a.count-b.count||a.lastDate.localeCompare(b.lastDate)||a.name.localeCompare(b.name))
 
-          // Build leaderboard
-          const leaderboard=allAEs.map(ae=>({
-            ...ae,
-            count:countByAE(ae.name),
-            lastDate:lastAssigned(ae.name),
-            isOoo:rrOoo.has(ae.name),
-          })).sort((a,b)=>a.count-b.count||a.lastDate.localeCompare(b.lastDate)||a.name.localeCompare(b.name))
+          const viewIdx=Math.min(rrViewAeIdx,queue.length-1)
+          const currentAE=queue[viewIdx]||null
+          const seInfo=currentAE?SE_ROSTER[currentAE.se]:null
 
-          const maxCount=Math.max(1,...leaderboard.map(a=>a.count))
+          // ── Week calendar dates ────────────────────────────────
+          const today=new Date()
+          const mondayBase=new Date(today);mondayBase.setDate(today.getDate()-((today.getDay()+6)%7))
+          const monday=new Date(mondayBase);monday.setDate(monday.getDate()+rrWeekOffset*7)
+          const weekDays=Array.from({length:5},(_,i)=>{const d=new Date(monday);d.setDate(monday.getDate()+i);return d})
+          const hours=Array.from({length:10},(_,i)=>8+i) // 8am–5pm (10 slots)
+          const weekLabel=`${weekDays[0].toLocaleDateString('en-US',{month:'short',day:'numeric'})} – ${weekDays[4].toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}`
 
-          // ── Round Robin Engine ─────────────────────────────────
-          const findBestAE=()=>{
-            // 1. Filter by region
-            const regionRoster=AE_ROSTER[rrRegion.toLowerCase() as 'west'|'east']
-            // 2. Filter by segment: Major → only major AEs; Commercial → all AEs in region
-            let eligible:AERosterEntry[]
-            if(rrSeg==='Major') eligible=[...regionRoster.major]
-            else eligible=[...regionRoster.major,...regionRoster.commercial]
-            // 3. Sort by meetings (30d), then last assigned, then alpha
-            eligible.sort((a,b)=>{
-              const ca=countByAE(a.name),cb=countByAE(b.name)
-              if(ca!==cb) return ca-cb
-              const la=lastAssigned(a.name),lb=lastAssigned(b.name)
-              if(la!==lb) return la.localeCompare(lb)
-              return a.name.localeCompare(b.name)
+          // ── Mock busy data (placeholder until calendar API) ────
+          // For now, use assignment history to mark booked slots
+          const isBooked=(day:Date,hour:number):string|null=>{
+            const ds=day.toISOString().split('T')[0]
+            const match=rrAssignments.find(a=>{
+              if(!a.meetingTime) return false
+              const mt=new Date(a.meetingTime)
+              return mt.toISOString().split('T')[0]===ds&&mt.getHours()===hour&&a.assignedAE===currentAE?.name
             })
-            // 4. Find first available (not OOO)
-            const skipped:{name:string;reason:string}[]=[]
-            let recommended:AERosterEntry|null=null
-            let runnerUp:AERosterEntry|null=null
-            for(const ae of eligible){
-              if(rrOoo.has(ae.name)){skipped.push({name:ae.name,reason:'OOO'});continue}
-              if(!recommended){recommended=ae}
-              else if(!runnerUp){runnerUp=ae;break}
-            }
-            if(!recommended&&eligible.length>0){
-              // All OOO — recommend first anyway with warning
-              recommended=eligible[0]
-            }
-            if(recommended){
-              const reason=`Fewest meetings in rolling 30 days (${countByAE(recommended.name)} meetings).${rrOoo.has(recommended.name)?' ⚠ All eligible AEs OOO.':' Available.'}`
-              setRrResult({ae:recommended,reason,runnerUp,skipped})
-            }
+            return match?match.accountName:null
           }
 
-          // Assign
-          const assignAE=(ae:AERosterEntry,skipped:{name:string;reason:string}[])=>{
+          // ── All AEs for leaderboard ────────────────────────────
+          const allAEs=[
+            ...AE_ROSTER.west.major.map(a=>({...a,region:'West' as const})),
+            ...AE_ROSTER.west.commercial.map(a=>({...a,region:'West' as const})),
+            ...AE_ROSTER.east.major.map(a=>({...a,region:'East' as const})),
+            ...AE_ROSTER.east.commercial.map(a=>({...a,region:'East' as const})),
+          ].map(ae=>({...ae,count:countByAE(ae.name),removed:rrMgr.removedAEs.includes(ae.name)}))
+            .sort((a,b)=>a.count-b.count||a.name.localeCompare(b.name))
+          const maxCount=Math.max(1,...allAEs.map(a=>a.count))
+
+          // ── Assign from slot click ─────────────────────────────
+          const assignFromSlot=(acct:string)=>{
+            if(!currentAE||!rrBookSlot) return
+            const mt=new Date(rrBookSlot.day);mt.setHours(rrBookSlot.hour,0,0,0)
             const assignment:RRAssignment={
-              id:`rr-${Date.now()}`,accountName:rrAcct,segment:rrSeg,region:rrRegion,
-              assignedAE:ae.name,calendarId:ae.calendarId,
-              requestedTime:rrTime||new Date().toISOString(),assignedAt:new Date().toISOString(),skippedAEs:skipped,
+              id:`rr-${Date.now()}`,accountName:acct,segment:rrSeg,region:rrRegion,
+              assignedAE:currentAE.name,calendarId:currentAE.calendarId,
+              meetingTime:mt.toISOString(),assignedAt:new Date().toISOString(),
+              skippedAEs:queue.slice(0,viewIdx).map(ae=>({name:ae.name,reason:'Skipped in queue'})),
+              seIncluded:rrShowSe?seInfo?.name:undefined,
             }
             saveAssignments([assignment,...rrAssignments])
-            // Log skips
-            if(skipped.length>0){
-              const newSkips=skipped.map(s=>({timestamp:new Date().toISOString(),accountName:rrAcct,skippedAE:s.name,reason:s.reason,assignedTo:ae.name}))
+            if(viewIdx>0){
+              const newSkips=queue.slice(0,viewIdx).map(ae=>({timestamp:new Date().toISOString(),accountName:acct,skippedAE:ae.name,reason:'Queue position',assignedTo:currentAE.name}))
               saveSkips([...newSkips,...rrSkips])
             }
-            setRrResult(null);setRrAcct('');setRrTime('')
+            setRrBookSlot(null);setRrBookAcct('');setRrViewAeIdx(0)
           }
 
           return (<>
-            <div style={{marginBottom:28}}>
-              <div style={{fontSize:26,fontWeight:800,letterSpacing:'-0.02em',lineHeight:1.15}}>Round Robin<br/><span style={{color:C.green}}>AE Distribution.</span></div>
-              <div style={{fontSize:12,color:C.text3,marginTop:4}}>Equitable meeting assignment · rolling 30-day window</div>
+            <div style={{marginBottom:20}}>
+              <div style={{fontSize:26,fontWeight:800,letterSpacing:'-0.02em',lineHeight:1.15}}>Round Robin<br/><span style={{color:C.green}}>Click to Book.</span></div>
+              <div style={{fontSize:12,color:C.text3,marginTop:4}}>Live AE calendar · click a slot to assign · rolling 30-day equity</div>
             </div>
 
-            {/* ── Input Form ── */}
-            <div style={{...card,marginBottom:20}}>
-              <div style={{display:'grid',gridTemplateColumns:'2fr 1fr 1fr 1.5fr auto',gap:12,alignItems:'end'}}>
-                <div>
-                  <div style={labelStyle}>Account Name</div>
-                  <input value={rrAcct} onChange={e=>setRrAcct(e.target.value)} placeholder="e.g. Acme Corp" style={inputStyle}/>
-                </div>
-                <div>
-                  <div style={labelStyle}>Segment</div>
-                  <select value={rrSeg} onChange={e=>setRrSeg(e.target.value as any)} style={selectStyle}>
-                    <option value="Commercial">Commercial</option>
-                    <option value="Major">Major</option>
-                  </select>
-                </div>
-                <div>
-                  <div style={labelStyle}>Region</div>
-                  <select value={rrRegion} onChange={e=>setRrRegion(e.target.value as any)} style={selectStyle}>
-                    <option value="East">East Coast</option>
-                    <option value="West">West Coast</option>
-                  </select>
-                </div>
-                <div>
-                  <div style={labelStyle}>Meeting Time</div>
-                  <input type="datetime-local" value={rrTime} onChange={e=>setRrTime(e.target.value)} style={{...inputStyle,colorScheme:'dark'}}/>
-                </div>
-                <button onClick={findBestAE} disabled={!rrAcct.trim()} style={{padding:'8px 18px',borderRadius:7,border:'none',background:rrAcct.trim()?C.green:'rgba(0,229,160,0.3)',color:C.bg,fontSize:12,fontWeight:700,cursor:rrAcct.trim()?'pointer':'default',whiteSpace:'nowrap'}}>
-                  Find Best AE
-                </button>
+            {/* ── Segment & Region Toggles ── */}
+            <div style={{display:'flex',gap:16,marginBottom:20,flexWrap:'wrap'}}>
+              <div style={{display:'flex',gap:5}}>
+                <span style={{fontSize:10,fontWeight:700,color:C.text3,alignSelf:'center',marginRight:4}}>SEGMENT</span>
+                {(['Commercial','Major'] as const).map(s=>(
+                  <button key={s} onClick={()=>setSeg(s)} style={filterPill(rrSeg===s)}>{s}</button>
+                ))}
+              </div>
+              <div style={{display:'flex',gap:5}}>
+                <span style={{fontSize:10,fontWeight:700,color:C.text3,alignSelf:'center',marginRight:4}}>REGION</span>
+                {(['East','West'] as const).map(r=>(
+                  <button key={r} onClick={()=>setRegion(r)} style={filterPill(rrRegion===r,r==='West'?'#60d4f4':C.green)}>{r} Coast</button>
+                ))}
               </div>
             </div>
 
-            {/* ── Recommendation Result ── */}
-            {rrResult&&(
-              <div style={{...card,marginBottom:20,background:'linear-gradient(135deg, rgba(0,229,160,0.08) 0%, rgba(123,110,246,0.08) 100%)',border:`1px solid rgba(0,229,160,0.25)`}}>
-                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:12}}>
-                  <div>
-                    <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:4}}>Recommended AE</div>
-                    <div style={{fontSize:24,fontWeight:800,color:C.green}}>{rrResult.ae.name}</div>
-                    <div style={{fontSize:12,color:C.text2,marginTop:2}}>Team {rrResult.ae.team} · {SE_TEAMS[rrResult.ae.team]?.tz||''}</div>
-                    <div style={{fontSize:10,color:C.text3,marginTop:4}}>SE: {SE_TEAMS[rrResult.ae.team]?.se||'—'} · {SE_TEAMS[rrResult.ae.team]?.members.join(', ')||''}</div>
+            {currentAE?(
+              <div style={{display:'grid',gridTemplateColumns:'280px 1fr',gap:16,marginBottom:20}}>
+                {/* ── Next Up Card ── */}
+                <div style={{...card,background:'linear-gradient(135deg, rgba(0,229,160,0.08) 0%, rgba(123,110,246,0.08) 100%)',border:`1px solid rgba(0,229,160,0.25)`}}>
+                  <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:6}}>
+                    {viewIdx===0?'Next Up':'Viewing #'+(viewIdx+1)}
                   </div>
-                  <div style={{display:'flex',gap:6}}>
-                    <button onClick={()=>assignAE(rrResult.ae,rrResult.skipped)} style={{padding:'8px 16px',borderRadius:7,border:'none',background:C.green,color:C.bg,fontSize:12,fontWeight:700,cursor:'pointer'}}>Assign</button>
-                    {rrResult.runnerUp&&(
-                      <button onClick={()=>{
-                        const newSkipped=[...rrResult.skipped,{name:rrResult.ae.name,reason:'Manager Override'}]
-                        assignAE(rrResult.runnerUp!,newSkipped)
-                      }} style={{padding:'8px 16px',borderRadius:7,border:`1px solid ${C.border2}`,background:'transparent',color:C.text2,fontSize:12,fontWeight:600,cursor:'pointer'}}>
-                        Skip → {rrResult.runnerUp.name}
-                      </button>
+                  <div style={{fontSize:28,fontWeight:800,color:C.green,lineHeight:1.1}}>{currentAE.name}</div>
+                  <div style={{fontSize:12,color:C.text2,marginTop:4}}>Team {currentAE.team} · SE: {seInfo?.name||currentAE.se}</div>
+                  <div style={{fontSize:11,color:C.text3,marginTop:2}}>{currentAE.count} meetings in 30 days</div>
+
+                  <div style={{borderTop:`1px solid ${C.border}`,marginTop:12,paddingTop:10}}>
+                    <div style={{fontSize:9,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:6}}>Queue</div>
+                    {queue.map((ae,i)=>(
+                      <div key={ae.name} onClick={()=>{setRrViewAeIdx(i);setRrBookSlot(null)}}
+                        style={{display:'flex',justifyContent:'space-between',padding:'4px 6px',borderRadius:4,cursor:'pointer',
+                          background:i===viewIdx?'rgba(0,229,160,0.15)':'transparent',marginBottom:1}}>
+                        <span style={{fontSize:10,color:i===viewIdx?C.green:C.text2,fontWeight:i===viewIdx?700:400}}>
+                          {i+1}. {ae.name}
+                        </span>
+                        <span style={{fontSize:10,color:C.text3}}>{ae.count}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {viewIdx>0&&(
+                    <button onClick={()=>{setRrViewAeIdx(0);setRrBookSlot(null)}} style={{marginTop:8,fontSize:10,fontWeight:600,padding:'4px 10px',borderRadius:5,border:`1px solid ${C.border2}`,background:'transparent',color:C.text3,cursor:'pointer',width:'100%'}}>
+                      ← Back to #1
+                    </button>
+                  )}
+                </div>
+
+                {/* ── Weekly Calendar ── */}
+                <div style={card}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+                    <button onClick={()=>{setRrWeekOffset(p=>p-1);setRrBookSlot(null)}} style={{fontSize:14,background:'none',border:'none',color:C.text3,cursor:'pointer',padding:'2px 8px'}}>←</button>
+                    <div style={{fontSize:12,fontWeight:700,color:C.text}}>{weekLabel}</div>
+                    <button onClick={()=>{setRrWeekOffset(p=>p+1);setRrBookSlot(null)}} style={{fontSize:14,background:'none',border:'none',color:C.text3,cursor:'pointer',padding:'2px 8px'}}>→</button>
+                  </div>
+
+                  {/* Day headers */}
+                  <div style={{display:'grid',gridTemplateColumns:'40px repeat(5,1fr)',gap:1}}>
+                    <div/>
+                    {weekDays.map((d,i)=>{
+                      const isToday=d.toDateString()===today.toDateString()
+                      return <div key={i} style={{textAlign:'center',fontSize:10,fontWeight:isToday?700:500,color:isToday?C.green:C.text3,padding:'4px 0'}}>
+                        {d.toLocaleDateString('en-US',{weekday:'short'})}<br/>{d.getDate()}
+                      </div>
+                    })}
+                  </div>
+
+                  {/* Time grid */}
+                  <div style={{display:'grid',gridTemplateColumns:'40px repeat(5,1fr)',gap:1,maxHeight:400,overflowY:'auto'}}>
+                    {hours.map(h=>(
+                      <React.Fragment key={h}>
+                        <div style={{fontSize:9,color:C.text3,textAlign:'right',paddingRight:6,paddingTop:2}}>{h>12?h-12:h}{h>=12?'p':'a'}</div>
+                        {weekDays.map((d,di)=>{
+                          const ds=d.toISOString().split('T')[0]
+                          const booked=isBooked(d,h)
+                          const isPast=d<today&&!(d.toDateString()===today.toDateString()&&h>today.getHours())
+                          const isSelected=rrBookSlot?.day===ds&&rrBookSlot?.hour===h
+                          return (
+                            <div key={di}
+                              onClick={()=>{if(!booked&&!isPast)setRrBookSlot(isSelected?null:{day:ds,hour:h})}}
+                              style={{
+                                height:32,borderRadius:4,cursor:booked||isPast?'default':'pointer',
+                                background:booked?'rgba(96,165,250,0.2)':isSelected?'rgba(0,229,160,0.25)':isPast?'rgba(255,255,255,0.02)':C.surface3,
+                                border:`1px solid ${isSelected?C.green:booked?'rgba(96,165,250,0.3)':C.border}`,
+                                display:'flex',alignItems:'center',justifyContent:'center',
+                                transition:'all 0.1s',
+                              }}
+                              onMouseEnter={e=>{if(!booked&&!isPast)(e.currentTarget.style.borderColor=C.green)}}
+                              onMouseLeave={e=>{if(!isSelected)(e.currentTarget.style.borderColor=booked?'rgba(96,165,250,0.3)':C.border)}}
+                            >
+                              {booked&&<span style={{fontSize:8,color:'#60a5fa',fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',padding:'0 2px'}}>{booked}</span>}
+                              {isSelected&&<span style={{fontSize:10,color:C.green}}>✓</span>}
+                            </div>
+                          )
+                        })}
+                      </React.Fragment>
+                    ))}
+                  </div>
+
+                  {/* Slot booking popover */}
+                  {rrBookSlot&&currentAE&&(
+                    <div style={{marginTop:12,padding:'12px 14px',background:C.surface2,borderRadius:8,border:`1px solid ${C.green}40`}}>
+                      <div style={{fontSize:11,color:C.text2,marginBottom:8}}>
+                        {new Date(rrBookSlot.day).toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric'})} at {rrBookSlot.hour>12?rrBookSlot.hour-12:rrBookSlot.hour}:00{rrBookSlot.hour>=12?'pm':'am'} → <strong style={{color:C.green}}>{currentAE.name}</strong>
+                      </div>
+                      <div style={{display:'flex',gap:8,alignItems:'end'}}>
+                        <div style={{flex:1}}>
+                          <input value={rrBookAcct} onChange={e=>setRrBookAcct(e.target.value)} placeholder="Account name" onKeyDown={e=>{if(e.key==='Enter'&&rrBookAcct.trim())assignFromSlot(rrBookAcct.trim())}}
+                            style={{...inputStyle,fontSize:13,padding:'8px 10px'}} autoFocus/>
+                        </div>
+                        <button onClick={()=>{if(rrBookAcct.trim())assignFromSlot(rrBookAcct.trim())}} disabled={!rrBookAcct.trim()}
+                          style={{padding:'8px 16px',borderRadius:7,border:'none',background:rrBookAcct.trim()?C.green:'rgba(0,229,160,0.3)',color:C.bg,fontSize:12,fontWeight:700,cursor:rrBookAcct.trim()?'pointer':'default',whiteSpace:'nowrap'}}>
+                          Assign to {currentAE.name}
+                        </button>
+                        {viewIdx<queue.length-1&&(
+                          <button onClick={()=>{setRrViewAeIdx(viewIdx+1);setRrBookSlot(null)}}
+                            style={{padding:'8px 12px',borderRadius:7,border:`1px solid ${C.border2}`,background:'transparent',color:C.text2,fontSize:11,fontWeight:600,cursor:'pointer',whiteSpace:'nowrap'}}>
+                            Skip → {queue[viewIdx+1]?.name}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* SE overlay toggle */}
+                  <div style={{marginTop:12,borderTop:`1px solid ${C.border}`,paddingTop:10}}>
+                    <button onClick={()=>setRrShowSe(!rrShowSe)} style={{fontSize:10,fontWeight:600,color:rrShowSe?C.purpleL:C.text3,background:'none',border:'none',cursor:'pointer',padding:0}}>
+                      {rrShowSe?'▼':'▶'} Need SE on the call? · {seInfo?.name||'—'}
+                    </button>
+                    {rrShowSe&&seInfo&&(
+                      <div style={{marginTop:8,padding:'8px 10px',background:C.surface3,borderRadius:6,fontSize:10,color:C.text2}}>
+                        SE: <strong>{seInfo.name}</strong> · {seInfo.tz} · {seInfo.calendarId}
+                        <div style={{fontSize:9,color:C.text3,marginTop:4}}>Calendar integration coming soon. For now, check {seInfo.name}'s calendar manually.</div>
+                      </div>
                     )}
                   </div>
                 </div>
-                <div style={{fontSize:11,color:C.text2,padding:'8px 10px',background:C.surface3,borderRadius:6}}>{rrResult.reason}</div>
-                {rrResult.skipped.length>0&&(
-                  <div style={{fontSize:10,color:C.text3,marginTop:8}}>Skipped: {rrResult.skipped.map(s=>`${s.name} (${s.reason})`).join(', ')}</div>
-                )}
+              </div>
+            ):(
+              <div style={{...card,marginBottom:20,padding:24,textAlign:'center'}}>
+                <div style={{fontSize:14,color:C.text3}}>No eligible AEs for {rrSeg} · {rrRegion} Coast</div>
               </div>
             )}
 
-            {/* ── Distribution Dashboard ── */}
-            <div style={{display:'grid',gridTemplateColumns:'1.5fr 1fr',gap:16,marginBottom:20}}>
-              {/* Leaderboard Table */}
-              <div style={card}>
-                <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:14}}>AE Queue · Rolling 30 Days</div>
-                <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
-                  <thead>
-                    <tr style={{borderBottom:`2px solid ${C.border2}`}}>
-                      {['#','AE','Region','Team','Meetings','Last Assigned','Status'].map(h=>(
-                        <th key={h} style={{padding:'6px 8px',textAlign:h==='Meetings'?'right':'left',fontSize:9,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em'}}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {leaderboard.map((ae,i)=>(
-                      <tr key={ae.name} style={{borderBottom:`1px solid ${C.border}`}}>
-                        <td style={{padding:'6px 8px',fontWeight:700,color:C.text3}}>{i+1}</td>
-                        <td style={{padding:'6px 8px',fontWeight:600,color:C.text}}>{ae.name}</td>
-                        <td style={{padding:'6px 8px',color:ae.region==='West'?'#60d4f4':C.green,fontSize:10}}>{ae.region}</td>
-                        <td style={{padding:'6px 8px',color:C.text3,fontSize:10}}>{ae.team}</td>
-                        <td style={{padding:'6px 8px',textAlign:'right',fontWeight:700,color:C.text}}>{ae.count}</td>
-                        <td style={{padding:'6px 8px',color:C.text3,fontSize:10}}>{ae.lastDate?new Date(ae.lastDate).toLocaleDateString('en-US',{month:'short',day:'numeric'}):'—'}</td>
-                        <td style={{padding:'6px 8px'}}>
-                          <button onClick={()=>{const s=new Set(rrOoo);if(s.has(ae.name))s.delete(ae.name);else s.add(ae.name);saveOoo(s)}}
-                            style={{fontSize:9,fontWeight:700,padding:'2px 6px',borderRadius:3,border:'none',cursor:'pointer',
-                              background:ae.isOoo?'rgba(255,92,92,0.15)':'rgba(0,229,160,0.15)',
-                              color:ae.isOoo?C.red:C.green}}>
-                            {ae.isOoo?'OOO':'Available'}
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+            {/* ── Equity Bar Chart ── */}
+            <div style={{...card,marginBottom:20}}>
+              <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:14}}>AE Equity · Rolling 30 Days</div>
+              <div style={{display:'grid',gap:5}}>
+                {allAEs.map(ae=>(
+                  <div key={ae.name} style={{display:'grid',gridTemplateColumns:'70px 1fr 30px',gap:8,alignItems:'center',opacity:ae.removed?0.35:1}}>
+                    <div style={{fontSize:10,fontWeight:600,color:queue[0]?.name===ae.name?C.green:C.text2,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>
+                      {queue[0]?.name===ae.name?'★ ':''}{ae.name}
+                    </div>
+                    <div style={{height:10,borderRadius:5,background:C.surface3,overflow:'hidden'}}>
+                      <div style={{height:10,borderRadius:5,background:ae.region==='West'?'#60d4f4':C.green,width:`${ae.count/maxCount*100}%`}}/>
+                    </div>
+                    <div style={{fontSize:10,fontWeight:700,color:C.text,textAlign:'right'}}>{ae.count}</div>
+                  </div>
+                ))}
               </div>
+              <div style={{display:'flex',gap:10,marginTop:8,justifyContent:'center'}}>
+                <div style={{display:'flex',alignItems:'center',gap:3}}><span style={{width:8,height:8,borderRadius:2,background:'#60d4f4'}}/><span style={{fontSize:9,color:C.text3}}>West</span></div>
+                <div style={{display:'flex',alignItems:'center',gap:3}}><span style={{width:8,height:8,borderRadius:2,background:C.green}}/><span style={{fontSize:9,color:C.text3}}>East</span></div>
+                <div style={{display:'flex',alignItems:'center',gap:3}}><span style={{fontSize:9,color:C.green}}>★</span><span style={{fontSize:9,color:C.text3}}>Next up</span></div>
+              </div>
+            </div>
 
-              {/* Bar Chart */}
-              <div style={card}>
-                <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:14}}>Meetings per AE · 30 Days</div>
-                <div style={{display:'grid',gap:6}}>
-                  {leaderboard.map(ae=>(
-                    <div key={ae.name} style={{display:'grid',gridTemplateColumns:'60px 1fr 30px',gap:8,alignItems:'center'}}>
-                      <div style={{fontSize:10,fontWeight:600,color:ae.isOoo?C.text3:C.text2,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{ae.name}</div>
-                      <div style={{height:10,borderRadius:5,background:C.surface3,overflow:'hidden'}}>
-                        <div style={{height:10,borderRadius:5,background:ae.region==='West'?'#60d4f4':C.green,width:`${ae.count/maxCount*100}%`,opacity:ae.isOoo?0.4:1}}/>
-                      </div>
-                      <div style={{fontSize:10,fontWeight:700,color:C.text,textAlign:'right'}}>{ae.count}</div>
+            {/* ── Recent Assignments (collapsible) ── */}
+            <div style={{...card,marginBottom:20}}>
+              <button onClick={()=>setRrShowRecent(!rrShowRecent)} style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',background:'none',border:'none',cursor:'pointer',padding:0}}>
+                {rrShowRecent?'▼':'▶'} Recent Assignments · {recentAssignments.length}
+              </button>
+              {rrShowRecent&&recentAssignments.length>0&&(
+                <div style={{marginTop:12}}>
+                  {recentAssignments.slice(0,10).map(a=>(
+                    <div key={a.id} style={{display:'flex',justifyContent:'space-between',padding:'6px 0',borderBottom:`1px solid ${C.border}`,fontSize:10}}>
+                      <span style={{color:C.text2}}>{new Date(a.assignedAt).toLocaleDateString('en-US',{month:'short',day:'numeric'})} · <strong style={{color:C.text}}>{a.accountName}</strong> → <span style={{color:C.green}}>{a.assignedAE}</span></span>
+                      <span style={{color:C.text3}}>{a.segment} · {a.region}{a.skippedAEs.length>0?` · skipped ${a.skippedAEs.length}`:''}</span>
                     </div>
                   ))}
                 </div>
-                <div style={{display:'flex',gap:10,marginTop:10,justifyContent:'center'}}>
-                  <div style={{display:'flex',alignItems:'center',gap:3}}><span style={{width:8,height:8,borderRadius:2,background:'#60d4f4'}}/><span style={{fontSize:9,color:C.text3}}>West</span></div>
-                  <div style={{display:'flex',alignItems:'center',gap:3}}><span style={{width:8,height:8,borderRadius:2,background:C.green}}/><span style={{fontSize:9,color:C.text3}}>East</span></div>
-                </div>
-              </div>
+              )}
             </div>
 
-            {/* ── Recent Assignments ── */}
+            {/* ── Skip Log (collapsible) ── */}
             <div style={{...card,marginBottom:20}}>
-              <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:14}}>Recent Assignments · {recentAssignments.length} in 30 days</div>
-              {recentAssignments.length>0?(
-                <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
-                  <thead>
-                    <tr style={{borderBottom:`2px solid ${C.border2}`}}>
-                      {['Account','Segment','Region','Assigned To','Team','Requested Time','Assigned At'].map(h=>(
-                        <th key={h} style={{padding:'6px 8px',textAlign:'left',fontSize:9,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em'}}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {recentAssignments.slice(0,20).map(a=>(
-                      <tr key={a.id} style={{borderBottom:`1px solid ${C.border}`}}>
-                        <td style={{padding:'6px 8px',fontWeight:600,color:C.text}}>{a.accountName}</td>
-                        <td style={{padding:'6px 8px',color:C.text2}}>{a.segment}</td>
-                        <td style={{padding:'6px 8px',color:a.region==='West'?'#60d4f4':C.green}}>{a.region}</td>
-                        <td style={{padding:'6px 8px',fontWeight:600,color:C.green}}>{a.assignedAE}</td>
-                        <td style={{padding:'6px 8px',color:C.text3}}>{allAEs.find(x=>x.name===a.assignedAE)?.team||'—'}</td>
-                        <td style={{padding:'6px 8px',color:C.text3,fontSize:10}}>{a.requestedTime?new Date(a.requestedTime).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}):'—'}</td>
-                        <td style={{padding:'6px 8px',color:C.text3,fontSize:10}}>{new Date(a.assignedAt).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              ):<div style={{fontSize:11,color:C.text3}}>No assignments yet. Use the form above to assign meetings.</div>}
-            </div>
-
-            {/* ── Skip Log ── */}
-            <div style={{...card,marginBottom:20}}>
-              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:rrShowSkipLog?14:0}}>
+              <div style={{display:'flex',justifyContent:'space-between'}}>
                 <button onClick={()=>setRrShowSkipLog(!rrShowSkipLog)} style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',background:'none',border:'none',cursor:'pointer',padding:0}}>
-                  {rrShowSkipLog?'▼':'▶'} Skip Log · {rrSkips.length} records
+                  {rrShowSkipLog?'▼':'▶'} Skip Log · {rrSkips.length}
                 </button>
-                {isManagerRole(auth)&&rrAssignments.length>0&&(
+                {rrAssignments.length>0&&(
                   <button onClick={()=>{
-                    const csv=['Account,Segment,Region,Assigned AE,Team,Requested Time,Assigned At,Skipped',...rrAssignments.map(a=>`"${a.accountName}",${a.segment},${a.region},${a.assignedAE},${allAEs.find(x=>x.name===a.assignedAE)?.team||''},${a.requestedTime},${a.assignedAt},"${a.skippedAEs.map(s=>s.name+':'+s.reason).join(';')}"`)].join('\n')
-                    const blob=new Blob([csv],{type:'text/csv'});const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=`rr-assignments-${new Date().toISOString().slice(0,10)}.csv`;a.click()
-                  }} style={{fontSize:10,fontWeight:600,padding:'4px 10px',borderRadius:5,border:`1px solid ${C.border2}`,background:'transparent',color:C.text3,cursor:'pointer'}}>
-                    ↓ Export CSV
-                  </button>
+                    const csv=['Account,Segment,Region,Assigned AE,Team,Meeting Time,Assigned At,Skipped,SE',...rrAssignments.map(a=>`"${a.accountName}",${a.segment},${a.region},${a.assignedAE},${allAEs.find(x=>x.name===a.assignedAE)?.team||''},${a.meetingTime},${a.assignedAt},"${a.skippedAEs.map(s=>s.name+':'+s.reason).join(';')}",${a.seIncluded||''}`)].join('\n')
+                    const blob=new Blob([csv],{type:'text/csv'});const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=`rr-export-${new Date().toISOString().slice(0,10)}.csv`;a.click()
+                  }} style={{fontSize:10,fontWeight:600,padding:'4px 10px',borderRadius:5,border:`1px solid ${C.border2}`,background:'transparent',color:C.text3,cursor:'pointer'}}>↓ CSV</button>
                 )}
               </div>
-              {rrShowSkipLog&&rrSkips.length>0&&(
-                <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
-                  <thead>
-                    <tr style={{borderBottom:`2px solid ${C.border2}`}}>
-                      {['Time','Account','Skipped AE','Reason','Assigned To'].map(h=>(
-                        <th key={h} style={{padding:'6px 8px',textAlign:'left',fontSize:9,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em'}}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rrSkips.slice(0,30).map((s,i)=>(
-                      <tr key={i} style={{borderBottom:`1px solid ${C.border}`}}>
-                        <td style={{padding:'6px 8px',color:C.text3,fontSize:10}}>{new Date(s.timestamp).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}</td>
-                        <td style={{padding:'6px 8px',color:C.text2}}>{s.accountName}</td>
-                        <td style={{padding:'6px 8px',color:C.red}}>{s.skippedAE}</td>
-                        <td style={{padding:'6px 8px',color:C.text3}}>{s.reason}</td>
-                        <td style={{padding:'6px 8px',color:C.green}}>{s.assignedTo}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
+              {rrShowSkipLog&&rrSkips.slice(0,20).map((s,i)=>(
+                <div key={i} style={{display:'flex',justifyContent:'space-between',padding:'5px 0',borderBottom:`1px solid ${C.border}`,fontSize:10,marginTop:i===0?10:0}}>
+                  <span style={{color:C.text3}}>{new Date(s.timestamp).toLocaleDateString('en-US',{month:'short',day:'numeric'})} · <span style={{color:C.red}}>{s.skippedAE}</span> → <span style={{color:C.green}}>{s.assignedTo}</span></span>
+                  <span style={{color:C.text3}}>{s.reason} · {s.accountName}</span>
+                </div>
+              ))}
             </div>
 
             {/* ── Manager Controls ── */}
             {isManagerRole(auth)&&(
               <div style={{...card,marginBottom:20,opacity:0.8}}>
                 <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:10}}>Manager Controls</div>
-                <div style={{display:'flex',gap:8}}>
-                  <button onClick={()=>{if(window.confirm('Reset all assignment counts? This clears the rolling 30-day history.')){saveAssignments([]);saveSkips([])}}} style={{fontSize:10,fontWeight:600,padding:'6px 12px',borderRadius:5,border:`1px solid ${C.red}`,background:'transparent',color:C.red,cursor:'pointer'}}>
-                    Reset Counts
-                  </button>
+                <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:10}}>
+                  <button onClick={()=>{if(window.confirm('Reset all counts?')){saveAssignments([]);saveSkips([])}}} style={{fontSize:10,fontWeight:600,padding:'6px 12px',borderRadius:5,border:`1px solid ${C.red}`,background:'transparent',color:C.red,cursor:'pointer'}}>Reset Counts</button>
+                </div>
+                <div style={{fontSize:10,fontWeight:700,color:C.text3,marginBottom:6}}>Remove AE from rotation:</div>
+                <div style={{display:'flex',gap:4,flexWrap:'wrap'}}>
+                  {allAEs.map(ae=>(
+                    <button key={ae.name} onClick={()=>{
+                      const removed=rrMgr.removedAEs.includes(ae.name)?rrMgr.removedAEs.filter(n=>n!==ae.name):[...rrMgr.removedAEs,ae.name]
+                      saveMgr({...rrMgr,removedAEs:removed})
+                    }} style={{fontSize:9,fontWeight:600,padding:'3px 8px',borderRadius:4,cursor:'pointer',
+                      border:`1px solid ${rrMgr.removedAEs.includes(ae.name)?C.red:C.border2}`,
+                      background:rrMgr.removedAEs.includes(ae.name)?'rgba(255,92,92,0.12)':'transparent',
+                      color:rrMgr.removedAEs.includes(ae.name)?C.red:C.text3}}>
+                      {ae.name}{rrMgr.removedAEs.includes(ae.name)?' ✕':''}
+                    </button>
+                  ))}
                 </div>
               </div>
             )}
