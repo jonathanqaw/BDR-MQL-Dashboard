@@ -6062,8 +6062,8 @@ export default function Dashboard() {
                                 transition:'all 0.15s',position:'relative',
                                 boxShadow:isSelected?`0 0 8px rgba(0,229,160,0.3)`:'none',
                               }}
-                              onMouseEnter={e=>{if(isFree){e.currentTarget.style.borderColor=C.green;e.currentTarget.style.background=isSelected?'rgba(0,229,160,0.3)':'rgba(0,229,160,0.1)'}}}
-                              onMouseLeave={e=>{if(!isSelected){e.currentTarget.style.borderColor=mutualFree?'rgba(0,229,160,0.5)':'transparent';e.currentTarget.style.background=isFree?C.surface3:''}}}
+                              onMouseEnter={e=>{if(isFree){e.currentTarget.style.borderColor=C.green;e.currentTarget.style.background='rgba(0,229,160,0.1)'}}}
+                              onMouseLeave={e=>{if(!isSelected&&isFree){e.currentTarget.style.borderColor=mutualFree?'rgba(0,229,160,0.5)':'transparent';e.currentTarget.style.background=C.surface3}}}
                             >
                               {slot.isOoo&&<span style={{fontSize:9,color:C.red,fontWeight:700}}>OOO</span>}
                               {slot.busy&&!slot.isOoo&&<span style={{fontSize:8,color:'#60a5fa',fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',padding:'0 3px',maxWidth:'100%'}}>{slot.label||'Busy'}</span>}

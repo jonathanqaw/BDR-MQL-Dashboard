@@ -56,21 +56,38 @@ export async function GET(request: NextRequest) {
     const data = await res.json()
     const timezone = data.timeZone || null
 
-    const events = (data.items || []).map((item: any) => {
-      const isAllDay = !!(item.start?.date && !item.start?.dateTime)
-      const summary = item.summary || 'Busy'
-      const isOOO =
-        item.eventType === 'outOfOffice' ||
-        /\b(ooo|pto|out of office|vacation|sick)\b/i.test(summary)
+    const events = (data.items || [])
+      .filter((item: any) => {
+        // Filter out working location events (Home, Office, etc.) — these aren't real meetings
+        if (item.eventType === 'workingLocation') return false
+        // Filter out "default" visibility events that are just location markers
+        const summary = (item.summary || '').toLowerCase()
+        if (item.start?.date && !item.start?.dateTime) {
+          // All-day event — skip if it's just a working location label
+          if (/^(home|office|remote|wfh|work from home)$/i.test(item.summary || '')) return false
+        }
+        // Filter out events where the user's response is "declined"
+        if (item.attendees) {
+          const self = item.attendees.find((a: any) => a.self)
+          if (self?.responseStatus === 'declined') return false
+        }
+        return true
+      })
+      .map((item: any) => {
+        const isAllDay = !!(item.start?.date && !item.start?.dateTime)
+        const summary = item.summary || 'Busy'
+        const isOOO =
+          item.eventType === 'outOfOffice' ||
+          /\b(ooo|pto|out of office|vacation|sick)\b/i.test(summary)
 
-      return {
-        summary,
-        start: item.start?.dateTime || item.start?.date || '',
-        end: item.end?.dateTime || item.end?.date || '',
-        isAllDay,
-        isOOO,
-      }
-    })
+        return {
+          summary,
+          start: item.start?.dateTime || item.start?.date || '',
+          end: item.end?.dateTime || item.end?.date || '',
+          isAllDay,
+          isOOO,
+        }
+      })
 
     return NextResponse.json({ events, timezone, error: null })
   } catch {
