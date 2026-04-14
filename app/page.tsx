@@ -353,7 +353,7 @@ const AE_ROSTER:{west:{major:AERosterEntry[];commercial:AERosterEntry[]};east:{m
   east:{
     major:[
       {name:'Devin',calendarId:'devin@qawolf.com',team:'Kirby',se:'Becca'},
-      {name:'Charlie',calendarId:'charlie@s.qawolf.com',team:'Zelda',se:'Jun'},
+      {name:'Charlie',calendarId:'charlie@qawolf.com',team:'Zelda',se:'Jun'},
       {name:'Ben',calendarId:'benbarrett@qawolf.com',team:'Zelda',se:'Jun'},
       {name:'Jason',calendarId:'jason@qawolf.com',team:'Sonic',se:'Ian'},
     ],
