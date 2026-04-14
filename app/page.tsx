@@ -6055,7 +6055,7 @@ export default function Dashboard() {
                             <div key={di}
                               onClick={()=>{if(isFree)setRrBookSlot(isSelected?null:{day:ds,hour:h})}}
                               style={{
-                                height:42,borderRadius:6,cursor:isFree?'pointer':'default',
+                                height:42,borderRadius:6,cursor:isFree?'pointer':'default',overflow:'hidden',minWidth:0,
                                 background:slot.isOoo?'rgba(255,92,92,0.18)':slot.busy?'rgba(96,165,250,0.2)':slot.isSeBusy&&rrShowSe?'rgba(192,132,252,0.12)':isSelected?'rgba(0,229,160,0.3)':isPast?'rgba(255,255,255,0.02)':C.surface3,
                                 border:`2px solid ${isSelected?C.green:mutualFree?'rgba(0,229,160,0.5)':slot.isOoo?'rgba(255,92,92,0.35)':slot.busy?'rgba(96,165,250,0.3)':slot.isSeBusy&&rrShowSe?'rgba(192,132,252,0.3)':'transparent'}`,
                                 display:'flex',alignItems:'center',justifyContent:'center',
@@ -6066,7 +6066,7 @@ export default function Dashboard() {
                               onMouseLeave={e=>{if(!isSelected&&isFree){e.currentTarget.style.borderColor=mutualFree?'rgba(0,229,160,0.5)':'transparent';e.currentTarget.style.background=C.surface3}}}
                             >
                               {slot.isOoo&&<span style={{fontSize:9,color:C.red,fontWeight:700}}>OOO</span>}
-                              {slot.busy&&!slot.isOoo&&<span style={{fontSize:8,color:'#60a5fa',fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',padding:'0 3px',maxWidth:'100%'}}>{slot.label||'Busy'}</span>}
+                              {slot.busy&&!slot.isOoo&&<span style={{fontSize:7,color:'#60a5fa',fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'block',width:'100%',textAlign:'center',padding:'0 2px',boxSizing:'border-box'}}>{slot.label||'Busy'}</span>}
                               {!slot.busy&&slot.isSeBusy&&rrShowSe&&<span style={{fontSize:8,color:'#c084fc',fontWeight:600}}>SE busy</span>}
                               {isSelected&&!slot.busy&&<span style={{fontSize:14,color:C.green,fontWeight:700}}>✓</span>}
                               {isFree&&!isSelected&&!slot.isSeBusy&&<span style={{fontSize:9,color:'rgba(255,255,255,0.15)',fontWeight:500}}>+</span>}
