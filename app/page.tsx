@@ -1660,10 +1660,11 @@ export default function Dashboard() {
   const [rrViewAeIdx,setRrViewAeIdx]=useState(0) // which AE in the queue is currently shown
   const [rrWeekOffset,setRrWeekOffset]=useState(0) // 0=this week, 1=next, -1=prev
   const [rrShowSe,setRrShowSe]=useState(false)
-  const [rrBookSlot,setRrBookSlot]=useState<{day:string;hour:number}|null>(null) // clicked slot
+  const [rrBookSlot,setRrBookSlot]=useState<{day:string;hour:number;min:number}|null>(null) // clicked slot
   const [rrBookAcct,setRrBookAcct]=useState('')
   const [rrShowSkipLog,setRrShowSkipLog]=useState(false)
   const [rrShowRecent,setRrShowRecent]=useState(false)
+  const [rrBookOver,setRrBookOver]=useState(false) // allow booking over busy slots
   const [rrCalEvents,setRrCalEvents]=useState<{summary:string;start:string;end:string;isAllDay:boolean;isOOO:boolean}[]>([])
   const [rrCalError,setRrCalError]=useState<string|null>(null)
   const [rrCalLoading,setRrCalLoading]=useState(false)
@@ -5857,7 +5858,8 @@ export default function Dashboard() {
           const mondayBase=new Date(today);mondayBase.setDate(today.getDate()-((today.getDay()+6)%7))
           const monday=new Date(mondayBase);monday.setDate(monday.getDate()+rrWeekOffset*7)
           const weekDays=Array.from({length:5},(_,i)=>{const d=new Date(monday);d.setDate(monday.getDate()+i);return d})
-          const hours=Array.from({length:10},(_,i)=>8+i) // 8am–5pm (10 slots)
+          // 30-minute slots from 8am to 5:30pm (20 slots)
+          const slots=Array.from({length:20},(_,i)=>({hour:8+Math.floor(i/2),min:(i%2)*30}))
           const weekLabel=`${weekDays[0].toLocaleDateString('en-US',{month:'short',day:'numeric'})} – ${weekDays[4].toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}`
 
           // ── Calendar event checking ────────────────────────────
@@ -5878,9 +5880,9 @@ export default function Dashboard() {
             return {hit:false,label:null,isOoo:false}
           }
 
-          const getSlotStatus=(day:Date,hour:number):{busy:boolean;label:string|null;isOoo:boolean;isSeBusy:boolean}=>{
-            const slotStart=new Date(day.getFullYear(),day.getMonth(),day.getDate(),hour,0,0)
-            const slotEnd=new Date(day.getFullYear(),day.getMonth(),day.getDate(),hour+1,0,0)
+          const getSlotStatus=(day:Date,hour:number,min:number):{busy:boolean;label:string|null;isOoo:boolean;isSeBusy:boolean}=>{
+            const slotStart=new Date(day.getFullYear(),day.getMonth(),day.getDate(),hour,min,0)
+            const slotEnd=new Date(day.getFullYear(),day.getMonth(),day.getDate(),hour,min+30,0)
             const dayStr=`${day.getFullYear()}-${String(day.getMonth()+1).padStart(2,'0')}-${String(day.getDate()).padStart(2,'0')}`
             let busy=false,label:string|null=null,isOoo=false,isSeBusy=false
             // Check AE calendar events
@@ -5888,7 +5890,7 @@ export default function Dashboard() {
             if(aeCheck.hit){busy=true;label=aeCheck.label;isOoo=aeCheck.isOoo}
             // Check assignment history too
             if(!busy&&currentAE){
-              const match=rrAssignments.find(a=>{if(!a.meetingTime||a.assignedAE!==currentAE.name)return false;const mt=new Date(a.meetingTime);return mt.getFullYear()===day.getFullYear()&&mt.getMonth()===day.getMonth()&&mt.getDate()===day.getDate()&&mt.getHours()===hour})
+              const match=rrAssignments.find(a=>{if(!a.meetingTime||a.assignedAE!==currentAE.name)return false;const mt=new Date(a.meetingTime);return mt.getFullYear()===day.getFullYear()&&mt.getMonth()===day.getMonth()&&mt.getDate()===day.getDate()&&mt.getHours()===hour&&mt.getMinutes()===min})
               if(match){busy=true;label=match.accountName}
             }
             // Check SE calendar if overlay is on
@@ -5912,7 +5914,7 @@ export default function Dashboard() {
           // ── Assign from slot click ─────────────────────────────
           const assignFromSlot=(acct:string)=>{
             if(!currentAE||!rrBookSlot) return
-            const mt=new Date(rrBookSlot.day);mt.setHours(rrBookSlot.hour,0,0,0)
+            const mt=new Date(rrBookSlot.day);mt.setHours(rrBookSlot.hour,rrBookSlot.min,0,0)
             const assignment:RRAssignment={
               id:`rr-${Date.now()}`,accountName:acct,segment:rrSeg,region:rrRegion,
               assignedAE:currentAE.name,calendarId:currentAE.calendarId,
@@ -6022,14 +6024,20 @@ export default function Dashboard() {
                   )}
                   {rrCalLoading&&<div style={{fontSize:10,color:C.text3,marginBottom:8}}>Loading calendar...</div>}
 
-                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
                     <button onClick={()=>{setRrWeekOffset(p=>p-1);setRrBookSlot(null)}} style={{fontSize:14,background:'none',border:'none',color:C.text3,cursor:'pointer',padding:'2px 8px'}}>←</button>
                     <div style={{fontSize:12,fontWeight:700,color:C.text}}>{weekLabel}{rrCalEvents.length>0&&<span style={{fontSize:9,color:C.text3,marginLeft:6}}>{rrCalEvents.length} events</span>}</div>
                     <button onClick={()=>{setRrWeekOffset(p=>p+1);setRrBookSlot(null)}} style={{fontSize:14,background:'none',border:'none',color:C.text3,cursor:'pointer',padding:'2px 8px'}}>→</button>
                   </div>
+                  <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:10}}>
+                    <button onClick={()=>setRrBookOver(!rrBookOver)} style={{fontSize:9,fontWeight:600,padding:'3px 8px',borderRadius:4,cursor:'pointer',border:`1px solid ${rrBookOver?C.amber:C.border2}`,background:rrBookOver?'rgba(245,166,35,0.15)':'transparent',color:rrBookOver?C.amber:C.text3}}>
+                      {rrBookOver?'✓ Book over busy':'Book over busy'}
+                    </button>
+                    <span style={{fontSize:9,color:C.text3}}>30-min slots</span>
+                  </div>
 
                   {/* Day headers */}
-                  <div style={{display:'grid',gridTemplateColumns:'40px repeat(5,1fr)',gap:1}}>
+                  <div style={{display:'grid',gridTemplateColumns:'50px repeat(5,1fr)',gap:2}}>
                     <div/>
                     {weekDays.map((d,i)=>{
                       const isToday=d.toDateString()===today.toDateString()
@@ -6039,38 +6047,38 @@ export default function Dashboard() {
                     })}
                   </div>
 
-                  {/* Time grid — clickable calendar */}
-                  <div style={{display:'grid',gridTemplateColumns:'44px repeat(5,1fr)',gap:2}}>
-                    {hours.map(h=>(
-                      <React.Fragment key={h}>
-                        <div style={{fontSize:10,color:C.text3,textAlign:'right',paddingRight:8,paddingTop:6,fontWeight:500}}>{h>12?h-12:h}:00{h>=12?'pm':'am'}</div>
+                  {/* Time grid — 30-min clickable slots */}
+                  <div style={{display:'grid',gridTemplateColumns:'50px repeat(5,1fr)',gap:2,maxHeight:500,overflowY:'auto'}}>
+                    {slots.map((s,si)=>(
+                      <React.Fragment key={si}>
+                        <div style={{fontSize:9,color:C.text3,textAlign:'right',paddingRight:6,paddingTop:3,fontWeight:500}}>{s.hour>12?s.hour-12:s.hour}:{s.min===0?'00':'30'}{s.hour>=12?'pm':'am'}</div>
                         {weekDays.map((d,di)=>{
                           const ds=d.toISOString().split('T')[0]
-                          const slot=getSlotStatus(d,h)
-                          const isPast=d<today&&!(d.toDateString()===today.toDateString()&&h>today.getHours())
-                          const isSelected=rrBookSlot?.day===ds&&rrBookSlot?.hour===h
-                          const isFree=!slot.busy&&!isPast
-                          const mutualFree=isFree&&rrShowSe&&!slot.isSeBusy
+                          const slot=getSlotStatus(d,s.hour,s.min)
+                          const isPast=d<today&&!(d.toDateString()===today.toDateString()&&(s.hour>today.getHours()||(s.hour===today.getHours()&&s.min>today.getMinutes())))
+                          const isSelected=rrBookSlot?.day===ds&&rrBookSlot?.hour===s.hour&&rrBookSlot?.min===s.min
+                          const canBook=rrBookOver?!isPast:(!slot.busy&&!isPast)
+                          const mutualFree=canBook&&!slot.busy&&rrShowSe&&!slot.isSeBusy
                           return (
                             <div key={di}
-                              onClick={()=>{if(isFree)setRrBookSlot(isSelected?null:{day:ds,hour:h})}}
+                              onClick={()=>{if(canBook)setRrBookSlot(isSelected?null:{day:ds,hour:s.hour,min:s.min})}}
                               style={{
-                                height:42,borderRadius:6,cursor:isFree?'pointer':'default',overflow:'hidden',minWidth:0,
-                                background:slot.isOoo?'rgba(255,92,92,0.18)':slot.busy?'rgba(96,165,250,0.2)':slot.isSeBusy&&rrShowSe?'rgba(192,132,252,0.12)':isSelected?'rgba(0,229,160,0.3)':isPast?'rgba(255,255,255,0.02)':C.surface3,
-                                border:`2px solid ${isSelected?C.green:mutualFree?'rgba(0,229,160,0.5)':slot.isOoo?'rgba(255,92,92,0.35)':slot.busy?'rgba(96,165,250,0.3)':slot.isSeBusy&&rrShowSe?'rgba(192,132,252,0.3)':'transparent'}`,
+                                height:28,borderRadius:4,cursor:canBook?'pointer':'default',overflow:'hidden',minWidth:0,
+                                background:isSelected?'rgba(0,229,160,0.3)':slot.isOoo?'rgba(255,92,92,0.18)':slot.busy?(rrBookOver?'rgba(96,165,250,0.12)':'rgba(96,165,250,0.2)'):slot.isSeBusy&&rrShowSe?'rgba(192,132,252,0.12)':isPast?'rgba(255,255,255,0.02)':C.surface3,
+                                border:`1px solid ${isSelected?C.green:mutualFree?'rgba(0,229,160,0.5)':slot.isOoo?'rgba(255,92,92,0.35)':slot.busy?(rrBookOver?'rgba(245,166,35,0.3)':'rgba(96,165,250,0.3)'):slot.isSeBusy&&rrShowSe?'rgba(192,132,252,0.3)':'transparent'}`,
                                 display:'flex',alignItems:'center',justifyContent:'center',
-                                transition:'all 0.15s',position:'relative',
-                                boxShadow:isSelected?`0 0 8px rgba(0,229,160,0.3)`:'none',
+                                transition:'all 0.12s',position:'relative',
+                                boxShadow:isSelected?`0 0 6px rgba(0,229,160,0.3)`:'none',
                               }}
-                              onMouseEnter={e=>{if(isFree){e.currentTarget.style.borderColor=C.green;e.currentTarget.style.background='rgba(0,229,160,0.1)'}}}
-                              onMouseLeave={e=>{if(!isSelected&&isFree){e.currentTarget.style.borderColor=mutualFree?'rgba(0,229,160,0.5)':'transparent';e.currentTarget.style.background=C.surface3}}}
+                              onMouseEnter={e=>{if(canBook){e.currentTarget.style.borderColor=C.green;e.currentTarget.style.background=slot.busy?'rgba(245,166,35,0.15)':'rgba(0,229,160,0.1)'}}}
+                              onMouseLeave={e=>{if(!isSelected&&canBook){e.currentTarget.style.borderColor=mutualFree?'rgba(0,229,160,0.5)':'transparent';e.currentTarget.style.background=slot.busy?(rrBookOver?'rgba(96,165,250,0.12)':'rgba(96,165,250,0.2)'):C.surface3}}}
                             >
-                              {slot.isOoo&&<span style={{fontSize:9,color:C.red,fontWeight:700}}>OOO</span>}
-                              {slot.busy&&!slot.isOoo&&<span style={{fontSize:7,color:'#60a5fa',fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'block',width:'100%',textAlign:'center',padding:'0 2px',boxSizing:'border-box'}}>{slot.label||'Busy'}</span>}
-                              {!slot.busy&&slot.isSeBusy&&rrShowSe&&<span style={{fontSize:8,color:'#c084fc',fontWeight:600}}>SE busy</span>}
-                              {isSelected&&!slot.busy&&<span style={{fontSize:14,color:C.green,fontWeight:700}}>✓</span>}
-                              {isFree&&!isSelected&&!slot.isSeBusy&&<span style={{fontSize:9,color:'rgba(255,255,255,0.15)',fontWeight:500}}>+</span>}
-                              {mutualFree&&!isSelected&&<span style={{position:'absolute',top:2,right:3,fontSize:7,color:C.green}}>●</span>}
+                              {slot.isOoo&&<span style={{fontSize:7,color:C.red,fontWeight:700}}>OOO</span>}
+                              {slot.busy&&!slot.isOoo&&<span style={{fontSize:7,color:rrBookOver?'rgba(96,165,250,0.6)':'#60a5fa',fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'block',width:'100%',textAlign:'center',padding:'0 2px',boxSizing:'border-box'}}>{slot.label||'Busy'}</span>}
+                              {!slot.busy&&slot.isSeBusy&&rrShowSe&&<span style={{fontSize:7,color:'#c084fc',fontWeight:600}}>SE</span>}
+                              {isSelected&&<span style={{fontSize:11,color:C.green,fontWeight:700}}>✓</span>}
+                              {canBook&&!slot.busy&&!isSelected&&!slot.isSeBusy&&<span style={{fontSize:8,color:'rgba(255,255,255,0.12)'}}>+</span>}
+                              {mutualFree&&!isSelected&&<span style={{position:'absolute',top:1,right:2,fontSize:5,color:C.green}}>●</span>}
                             </div>
                           )
                         })}
@@ -6091,7 +6099,7 @@ export default function Dashboard() {
                   {rrBookSlot&&currentAE&&(
                     <div style={{marginTop:12,padding:'12px 14px',background:C.surface2,borderRadius:8,border:`1px solid ${C.green}40`}}>
                       <div style={{fontSize:11,color:C.text2,marginBottom:8}}>
-                        {new Date(rrBookSlot.day).toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric'})} at {rrBookSlot.hour>12?rrBookSlot.hour-12:rrBookSlot.hour}:00{rrBookSlot.hour>=12?'pm':'am'} → <strong style={{color:C.green}}>{currentAE.name}</strong>
+                        {new Date(rrBookSlot.day).toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric'})} at {rrBookSlot.hour>12?rrBookSlot.hour-12:rrBookSlot.hour}:{rrBookSlot.min===0?'00':'30'}{rrBookSlot.hour>=12?'pm':'am'} (30 min) → <strong style={{color:C.green}}>{currentAE.name}</strong>
                       </div>
                       <div style={{display:'flex',gap:8,alignItems:'end'}}>
                         <div style={{flex:1}}>
