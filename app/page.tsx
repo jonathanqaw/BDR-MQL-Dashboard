@@ -6028,11 +6028,11 @@ export default function Dashboard() {
                     })}
                   </div>
 
-                  {/* Time grid */}
-                  <div style={{display:'grid',gridTemplateColumns:'40px repeat(5,1fr)',gap:1,maxHeight:400,overflowY:'auto'}}>
+                  {/* Time grid — clickable calendar */}
+                  <div style={{display:'grid',gridTemplateColumns:'44px repeat(5,1fr)',gap:2}}>
                     {hours.map(h=>(
                       <React.Fragment key={h}>
-                        <div style={{fontSize:9,color:C.text3,textAlign:'right',paddingRight:6,paddingTop:2}}>{h>12?h-12:h}{h>=12?'p':'a'}</div>
+                        <div style={{fontSize:10,color:C.text3,textAlign:'right',paddingRight:8,paddingTop:6,fontWeight:500}}>{h>12?h-12:h}:00{h>=12?'pm':'am'}</div>
                         {weekDays.map((d,di)=>{
                           const ds=d.toISOString().split('T')[0]
                           const slot=getSlotStatus(d,h)
@@ -6044,20 +6044,22 @@ export default function Dashboard() {
                             <div key={di}
                               onClick={()=>{if(isFree)setRrBookSlot(isSelected?null:{day:ds,hour:h})}}
                               style={{
-                                height:32,borderRadius:4,cursor:isFree?'pointer':'default',
-                                background:slot.isOoo?'rgba(255,92,92,0.15)':slot.busy?'rgba(96,165,250,0.2)':slot.isSeBusy&&rrShowSe?'rgba(192,132,252,0.12)':isSelected?'rgba(0,229,160,0.25)':isPast?'rgba(255,255,255,0.02)':C.surface3,
-                                border:`1px solid ${isSelected?C.green:mutualFree?'rgba(0,229,160,0.4)':slot.isOoo?'rgba(255,92,92,0.3)':slot.busy?'rgba(96,165,250,0.3)':slot.isSeBusy&&rrShowSe?'rgba(192,132,252,0.3)':C.border}`,
+                                height:42,borderRadius:6,cursor:isFree?'pointer':'default',
+                                background:slot.isOoo?'rgba(255,92,92,0.18)':slot.busy?'rgba(96,165,250,0.2)':slot.isSeBusy&&rrShowSe?'rgba(192,132,252,0.12)':isSelected?'rgba(0,229,160,0.3)':isPast?'rgba(255,255,255,0.02)':C.surface3,
+                                border:`2px solid ${isSelected?C.green:mutualFree?'rgba(0,229,160,0.5)':slot.isOoo?'rgba(255,92,92,0.35)':slot.busy?'rgba(96,165,250,0.3)':slot.isSeBusy&&rrShowSe?'rgba(192,132,252,0.3)':'transparent'}`,
                                 display:'flex',alignItems:'center',justifyContent:'center',
-                                transition:'all 0.1s',position:'relative',
+                                transition:'all 0.15s',position:'relative',
+                                boxShadow:isSelected?`0 0 8px rgba(0,229,160,0.3)`:'none',
                               }}
-                              onMouseEnter={e=>{if(isFree)(e.currentTarget.style.borderColor=C.green)}}
-                              onMouseLeave={e=>{if(!isSelected)(e.currentTarget.style.borderColor=mutualFree?'rgba(0,229,160,0.4)':C.border)}}
+                              onMouseEnter={e=>{if(isFree){e.currentTarget.style.borderColor=C.green;e.currentTarget.style.background=isSelected?'rgba(0,229,160,0.3)':'rgba(0,229,160,0.1)'}}}
+                              onMouseLeave={e=>{if(!isSelected){e.currentTarget.style.borderColor=mutualFree?'rgba(0,229,160,0.5)':'transparent';e.currentTarget.style.background=isFree?C.surface3:''}}}
                             >
-                              {slot.isOoo&&<span style={{fontSize:7,color:C.red,fontWeight:700}}>OOO</span>}
-                              {slot.busy&&!slot.isOoo&&<span style={{fontSize:7,color:'#60a5fa',fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',padding:'0 2px'}}>{slot.label||'Busy'}</span>}
-                              {!slot.busy&&slot.isSeBusy&&rrShowSe&&<span style={{fontSize:7,color:'#c084fc',fontWeight:600}}>SE</span>}
-                              {isSelected&&<span style={{fontSize:10,color:C.green}}>✓</span>}
-                              {mutualFree&&!isSelected&&<span style={{position:'absolute',top:1,right:2,fontSize:6,color:C.green}}>●</span>}
+                              {slot.isOoo&&<span style={{fontSize:9,color:C.red,fontWeight:700}}>OOO</span>}
+                              {slot.busy&&!slot.isOoo&&<span style={{fontSize:8,color:'#60a5fa',fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',padding:'0 3px',maxWidth:'100%'}}>{slot.label||'Busy'}</span>}
+                              {!slot.busy&&slot.isSeBusy&&rrShowSe&&<span style={{fontSize:8,color:'#c084fc',fontWeight:600}}>SE busy</span>}
+                              {isSelected&&!slot.busy&&<span style={{fontSize:14,color:C.green,fontWeight:700}}>✓</span>}
+                              {isFree&&!isSelected&&!slot.isSeBusy&&<span style={{fontSize:9,color:'rgba(255,255,255,0.15)',fontWeight:500}}>+</span>}
+                              {mutualFree&&!isSelected&&<span style={{position:'absolute',top:2,right:3,fontSize:7,color:C.green}}>●</span>}
                             </div>
                           )
                         })}
