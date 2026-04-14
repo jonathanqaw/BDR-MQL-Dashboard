@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import React from 'react'
+import { signIn } from 'next-auth/react'
 import type { Lead } from '@/lib/slack'
 
 
@@ -1663,6 +1664,36 @@ export default function Dashboard() {
   const [rrBookAcct,setRrBookAcct]=useState('')
   const [rrShowSkipLog,setRrShowSkipLog]=useState(false)
   const [rrShowRecent,setRrShowRecent]=useState(false)
+  const [rrCalEvents,setRrCalEvents]=useState<{summary:string;start:string;end:string;isAllDay:boolean;isOOO:boolean}[]>([])
+  const [rrCalError,setRrCalError]=useState<string|null>(null)
+  const [rrCalLoading,setRrCalLoading]=useState(false)
+  const [rrSeEvents,setRrSeEvents]=useState<{summary:string;start:string;end:string;isAllDay:boolean;isOOO:boolean}[]>([])
+  const [rrSeError,setRrSeError]=useState<string|null>(null)
+  const [rrFetchedCalKey,setRrFetchedCalKey]=useState('')
+  const [rrFetchedSeKey,setRrFetchedSeKey]=useState('')
+
+  // Fetch AE calendar when the viewed AE or week changes
+  const rrFetchCal=useCallback(async(calendarId:string,weekStart:string)=>{
+    setRrCalLoading(true);setRrCalError(null)
+    try{
+      const res=await fetch(`/api/calendar?calendarId=${encodeURIComponent(calendarId)}&weekStart=${weekStart}`)
+      const data=await res.json()
+      if(data.error==='not_authenticated'){setRrCalError('not_authenticated');setRrCalEvents([])}
+      else if(data.error){setRrCalError(data.error);setRrCalEvents([])}
+      else{setRrCalEvents(data.events||[]);setRrCalError(null)}
+    }catch{setRrCalError('fetch_failed');setRrCalEvents([])}
+    finally{setRrCalLoading(false)}
+  },[])
+
+  const rrFetchSe=useCallback(async(calendarId:string,weekStart:string)=>{
+    setRrSeError(null)
+    try{
+      const res=await fetch(`/api/calendar?calendarId=${encodeURIComponent(calendarId)}&weekStart=${weekStart}`)
+      const data=await res.json()
+      if(data.error){setRrSeError(data.error);setRrSeEvents([])}
+      else{setRrSeEvents(data.events||[]);setRrSeError(null)}
+    }catch{setRrSeError('fetch_failed');setRrSeEvents([])}
+  },[])
   const [spiffs,setSpiffs]=useState<Spiff[]>([])
   const [showSpiffModal,setShowSpiffModal]=useState(false)
   const [editingSpiff,setEditingSpiff]=useState<Spiff|null>(null)
@@ -5809,7 +5840,8 @@ export default function Dashboard() {
           // ── Queue computation ──────────────────────────────────
           const removedAEs=rrMgr.removedAEs||[]
           const regionRoster=AE_ROSTER[rrRegion.toLowerCase() as 'west'|'east']
-          const eligible:AERosterEntry[]=rrSeg==='Major'?[...regionRoster.major]:[...regionRoster.major,...regionRoster.commercial]
+          // No crossover: Major → only major AEs, Commercial → only commercial AEs
+          const eligible:AERosterEntry[]=rrSeg==='Major'?[...regionRoster.major]:[...regionRoster.commercial]
           const queue=eligible
             .filter(ae=>!removedAEs.includes(ae.name))
             .map(ae=>({...ae,count:countByAE(ae.name),lastDate:lastAssigned(ae.name)}))
@@ -5827,16 +5859,33 @@ export default function Dashboard() {
           const hours=Array.from({length:10},(_,i)=>8+i) // 8am–5pm (10 slots)
           const weekLabel=`${weekDays[0].toLocaleDateString('en-US',{month:'short',day:'numeric'})} – ${weekDays[4].toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}`
 
-          // ── Mock busy data (placeholder until calendar API) ────
-          // For now, use assignment history to mark booked slots
-          const isBooked=(day:Date,hour:number):string|null=>{
-            const ds=day.toISOString().split('T')[0]
-            const match=rrAssignments.find(a=>{
-              if(!a.meetingTime) return false
-              const mt=new Date(a.meetingTime)
-              return mt.toISOString().split('T')[0]===ds&&mt.getHours()===hour&&a.assignedAE===currentAE?.name
-            })
-            return match?match.accountName:null
+          // ── Calendar event checking ────────────────────────────
+          // Check if a slot overlaps with any calendar event
+          const getSlotStatus=(day:Date,hour:number):{busy:boolean;label:string|null;isOoo:boolean;isSeBusy:boolean}=>{
+            const slotStart=new Date(day);slotStart.setHours(hour,0,0,0)
+            const slotEnd=new Date(day);slotEnd.setHours(hour+1,0,0,0)
+            let busy=false,label:string|null=null,isOoo=false,isSeBusy=false
+            // Check AE calendar events
+            for(const ev of rrCalEvents){
+              const evStart=new Date(ev.start),evEnd=new Date(ev.end)
+              if(ev.isAllDay){const ds=day.toISOString().split('T')[0];if(ev.start<=ds&&ev.end>ds){busy=true;isOoo=ev.isOOO;label=ev.isOOO?'OOO':ev.summary;break}}
+              else if(evStart<slotEnd&&evEnd>slotStart){busy=true;label=ev.summary;isOoo=ev.isOOO;break}
+            }
+            // Check assignment history too
+            if(!busy){
+              const ds=day.toISOString().split('T')[0]
+              const match=rrAssignments.find(a=>{if(!a.meetingTime)return false;const mt=new Date(a.meetingTime);return mt.toISOString().split('T')[0]===ds&&mt.getHours()===hour&&a.assignedAE===currentAE?.name})
+              if(match){busy=true;label=match.accountName}
+            }
+            // Check SE calendar if overlay is on
+            if(rrShowSe){
+              for(const ev of rrSeEvents){
+                const evStart=new Date(ev.start),evEnd=new Date(ev.end)
+                if(ev.isAllDay){const ds=day.toISOString().split('T')[0];if(ev.start<=ds&&ev.end>ds){isSeBusy=true;break}}
+                else if(evStart<slotEnd&&evEnd>slotStart){isSeBusy=true;break}
+              }
+            }
+            return {busy,label,isOoo,isSeBusy}
           }
 
           // ── All AEs for leaderboard ────────────────────────────
@@ -5867,6 +5916,12 @@ export default function Dashboard() {
             }
             setRrBookSlot(null);setRrBookAcct('');setRrViewAeIdx(0)
           }
+
+          // ── Fetch calendar events ─────────────────────────────
+          // Triggered by useEffect in the component body (can't use hooks here in IIFE)
+          // Instead, we provide a fetch function and call it from the render
+          const fetchCalKey=`${currentAE?.calendarId||''}|${monday.toISOString().split('T')[0]}|${rrWeekOffset}`
+          const fetchSeKey=`${seInfo?.calendarId||''}|${monday.toISOString().split('T')[0]}|${rrShowSe}`
 
           return (<>
             <div style={{marginBottom:20}}>
@@ -5924,9 +5979,41 @@ export default function Dashboard() {
 
                 {/* ── Weekly Calendar ── */}
                 <div style={card}>
+                  {/* Fetch calendar data — trigger via inline effect-like pattern */}
+                  {(()=>{
+                    const key=fetchCalKey
+                    if(key!==rrFetchedCalKey&&currentAE&&!rrCalLoading){
+                      // Schedule fetch after render
+                      setTimeout(()=>{
+                        setRrFetchedCalKey(key)
+                        rrFetchCal(currentAE.calendarId,monday.toISOString().split('T')[0])
+                      },0)
+                    }
+                    const seKey=fetchSeKey
+                    if(seKey!==rrFetchedSeKey&&seInfo&&rrShowSe){
+                      setTimeout(()=>{
+                        setRrFetchedSeKey(seKey)
+                        rrFetchSe(seInfo.calendarId,monday.toISOString().split('T')[0])
+                      },0)
+                    }
+                    return null
+                  })()}
+
+                  {/* Auth prompt */}
+                  {rrCalError==='not_authenticated'&&(
+                    <div style={{padding:'14px',background:'rgba(245,166,35,0.1)',border:`1px solid rgba(245,166,35,0.3)`,borderRadius:8,marginBottom:12,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                      <div style={{fontSize:11,color:C.amber}}>Connect Google Calendar to see live AE availability</div>
+                      <button onClick={()=>signIn('google')} style={{fontSize:11,fontWeight:700,padding:'6px 14px',borderRadius:6,border:'none',background:C.amber,color:C.bg,cursor:'pointer'}}>Connect Google Calendar</button>
+                    </div>
+                  )}
+                  {rrCalError&&rrCalError!=='not_authenticated'&&(
+                    <div style={{fontSize:10,color:C.red,marginBottom:8}}>Calendar unavailable: {rrCalError}</div>
+                  )}
+                  {rrCalLoading&&<div style={{fontSize:10,color:C.text3,marginBottom:8}}>Loading calendar...</div>}
+
                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
                     <button onClick={()=>{setRrWeekOffset(p=>p-1);setRrBookSlot(null)}} style={{fontSize:14,background:'none',border:'none',color:C.text3,cursor:'pointer',padding:'2px 8px'}}>←</button>
-                    <div style={{fontSize:12,fontWeight:700,color:C.text}}>{weekLabel}</div>
+                    <div style={{fontSize:12,fontWeight:700,color:C.text}}>{weekLabel}{rrCalEvents.length>0&&<span style={{fontSize:9,color:C.text3,marginLeft:6}}>{rrCalEvents.length} events</span>}</div>
                     <button onClick={()=>{setRrWeekOffset(p=>p+1);setRrBookSlot(null)}} style={{fontSize:14,background:'none',border:'none',color:C.text3,cursor:'pointer',padding:'2px 8px'}}>→</button>
                   </div>
 
@@ -5948,29 +6035,43 @@ export default function Dashboard() {
                         <div style={{fontSize:9,color:C.text3,textAlign:'right',paddingRight:6,paddingTop:2}}>{h>12?h-12:h}{h>=12?'p':'a'}</div>
                         {weekDays.map((d,di)=>{
                           const ds=d.toISOString().split('T')[0]
-                          const booked=isBooked(d,h)
+                          const slot=getSlotStatus(d,h)
                           const isPast=d<today&&!(d.toDateString()===today.toDateString()&&h>today.getHours())
                           const isSelected=rrBookSlot?.day===ds&&rrBookSlot?.hour===h
+                          const isFree=!slot.busy&&!isPast
+                          const mutualFree=isFree&&rrShowSe&&!slot.isSeBusy
                           return (
                             <div key={di}
-                              onClick={()=>{if(!booked&&!isPast)setRrBookSlot(isSelected?null:{day:ds,hour:h})}}
+                              onClick={()=>{if(isFree)setRrBookSlot(isSelected?null:{day:ds,hour:h})}}
                               style={{
-                                height:32,borderRadius:4,cursor:booked||isPast?'default':'pointer',
-                                background:booked?'rgba(96,165,250,0.2)':isSelected?'rgba(0,229,160,0.25)':isPast?'rgba(255,255,255,0.02)':C.surface3,
-                                border:`1px solid ${isSelected?C.green:booked?'rgba(96,165,250,0.3)':C.border}`,
+                                height:32,borderRadius:4,cursor:isFree?'pointer':'default',
+                                background:slot.isOoo?'rgba(255,92,92,0.15)':slot.busy?'rgba(96,165,250,0.2)':slot.isSeBusy&&rrShowSe?'rgba(192,132,252,0.12)':isSelected?'rgba(0,229,160,0.25)':isPast?'rgba(255,255,255,0.02)':C.surface3,
+                                border:`1px solid ${isSelected?C.green:mutualFree?'rgba(0,229,160,0.4)':slot.isOoo?'rgba(255,92,92,0.3)':slot.busy?'rgba(96,165,250,0.3)':slot.isSeBusy&&rrShowSe?'rgba(192,132,252,0.3)':C.border}`,
                                 display:'flex',alignItems:'center',justifyContent:'center',
-                                transition:'all 0.1s',
+                                transition:'all 0.1s',position:'relative',
                               }}
-                              onMouseEnter={e=>{if(!booked&&!isPast)(e.currentTarget.style.borderColor=C.green)}}
-                              onMouseLeave={e=>{if(!isSelected)(e.currentTarget.style.borderColor=booked?'rgba(96,165,250,0.3)':C.border)}}
+                              onMouseEnter={e=>{if(isFree)(e.currentTarget.style.borderColor=C.green)}}
+                              onMouseLeave={e=>{if(!isSelected)(e.currentTarget.style.borderColor=mutualFree?'rgba(0,229,160,0.4)':C.border)}}
                             >
-                              {booked&&<span style={{fontSize:8,color:'#60a5fa',fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',padding:'0 2px'}}>{booked}</span>}
+                              {slot.isOoo&&<span style={{fontSize:7,color:C.red,fontWeight:700}}>OOO</span>}
+                              {slot.busy&&!slot.isOoo&&<span style={{fontSize:7,color:'#60a5fa',fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',padding:'0 2px'}}>{slot.label||'Busy'}</span>}
+                              {!slot.busy&&slot.isSeBusy&&rrShowSe&&<span style={{fontSize:7,color:'#c084fc',fontWeight:600}}>SE</span>}
                               {isSelected&&<span style={{fontSize:10,color:C.green}}>✓</span>}
+                              {mutualFree&&!isSelected&&<span style={{position:'absolute',top:1,right:2,fontSize:6,color:C.green}}>●</span>}
                             </div>
                           )
                         })}
                       </React.Fragment>
                     ))}
+                  </div>
+
+                  {/* Calendar legend */}
+                  <div style={{display:'flex',gap:10,marginTop:8,flexWrap:'wrap'}}>
+                    <div style={{display:'flex',alignItems:'center',gap:3}}><span style={{width:8,height:8,borderRadius:2,background:'rgba(96,165,250,0.3)'}}/><span style={{fontSize:8,color:C.text3}}>AE Busy</span></div>
+                    <div style={{display:'flex',alignItems:'center',gap:3}}><span style={{width:8,height:8,borderRadius:2,background:'rgba(255,92,92,0.2)'}}/><span style={{fontSize:8,color:C.text3}}>OOO</span></div>
+                    {rrShowSe&&<div style={{display:'flex',alignItems:'center',gap:3}}><span style={{width:8,height:8,borderRadius:2,background:'rgba(192,132,252,0.2)'}}/><span style={{fontSize:8,color:C.text3}}>SE Busy</span></div>}
+                    {rrShowSe&&<div style={{display:'flex',alignItems:'center',gap:3}}><span style={{width:6,height:6,borderRadius:'50%',background:C.green}}/><span style={{fontSize:8,color:C.text3}}>Both Free</span></div>}
+                    <div style={{display:'flex',alignItems:'center',gap:3}}><span style={{width:8,height:8,borderRadius:2,background:C.surface3,border:`1px solid ${C.border}`}}/><span style={{fontSize:8,color:C.text3}}>Available</span></div>
                   </div>
 
                   {/* Slot booking popover */}

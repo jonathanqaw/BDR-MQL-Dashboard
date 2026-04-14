@@ -8,10 +8,12 @@
     "start": "next start"
   },
   "dependencies": {
+    "@vercel/blob": "latest",
+    "googleapis": "^171.4.0",
     "next": "14.2.3",
+    "next-auth": "^4.24.13",
     "react": "^18",
-    "react-dom": "^18",
-    "@vercel/blob": "latest"
+    "react-dom": "^18"
   },
   "devDependencies": {
     "@types/node": "^20",
