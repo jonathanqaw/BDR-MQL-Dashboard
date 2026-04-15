@@ -6074,12 +6074,15 @@ export default function Dashboard() {
                               onMouseEnter={e=>{if(canBook){e.currentTarget.style.borderColor=C.green;e.currentTarget.style.background=slot.busy?'rgba(245,166,35,0.15)':'rgba(0,229,160,0.1)'}}}
                               onMouseLeave={e=>{if(!isSelected&&canBook){e.currentTarget.style.borderColor=mutualFree?'rgba(0,229,160,0.5)':'transparent';e.currentTarget.style.background=slot.busy?(rrBookOver?'rgba(96,165,250,0.12)':'rgba(96,165,250,0.2)'):C.surface3}}}
                             >
-                              {slot.isOoo&&<span style={{fontSize:7,color:C.red,fontWeight:700}}>OOO</span>}
-                              {slot.busy&&!slot.isOoo&&<span style={{fontSize:7,color:rrBookOver?'rgba(96,165,250,0.6)':'#60a5fa',fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'block',width:'100%',textAlign:'center',padding:'0 2px',boxSizing:'border-box'}}>{slot.label||'Busy'}</span>}
-                              {!slot.busy&&slot.isSeBusy&&rrShowSe&&<span style={{fontSize:7,color:'#c084fc',fontWeight:600}}>SE</span>}
-                              {isSelected&&<span style={{fontSize:11,color:C.green,fontWeight:700}}>✓</span>}
-                              {canBook&&!slot.busy&&!isSelected&&!slot.isSeBusy&&<span style={{fontSize:8,color:'rgba(255,255,255,0.12)'}}>+</span>}
-                              {mutualFree&&!isSelected&&<span style={{position:'absolute',top:1,right:2,fontSize:5,color:C.green}}>●</span>}
+                              {isSelected?<span style={{fontSize:11,color:C.green,fontWeight:700}}>✓</span>:(
+                                <>
+                                {slot.isOoo&&<span style={{fontSize:7,color:C.red,fontWeight:700}}>OOO</span>}
+                                {slot.busy&&!slot.isOoo&&<span style={{fontSize:7,color:rrBookOver?'rgba(96,165,250,0.6)':'#60a5fa',fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'block',width:'100%',textAlign:'center',padding:'0 2px',boxSizing:'border-box'}}>{slot.label||'Busy'}</span>}
+                                {!slot.busy&&slot.isSeBusy&&rrShowSe&&<span style={{fontSize:7,color:'#c084fc',fontWeight:600}}>SE</span>}
+                                {canBook&&!slot.busy&&!slot.isSeBusy&&<span style={{fontSize:8,color:'rgba(255,255,255,0.12)'}}>+</span>}
+                                {mutualFree&&<span style={{position:'absolute',top:1,right:2,fontSize:5,color:C.green}}>●</span>}
+                                </>
+                              )}
                             </div>
                           )
                         })}
