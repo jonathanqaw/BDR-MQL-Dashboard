@@ -6030,8 +6030,8 @@ export default function Dashboard() {
                     <button onClick={()=>{setRrWeekOffset(p=>p+1);setRrBookSlot(null)}} style={{fontSize:14,background:'none',border:'none',color:C.text3,cursor:'pointer',padding:'2px 8px'}}>→</button>
                   </div>
                   <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:10}}>
-                    <button onClick={()=>setRrBookOver(!rrBookOver)} style={{fontSize:9,fontWeight:600,padding:'3px 8px',borderRadius:4,cursor:'pointer',border:`1px solid ${rrBookOver?C.amber:C.border2}`,background:rrBookOver?'rgba(245,166,35,0.15)':'transparent',color:rrBookOver?C.amber:C.text3}}>
-                      {rrBookOver?'✓ Book over busy':'Book over busy'}
+                    <button onClick={()=>setRrBookOver(p=>!p)} style={{fontSize:9,fontWeight:600,padding:'3px 8px',borderRadius:4,cursor:'pointer',border:`1px solid ${rrBookOver?C.amber:C.border2}`,background:rrBookOver?'rgba(245,166,35,0.15)':'transparent',color:rrBookOver?C.amber:C.text3}}>
+                      {rrBookOver?'✓ Book over busy ON':'Book over busy'}
                     </button>
                     <span style={{fontSize:9,color:C.text3}}>30-min slots</span>
                   </div>
@@ -6057,7 +6057,8 @@ export default function Dashboard() {
                           const slot=getSlotStatus(d,s.hour,s.min)
                           const isPast=d<today&&!(d.toDateString()===today.toDateString()&&(s.hour>today.getHours()||(s.hour===today.getHours()&&s.min>today.getMinutes())))
                           const isSelected=rrBookSlot?.day===ds&&rrBookSlot?.hour===s.hour&&rrBookSlot?.min===s.min
-                          const canBook=rrBookOver?!isPast:(!slot.busy&&!isPast)
+                          // When book-over is on: can book over busy (but not OOO). When off: only free slots.
+                          const canBook=rrBookOver?(!isPast&&!slot.isOoo):(!slot.busy&&!isPast)
                           const mutualFree=canBook&&!slot.busy&&rrShowSe&&!slot.isSeBusy
                           return (
                             <div key={di}
