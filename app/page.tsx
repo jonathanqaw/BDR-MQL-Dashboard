@@ -1864,6 +1864,11 @@ export default function Dashboard() {
   const copyEmail=(email:string)=>{ navigator.clipboard.writeText(email).then(()=>{ setCopied(email); setTimeout(()=>setCopied(null),2000) }) }
 
   const createContact=(account:string,email:string,domain:string)=>{
+    // If this email was previously deleted, un-delete it so the new lead is visible
+    if(deletedEmails.has(email)){
+      const cleaned=new Set([...deletedEmails]);cleaned.delete(email)
+      localStorage.setItem('mql-deleted',JSON.stringify([...cleaned]));setDeletedEmails(cleaned)
+    }
     const newLead:AppLead={ email, domain, account, name:null, sfUrl:null, date:new Date().toISOString().split('T')[0], receivedAt:new Date().toISOString(), source:'bdr', repSlackId: currentRep?.slackId||null, repId: currentRep?.id||null, isManual:true }
     const updated=[...manualLeads,newLead]
     setManualLeads(updated); saveManualLeads(updated)
