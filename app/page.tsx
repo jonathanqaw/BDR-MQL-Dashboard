@@ -6254,6 +6254,9 @@ export default function Dashboard() {
                           }} style={{fontSize:8,fontWeight:600,padding:'2px 6px',borderRadius:3,cursor:'pointer',border:`1px solid ${isEditing?C.amber:C.border2}`,background:isEditing?'rgba(245,166,35,0.12)':'transparent',color:isEditing?C.amber:C.text3}}>
                             {isEditing?'Cancel':'Edit'}
                           </button>
+                          <button onClick={()=>{if(window.confirm(`Delete assignment for ${a.accountName}?`))saveAssignments(rrAssignments.filter(x=>x.id!==a.id))}} style={{fontSize:8,fontWeight:600,padding:'2px 6px',borderRadius:3,cursor:'pointer',border:`1px solid ${C.red}`,background:'transparent',color:C.red}}>
+                            Del
+                          </button>
                         </span>
                       </div>
                       {isEditing&&(
@@ -6400,13 +6403,7 @@ export default function Dashboard() {
                       <label style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',display:'block',marginBottom:4}}>Notes</label>
                       <textarea value={rrBfNotes} onChange={e=>setRrBfNotes(e.target.value)} placeholder="Optional notes..." rows={3} style={{...inputStyle,fontSize:11,resize:'vertical'}}/>
                     </div>
-                    <div>
-                      <label style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',display:'block',marginBottom:4}}>Manager Passcode *</label>
-                      <input type="password" value={rrBfPass} onChange={e=>{setRrBfPass(e.target.value);setRrBfPassErr(false)}} placeholder="Enter passcode" style={{...inputStyle,fontSize:11,borderColor:rrBfPassErr?C.red:undefined}}/>
-                      {rrBfPassErr&&<div style={{fontSize:9,color:C.red,marginTop:3}}>Incorrect passcode</div>}
-                    </div>
                     <button onClick={()=>{
-                      if(rrBfPass!=='johnnywolfpack2026'){setRrBfPassErr(true);return}
                       if(!rrBfAE||!rrBfProspectName.trim()||!rrBfCompany.trim()||!rrBfDate) return
                       const aeMatch=rrRoster.find(a=>a.name===rrBfAE)
                       if(!aeMatch) return
@@ -6427,10 +6424,10 @@ export default function Dashboard() {
                         notes:rrBfNotes.trim()||undefined,
                       }
                       saveAssignments([assignment,...rrAssignments])
-                      setRrBfAE('');setRrBfDate('');setRrBfTime('');setRrBfProspectName('');setRrBfCompany('');setRrBfSource('Inbound MQL');setRrBfSfUrl('');setRrBfNotes('');setRrBfPass('');setRrBfPassErr(false)
+                      setRrBfAE('');setRrBfDate('');setRrBfTime('');setRrBfProspectName('');setRrBfCompany('');setRrBfSource('Inbound MQL');setRrBfSfUrl('');setRrBfNotes('')
                       setRrShowBackfillModal(false)
-                    }} disabled={!rrBfAE||!rrBfProspectName.trim()||!rrBfCompany.trim()||!rrBfDate||!rrBfPass}
-                      style={{padding:'10px 0',borderRadius:8,border:'none',fontWeight:700,fontSize:12,cursor:(!rrBfAE||!rrBfProspectName.trim()||!rrBfCompany.trim()||!rrBfDate||!rrBfPass)?'not-allowed':'pointer',background:(!rrBfAE||!rrBfProspectName.trim()||!rrBfCompany.trim()||!rrBfDate||!rrBfPass)?C.surface3:C.green,color:(!rrBfAE||!rrBfProspectName.trim()||!rrBfCompany.trim()||!rrBfDate||!rrBfPass)?C.text3:'#000',opacity:(!rrBfAE||!rrBfProspectName.trim()||!rrBfCompany.trim()||!rrBfDate||!rrBfPass)?0.5:1}}>
+                    }} disabled={!rrBfAE||!rrBfProspectName.trim()||!rrBfCompany.trim()||!rrBfDate}
+                      style={{padding:'10px 0',borderRadius:8,border:'none',fontWeight:700,fontSize:12,cursor:(!rrBfAE||!rrBfProspectName.trim()||!rrBfCompany.trim()||!rrBfDate)?'not-allowed':'pointer',background:(!rrBfAE||!rrBfProspectName.trim()||!rrBfCompany.trim()||!rrBfDate)?C.surface3:C.green,color:(!rrBfAE||!rrBfProspectName.trim()||!rrBfCompany.trim()||!rrBfDate)?C.text3:'#000',opacity:(!rrBfAE||!rrBfProspectName.trim()||!rrBfCompany.trim()||!rrBfDate)?0.5:1}}>
                       Log Meeting
                     </button>
                   </div>
