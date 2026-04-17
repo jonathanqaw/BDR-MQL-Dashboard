@@ -54,6 +54,7 @@ interface LeadDetail {
   sqo: string; sqoDate: string; acv: string; closedWon: string; closedWonDate: string; notes: string; sfLink: string
   mqlQuality: string  // '' | 'hq' | 'lq' | 'dq'
   accountTier: string // '' | 'A' | 'B' | 'C' | 'E'
+  gongUrl: string
 }
 interface AppLead extends Lead {
   isHistorical?: boolean
@@ -68,7 +69,8 @@ const EMPTY_DETAIL: LeadDetail = {
   connectedDate:'', meetingDate:'', nextStep:'', nextStepStatus:'',
   sqlDq:'', sqlDate:'', ae:'', multithreading:'', sqo:'', sqoDate:'', acv:'', closedWon:'', closedWonDate:'', notes:'', sfLink:'',
   mqlQuality:'',
-  accountTier:''
+  accountTier:'',
+  gongUrl:''
 }
 
 // ─── Historical records from spreadsheet ─────────────────────────────────────
@@ -968,10 +970,11 @@ function DetailPanel({lead,detail,onSave,onClose}:{lead:AppLead;detail:LeadDetai
             </div>
           </div>
 
-          <div style={{display:'grid',gridTemplateColumns:'160px 140px 160px 1fr',gap:12}}>
+          <div style={{display:'grid',gridTemplateColumns:'160px 140px 160px 1fr 1fr',gap:12}}>
             <Field label="ACV ($)"><Inp value={d.acv} onChange={setVal('acv')} placeholder="e.g. 72000"/></Field>
             <Field label="Closed-Won"><Sel value={d.closedWon} onChange={setVal('closedWon')} opts={CLOSED_WON_OPTIONS}/></Field>
             <Field label="Closed-Won Date"><DateField value={d.closedWonDate} onChange={setVal('closedWonDate')}/></Field>
+            <Field label="Gong URL"><Inp value={d.gongUrl} onChange={setVal('gongUrl')} placeholder="https://app.gong.io/…"/></Field>
             <div style={{display:'flex',flexDirection:'column',gap:4}}>
               <span style={labelStyle}>Notes</span>
               <textarea
@@ -1648,6 +1651,7 @@ export default function Dashboard() {
   const [revopsSelectedRep,setRevopsSelectedRep]=useState('all')
   const [revopsPeriod,setRevopsPeriod]=useState<'week'|'month'|'quarter'|'year'|'all'|'custom'>('month')
   const [revopsFrom,setRevopsFrom]=useState('')
+  const [revopsExpandedEvent,setRevopsExpandedEvent]=useState<string|null>(null)
   const [revopsTo,setRevopsTo]=useState('')
   const [commAdjustments,setCommAdjustments]=useState<{id:string;repId:string;month:string;amount:number;reason:string;createdAt:string}[]>([])
   const [showAdjModal,setShowAdjModal]=useState(false)
@@ -5602,7 +5606,7 @@ export default function Dashboard() {
           const mkPayoutLabelRO=(mk:string)=>{const [y,m]=mk.split('-').map(Number);return `${new Date(y,m,1).toLocaleString('en-US',{month:'short',year:'numeric'})} (2nd half)`}
           const OVERRIDE_MONTHS = new Set(['2025-09','2025-10','2025-11','2025-12','2026-01','2026-02','2026-03'])
 
-          type RevOpsEvent = { email:string; account:string; meetingDate:string|null; sqlDate:string|null; sqoDate:string|null; mqlQuality:string; accountTier:string; sourceChannel:string; ae:string; acv:string; isMeeting:boolean; isSql:boolean; amount:number }
+          type RevOpsEvent = { email:string; account:string; meetingDate:string|null; sqlDate:string|null; sqoDate:string|null; mqlQuality:string; accountTier:string; sourceChannel:string; ae:string; acv:string; isMeeting:boolean; isSql:boolean; amount:number; sfUrl:string; gongUrl:string }
 
           // Build per-rep data — use frozen overrides for override months, dynamic for others
           const repData = reps.filter(r=>r.slackId).map(rep => {
@@ -5611,18 +5615,26 @@ export default function Dashboard() {
               : allLeadsUnfiltered.filter(l => l.repSlackId === rep.slackId)
 
             // Dynamic events — only for non-override months
+            // Requirement: discovery must be held (meetingDate in the past) AND AE assigned
             const events: RevOpsEvent[] = []
+            const nowTs = new Date()
             repLeads.forEach(l => {
-              const det = details[l.email]
+              const det = details[l.email] || (HISTORICAL_DETAILS[l.email] ? {...EMPTY_DETAIL,...HISTORICAL_DETAILS[l.email]} : null)
               if (!det) return
+              // Must have AE assigned
+              if (!det.ae) return
+              // Must have discovery held: meetingDate exists AND is in the past
+              if (!det.meetingDate) return
+              const meetDt = new Date(det.meetingDate)
+              if (meetDt > nowTs) return
               const displayName = nameOverrides[l.email] || l.account || formatDomain(l.domain) || l.email
-              const hasMeeting = !!(det.meetingDate && isIcp(l.email))
+              const hasMeeting = isIcp(l.email)
               const hasSql = (det.sqlDq||'').toLowerCase()==='yes' && !!det.sqlDate && isIcp(l.email)
               if (!hasMeeting && !hasSql) return
               // Check if this event falls in an override month — skip if so
-              const meetMonth = det.meetingDate ? `${new Date(det.meetingDate).getFullYear()}-${String(new Date(det.meetingDate).getMonth()+1).padStart(2,'0')}` : ''
+              const meetMonth = `${meetDt.getFullYear()}-${String(meetDt.getMonth()+1).padStart(2,'0')}`
               const sqlMonth = det.sqlDate ? `${new Date(det.sqlDate).getFullYear()}-${String(new Date(det.sqlDate).getMonth()+1).padStart(2,'0')}` : ''
-              const meetingInOverride = meetMonth && OVERRIDE_MONTHS.has(meetMonth)
+              const meetingInOverride = OVERRIDE_MONTHS.has(meetMonth)
               const sqlInOverride = sqlMonth && OVERRIDE_MONTHS.has(sqlMonth)
               const effectiveMeeting = hasMeeting && !meetingInOverride
               const effectiveSql = hasSql && !sqlInOverride
@@ -5637,6 +5649,7 @@ export default function Dashboard() {
                 sqoDate: det.sqoDate||null,
                 mqlQuality: det.mqlQuality||'', accountTier: det.accountTier||'', sourceChannel: det.sourceChannel||'', ae: det.ae||'', acv: det.acv||'',
                 isMeeting: effectiveMeeting, isSql: effectiveSql, amount,
+                sfUrl: det.sfLink || l.sfUrl || '', gongUrl: det.gongUrl || '',
               })
             })
 
@@ -5648,10 +5661,10 @@ export default function Dashboard() {
                 const overrideData = getCommissionOverride(mk)
                 if (!overrideData) return
                 overrideData.meetings.forEach(m => {
-                  events.push({ email:m.email, account:m.account, meetingDate:m.date, sqlDate:null, sqoDate:null, mqlQuality:'hq', accountTier:'', sourceChannel:'', ae:'', acv:'', isMeeting:true, isSql:false, amount:m.amount })
+                  events.push({ email:m.email, account:m.account, meetingDate:m.date, sqlDate:null, sqoDate:null, mqlQuality:'hq', accountTier:'', sourceChannel:'', ae:'', acv:'', isMeeting:true, isSql:false, amount:m.amount, sfUrl:'', gongUrl:'' })
                 })
                 overrideData.sqls.forEach(s => {
-                  events.push({ email:s.email, account:s.account, meetingDate:null, sqlDate:s.date, sqoDate:null, mqlQuality:'hq', accountTier:'', sourceChannel:'', ae:'', acv:'', isMeeting:false, isSql:true, amount:s.amount })
+                  events.push({ email:s.email, account:s.account, meetingDate:null, sqlDate:s.date, sqoDate:null, mqlQuality:'hq', accountTier:'', sourceChannel:'', ae:'', acv:'', isMeeting:false, isSql:true, amount:s.amount, sfUrl:'', gongUrl:'' })
                 })
               })
             }
@@ -5837,10 +5850,13 @@ export default function Dashboard() {
                         if (e.isSql) types.push('SQL')
                         const amount = e.amount
                         const qualityColor = e.mqlQuality==='hq'?C.amber:e.mqlQuality==='lq'?'#fb923c':C.text3
+                        const eventKey=`${e.email}-${i}`
+                        const isExpanded=revopsExpandedEvent===eventKey
                         return (
-                          <tr key={`${e.email}-${i}`} style={{borderBottom:`1px solid ${C.border}`}}>
+                          <React.Fragment key={eventKey}>
+                          <tr style={{borderBottom:isExpanded?'none':`1px solid ${C.border}`,cursor:'pointer',background:isExpanded?C.surface2:'transparent'}} onClick={()=>setRevopsExpandedEvent(isExpanded?null:eventKey)}>
                             <td style={{padding:'7px 8px',fontWeight:500,color:C.text2,whiteSpace:'nowrap'}}>{e.repName}</td>
-                            <td style={{padding:'7px 8px',fontWeight:600,color:C.text,maxWidth:160,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{e.account}</td>
+                            <td style={{padding:'7px 8px',fontWeight:600,color:isExpanded?'#60d4f4':C.text,maxWidth:160,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{isExpanded?'▼ ':''}{e.account}</td>
                             <td style={{padding:'7px 8px'}}>{(()=>{const t=e.accountTier;const tc=t==='A'?C.green:t==='B'?'#60d4f4':t==='E'?C.purpleL:t==='C'?C.red:C.text3;return <span style={{fontSize:9,fontWeight:700,color:tc,background:`${tc}18`,padding:'1px 5px',borderRadius:3}}>{t||'—'}</span>})()}</td>
                             <td style={{padding:'7px 8px',color:C.text3,fontSize:10}}>{e.sourceChannel||'—'}</td>
                             <td style={{padding:'7px 8px',color:C.text2}}>{e.ae||'—'}</td>
@@ -5860,6 +5876,31 @@ export default function Dashboard() {
                             </td>
                             <td style={{padding:'7px 8px',textAlign:'right',fontWeight:700,color:C.text}}>${amount.toLocaleString()}</td>
                           </tr>
+                          {isExpanded&&(
+                            <tr style={{borderBottom:`1px solid ${C.border}`,background:C.surface2}}>
+                              <td colSpan={12} style={{padding:'10px 16px'}}>
+                                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:12}}>
+                                  <div>
+                                    <div style={{fontSize:8,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:3}}>Salesforce URL</div>
+                                    {e.sfUrl?<a href={e.sfUrl} target="_blank" rel="noopener noreferrer" style={{fontSize:10,color:'#60d4f4',textDecoration:'none',wordBreak:'break-all'}} onClick={ev=>ev.stopPropagation()}>{e.sfUrl.length>50?e.sfUrl.slice(0,50)+'…':e.sfUrl}</a>:<span style={{fontSize:10,color:C.text3}}>—</span>}
+                                  </div>
+                                  <div>
+                                    <div style={{fontSize:8,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:3}}>Meeting Booked</div>
+                                    <div style={{fontSize:10,color:e.meetingDate?C.text:C.text3}}>{e.meetingDate?new Date(e.meetingDate).toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'}):'—'}</div>
+                                  </div>
+                                  <div>
+                                    <div style={{fontSize:8,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:3}}>SQL Date</div>
+                                    <div style={{fontSize:10,color:e.sqlDate?'#c084fc':C.text3}}>{e.sqlDate?new Date(e.sqlDate).toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'}):'—'}</div>
+                                  </div>
+                                  <div>
+                                    <div style={{fontSize:8,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:3}}>Gong URL</div>
+                                    {e.gongUrl?<a href={e.gongUrl} target="_blank" rel="noopener noreferrer" style={{fontSize:10,color:'#60d4f4',textDecoration:'none',wordBreak:'break-all'}} onClick={ev=>ev.stopPropagation()}>{e.gongUrl.length>50?e.gongUrl.slice(0,50)+'…':e.gongUrl}</a>:<span style={{fontSize:10,color:C.text3}}>—</span>}
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                          </React.Fragment>
                         )
                       })}
                       {periodAllEvents.length===0&&(
