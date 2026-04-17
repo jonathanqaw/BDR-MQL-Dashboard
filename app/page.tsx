@@ -27,6 +27,7 @@ const USER_CREDENTIALS: UserCredential[] = [
   { email:'scott@qawolf.com',       password:'ScottQAW2026',       role:'cmo',     name:'Scott Wilson', allowedViews:['pipeline','analytics','reporting','leaderboard','revops_commissions','roundrobin'] },
   { email:'arnav@qawolf.com',       password:'PMLQAW2026',         role:'pm', name:'Arnav Shome', allowedViews:['reporting','analytics','revops_commissions','roundrobin'] },
   { email:'meenal@qawolf.com',      password:'RevOpsQAW#123',      role:'revops',  name:'Meenal Gupta', allowedViews:['revops_commissions','roundrobin'] },
+  { email:'leon@qawolf.com',        password:'PMLQAW2026',         role:'revops',  name:'Leon Tang', allowedViews:['revops_commissions','roundrobin'] },
 ]
 const MANAGER_ROLES: UserRole[] = ['manager','cmo'] // full access roles that can edit reps, manage pipeline, etc.
 // BDM-only: commission adjustments, cap attainment, manager commission view
@@ -5864,7 +5865,7 @@ export default function Dashboard() {
                   <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
                     <thead>
                       <tr style={{borderBottom:`2px solid ${C.border2}`}}>
-                        {['Rep','Account','Tier','Source','AE','Quality','Meeting Date','SQL Date','SQO Date','ACV','Type','Amount'].map(h=>(
+                        {['Rep','Account','Tier','Source','AE','Quality','Meeting Date','SQL Date','SQO Date','ACV','Type',...(isBdmViewer?['Amount']:[])].map(h=>(
                           <th key={h} style={{padding:'7px 8px',textAlign:['ACV','Amount'].includes(h)?'right':'left',fontSize:9,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',whiteSpace:'nowrap'}}>{h}</th>
                         ))}
                       </tr>
@@ -5900,11 +5901,11 @@ export default function Dashboard() {
                                 }}>{t}</span>
                               ))}
                             </td>
-                            <td style={{padding:'7px 8px',textAlign:'right',fontWeight:700,color:C.text}}>${amount.toLocaleString()}</td>
+                            {isBdmViewer&&<td style={{padding:'7px 8px',textAlign:'right',fontWeight:700,color:C.text}}>${amount.toLocaleString()}</td>}
                           </tr>
                           {isExpanded&&(
                             <tr style={{borderBottom:`1px solid ${C.border}`,background:C.surface2}}>
-                              <td colSpan={12} style={{padding:'10px 16px'}}>
+                              <td colSpan={isBdmViewer?12:11} style={{padding:'10px 16px'}}>
                                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:12}}>
                                   <div>
                                     <div style={{fontSize:8,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:3}}>Salesforce URL</div>
@@ -5930,7 +5931,7 @@ export default function Dashboard() {
                         )
                       })}
                       {periodAllEvents.length===0&&(
-                        <tr><td colSpan={12} style={{padding:'20px',textAlign:'center',color:C.text3}}>No commission events found for this period.</td></tr>
+                        <tr><td colSpan={isBdmViewer?12:11} style={{padding:'20px',textAlign:'center',color:C.text3}}>No commission events found for this period.</td></tr>
                       )}
                     </tbody>
                   </table>
