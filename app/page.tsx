@@ -41,7 +41,7 @@ type View         = 'pipeline' | 'analytics' | 'reporting' | 'commissions' | 'le
 type LbMetric     = 'meetings' | 'meetings_held' | 'sqls' | 'sqos'
 type LbPeriod     = 'today' | 'week' | 'month' | 'quarter' | 'year' | 'all'
 interface Spiff { id:string; title:string; description:string; metric:LbMetric; target:number; reward:string; startDate:string; endDate:string; createdBy:string; active:boolean }
-type PeriodFilter = 'week' | 'month' | 'quarter' | 'all'
+type PeriodFilter = 'week' | 'month' | 'quarter' | 'q1' | 'q2' | 'q3' | 'q4' | 'year' | 'custom' | 'all'
 type WorkedFilter = 'all' | 'worked' | 'untouched'
 type StatusFilter = 'all' | Status
 type ReportTimeframe = 'monthly' | 'quarterly' | 'custom'
@@ -423,13 +423,23 @@ function formatDomain(domain:string):string {
   return base.split(/[-_.]/).map(w=>w.charAt(0).toUpperCase()+w.slice(1)).join(' ')
 }
 
-function getPeriodStart(p:PeriodFilter):Date {
-  if (p==='all') return new Date('2020-01-01')
+function getPeriodRange(p:PeriodFilter,customFrom?:string,customTo?:string):{start:Date;end:Date} {
   const n=new Date()
-  if (p==='week') { const d=new Date(n); d.setDate(n.getDate()-n.getDay()); d.setHours(0,0,0,0); return d }
-  if (p==='month') return new Date(n.getFullYear(),n.getMonth(),1)
-  return new Date(n.getFullYear(),Math.floor(n.getMonth()/3)*3,1)
+  const y=n.getFullYear()
+  const farFuture=new Date('2099-12-31T23:59:59')
+  if (p==='all') return {start:new Date('2020-01-01'),end:farFuture}
+  if (p==='week') { const d=new Date(n); d.setDate(n.getDate()-n.getDay()); d.setHours(0,0,0,0); return {start:d,end:farFuture} }
+  if (p==='month') return {start:new Date(y,n.getMonth(),1),end:new Date(y,n.getMonth()+1,0,23,59,59)}
+  if (p==='quarter') { const qm=Math.floor(n.getMonth()/3)*3; return {start:new Date(y,qm,1),end:new Date(y,qm+3,0,23,59,59)} }
+  if (p==='q1') return {start:new Date(y,0,1),end:new Date(y,2,31,23,59,59)}
+  if (p==='q2') return {start:new Date(y,3,1),end:new Date(y,5,30,23,59,59)}
+  if (p==='q3') return {start:new Date(y,6,1),end:new Date(y,8,30,23,59,59)}
+  if (p==='q4') return {start:new Date(y,9,1),end:new Date(y,11,31,23,59,59)}
+  if (p==='year') return {start:new Date(y,0,1),end:new Date(y,11,31,23,59,59)}
+  if (p==='custom'&&customFrom) return {start:new Date(customFrom),end:customTo?new Date(customTo+'T23:59:59'):farFuture}
+  return {start:new Date('2020-01-01'),end:farFuture}
 }
+function getPeriodStart(p:PeriodFilter):Date { return getPeriodRange(p).start }
 function getWeekLabel(date:Date):string {
   const d=new Date(date); d.setDate(d.getDate()-d.getDay())
   return `${d.toLocaleString('en-US',{month:'short'})} ${d.getDate()}`
@@ -1615,6 +1625,12 @@ export default function Dashboard() {
   const [details,    setDetails]    = useState<Record<string,LeadDetail>>({})
   const [view,       setView]       = useState<View>('pipeline')
   const [period,     setPeriod]     = useState<PeriodFilter>('all')
+  const [pipCustomFrom,setPipCustomFrom]=useState('')
+  const [pipCustomTo,setPipCustomTo]=useState('')
+  const [pipCompare,setPipCompare]=useState(false)
+  const [pipComparePeriod,setPipComparePeriod]=useState<PeriodFilter>('q1')
+  const [pipCompareFrom,setPipCompareFrom]=useState('')
+  const [pipCompareTo,setPipCompareTo]=useState('')
   const [worked,     setWorked]     = useState<WorkedFilter>('all')
   const [stFilter,   setStFilter]   = useState<StatusFilter>('all')
   const [reportTimeframe, setReportTimeframe] = useState<ReportTimeframe>('quarterly')
@@ -1939,19 +1955,20 @@ export default function Dashboard() {
   // Use the lead's business date (date field) for period filtering, not the Slack message timestamp.
   // For period checks, consider the lead date AND any activity dates (connected, meeting, SQL, SQO)
   // so a lead with recent activity in its details still appears in the relevant period.
-  const periodStart=getPeriodStart(period)
-  const hasActivityInPeriod=(l:AppLead,start:Date):boolean=>{
+  const periodRange=getPeriodRange(period,pipCustomFrom,pipCustomTo)
+  const periodStart=periodRange.start
+  const hasActivityInRange=(l:AppLead,start:Date,end:Date):boolean=>{
     const det=details[l.email]
-    // Use detail activity dates as the primary grouping dates
     const activityDates=[det?.connectedDate,det?.meetingDate,det?.sqlDate,det?.sqoDate,det?.closedWonDate].filter(Boolean)
     if (activityDates.length>0) {
-      // Lead has activity dates — use those for period matching
-      return activityDates.some(d=>new Date(d)>=start)
+      return activityDates.some(d=>{const dt=new Date(d);return dt>=start&&dt<=end})
     }
-    // No activity dates recorded yet — fall back to the lead's creation date
     const fallback=l.date||l.receivedAt
-    return fallback?new Date(fallback)>=start:false
+    if (!fallback) return false
+    const dt=new Date(fallback)
+    return dt>=start&&dt<=end
   }
+  const hasActivityInPeriod=(l:AppLead,start:Date):boolean=>hasActivityInRange(l,start,periodRange.end)
   // Inbound / Outbound direction filter
   const isOutbound=(l:AppLead):boolean=>OUTBOUND_SOURCES.has(details[l.email]?.sourceChannel||'')||l.email.includes('_lonescale')
   const dirFilter=(l:AppLead):boolean=>pipelineDir==='all'?true:pipelineDir==='outbound'?isOutbound(l):!isOutbound(l)
@@ -2830,11 +2847,21 @@ export default function Dashboard() {
                   </button>
                 ))}
               </div>
-              <div style={{display:'flex',gap:5}}>
-                {(['all','week','month','quarter'] as PeriodFilter[]).map(p=>(
-                  <button key={p} onClick={()=>{setPeriod(p);setStFilter('all')}} style={filterPill(period===p)}>{{all:'All Time',week:'This Week',month:'This Month',quarter:'This Quarter'}[p]}</button>
+              <div style={{display:'flex',gap:5,flexWrap:'wrap'}}>
+                {([['all','All Time'],['week','This Week'],['month','This Month'],['quarter','This Qtr'],['q1','Q1'],['q2','Q2'],['q3','Q3'],['q4','Q4'],['year','YTD'],['custom','Custom']] as [PeriodFilter,string][]).map(([p,label])=>(
+                  <button key={p} onClick={()=>{setPeriod(p);setStFilter('all')}} style={filterPill(period===p)}>{label}</button>
                 ))}
+                <button onClick={()=>setPipCompare(c=>!c)} style={{...filterPill(pipCompare,C.amber),marginLeft:4}}>Compare</button>
               </div>
+              {period==='custom'&&(
+                <div style={{display:'flex',gap:6,alignItems:'center',marginTop:6}}>
+                  <span style={{fontSize:10,fontWeight:700,color:C.text3}}>FROM</span>
+                  <input type="date" value={pipCustomFrom} onChange={e=>setPipCustomFrom(e.target.value)} style={{fontSize:11,padding:'3px 7px',border:`1px solid ${C.border2}`,borderRadius:5,background:C.surface3,color:C.text,colorScheme:'dark'}}/>
+                  <span style={{fontSize:10,color:C.text3}}>→</span>
+                  <input type="date" value={pipCustomTo} onChange={e=>setPipCustomTo(e.target.value)} style={{fontSize:11,padding:'3px 7px',border:`1px solid ${C.border2}`,borderRadius:5,background:C.surface3,color:C.text,colorScheme:'dark'}}/>
+                  {(pipCustomFrom||pipCustomTo)&&<button onClick={()=>{setPipCustomFrom('');setPipCustomTo('')}} style={{fontSize:9,color:C.text3,background:'none',border:'none',cursor:'pointer'}}>✕ Clear</button>}
+                </div>
+              )}
               <div style={{display:'flex',gap:5,alignItems:'center'}}>
                 {(['all','worked','untouched'] as WorkedFilter[]).map(w=>(
                   <button key={w} onClick={()=>setWorked(w)} style={filterPill(worked===w,C.amber)}>{{all:'All leads',worked:'Worked',untouched:'Untouched'}[w]}</button>
@@ -2868,6 +2895,72 @@ export default function Dashboard() {
           </div>
 
 
+
+          {/* ── Period Comparison Panel ── */}
+          {pipCompare&&(()=>{
+            const PERIOD_LABELS:Record<PeriodFilter,string>={all:'All Time',week:'This Week',month:'This Month',quarter:'This Qtr',q1:'Q1',q2:'Q2',q3:'Q3',q4:'Q4',year:'YTD',custom:'Custom'}
+            const compRange=getPeriodRange(pipComparePeriod,pipCompareFrom,pipCompareTo)
+            const compCountByStatus=(s:Status)=>allLeads.filter(l=>{if(!l.date&&!l.receivedAt)return false;if(!hasActivityInRange(l,compRange.start,compRange.end))return false;if(!dirFilter(l))return false;return(statuses[l.email]||'new')===s}).length
+            const compBooked=compCountByStatus('booked')
+            const compContacted=compCountByStatus('contacted')
+            const compNew=compCountByStatus('new')
+            const compTotal=allLeads.filter(l=>{if(!l.date&&!l.receivedAt)return false;if(!hasActivityInRange(l,compRange.start,compRange.end))return false;return dirFilter(l)}).length
+            const compSqls=allLeads.filter(l=>{if(!l.date&&!l.receivedAt)return false;if(!hasActivityInRange(l,compRange.start,compRange.end))return false;if(!dirFilter(l))return false;return(details[l.email]?.sqlDq||'')==='Yes'}).length
+            const compSqos=allLeads.filter(l=>{if(!l.date&&!l.receivedAt)return false;if(!hasActivityInRange(l,compRange.start,compRange.end))return false;if(!dirFilter(l))return false;return(details[l.email]?.sqo||'')==='Yes'}).length
+            const curTotal=Object.values(pCounts).reduce((s,v)=>s+v,0)
+            const delta=(a:number,b:number)=>{if(b===0)return a>0?'+∞':'—';const pct=Math.round((a-b)/b*100);return pct>0?`+${pct}%`:pct===0?'0%':`${pct}%`}
+            const deltaColor=(a:number,b:number)=>a>b?C.green:a<b?C.red:C.text3
+            const metrics=[
+              {label:'Total',cur:curTotal,comp:compTotal},
+              {label:'Booked',cur:pCounts.booked,comp:compBooked},
+              {label:'Contacted',cur:pCounts.contacted,comp:compContacted},
+              {label:'Untouched',cur:pCounts.new,comp:compNew},
+              {label:'SQLs',cur:sqlCount,comp:compSqls},
+              {label:'SQOs',cur:sqoCount,comp:compSqos},
+            ]
+            return (
+              <div style={{...card,marginBottom:20,border:`1px solid rgba(245,166,35,0.3)`,background:'rgba(245,166,35,0.03)'}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
+                  <div style={{fontSize:11,fontWeight:700,color:C.amber,textTransform:'uppercase',letterSpacing:'.08em'}}>Period Comparison</div>
+                  <button onClick={()=>setPipCompare(false)} style={{fontSize:10,color:C.text3,background:'none',border:'none',cursor:'pointer'}}>✕ Close</button>
+                </div>
+                <div style={{display:'flex',gap:8,alignItems:'center',marginBottom:14,flexWrap:'wrap'}}>
+                  <span style={{fontSize:10,fontWeight:700,color:C.text3}}>COMPARE TO:</span>
+                  {([['q1','Q1'],['q2','Q2'],['q3','Q3'],['q4','Q4'],['month','This Month'],['year','YTD'],['custom','Custom']] as [PeriodFilter,string][]).map(([p,label])=>(
+                    <button key={p} onClick={()=>setPipComparePeriod(p)} style={filterPill(pipComparePeriod===p,C.amber)}>{label}</button>
+                  ))}
+                </div>
+                {pipComparePeriod==='custom'&&(
+                  <div style={{display:'flex',gap:6,alignItems:'center',marginBottom:14}}>
+                    <span style={{fontSize:10,fontWeight:700,color:C.text3}}>FROM</span>
+                    <input type="date" value={pipCompareFrom} onChange={e=>setPipCompareFrom(e.target.value)} style={{fontSize:11,padding:'3px 7px',border:`1px solid ${C.border2}`,borderRadius:5,background:C.surface3,color:C.text,colorScheme:'dark'}}/>
+                    <span style={{fontSize:10,color:C.text3}}>→</span>
+                    <input type="date" value={pipCompareTo} onChange={e=>setPipCompareTo(e.target.value)} style={{fontSize:11,padding:'3px 7px',border:`1px solid ${C.border2}`,borderRadius:5,background:C.surface3,color:C.text,colorScheme:'dark'}}/>
+                  </div>
+                )}
+                <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+                  <thead>
+                    <tr style={{borderBottom:`2px solid ${C.border2}`}}>
+                      <th style={{padding:'8px 10px',textAlign:'left',fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em'}}>Metric</th>
+                      <th style={{padding:'8px 10px',textAlign:'right',fontSize:10,fontWeight:700,color:C.purpleL,textTransform:'uppercase',letterSpacing:'.06em'}}>{PERIOD_LABELS[period]||'Current'}</th>
+                      <th style={{padding:'8px 10px',textAlign:'right',fontSize:10,fontWeight:700,color:C.amber,textTransform:'uppercase',letterSpacing:'.06em'}}>{PERIOD_LABELS[pipComparePeriod]||'Compare'}</th>
+                      <th style={{padding:'8px 10px',textAlign:'right',fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em'}}>Delta</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {metrics.map(m=>(
+                      <tr key={m.label} style={{borderBottom:`1px solid ${C.border}`}}>
+                        <td style={{padding:'8px 10px',fontWeight:600,color:C.text}}>{m.label}</td>
+                        <td style={{padding:'8px 10px',textAlign:'right',fontWeight:700,color:C.purpleL}}>{m.cur}</td>
+                        <td style={{padding:'8px 10px',textAlign:'right',fontWeight:700,color:C.amber}}>{m.comp}</td>
+                        <td style={{padding:'8px 10px',textAlign:'right',fontWeight:700,color:deltaColor(m.cur,m.comp)}}>{delta(m.cur,m.comp)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+          })()}
 
           {/* Status breakdown — clickable */}
           <div style={{...card,marginBottom:20}}>
