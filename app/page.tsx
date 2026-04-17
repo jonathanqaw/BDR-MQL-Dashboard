@@ -5802,7 +5802,18 @@ export default function Dashboard() {
               const periodAllEvents=periodRepData.flatMap(r=>r.periodEvents.map(e=>({...e,repName:r.rep.name,repId:r.rep.id})))
                 .sort((a,b)=>{const da=a.meetingDate||a.sqlDate||'';const db=b.meetingDate||b.sqlDate||'';return db.localeCompare(da)})
 
+              // Commission Summary visibility:
+              // - BDM (Jonathan): sees all reps
+              // - Reps: see only their own row
+              // - Everyone else (CMO, PM, RevOps): hidden entirely
+              const isBdmViewer=auth&&'email' in auth&&isBdmEmail(auth.email)
+              const isRepViewer=auth&&'role' in auth&&auth.role==='rep'
+              const repViewerId=isRepViewer&&'repId' in auth?(auth as {repId:string}).repId:null
+              const showCommSummary=isBdmViewer||isRepViewer
+              const summaryRepData=isBdmViewer?periodRepData:isRepViewer?periodRepData.filter(r=>r.rep.id===repViewerId):[]
+
               return (<>
+              {showCommSummary&&summaryRepData.length>0&&(
               <div style={{...card,marginBottom:20}}>
                 <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:14}}>Commission Summary · {periodLabel}</div>
                 <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
@@ -5814,7 +5825,7 @@ export default function Dashboard() {
                     </tr>
                   </thead>
                   <tbody>
-                    {periodRepData.map(r=>(
+                    {summaryRepData.map(r=>(
                       <tr key={r.rep.id} style={{borderBottom:`1px solid ${C.border}`}}>
                         <td style={{padding:'10px',fontWeight:600,color:C.text}}>{r.rep.name}</td>
                         <td style={{padding:'10px',textAlign:'right',color:C.text}}>{r.periodMeetings}</td>
@@ -5827,21 +5838,22 @@ export default function Dashboard() {
                         <td style={{padding:'10px',textAlign:'right',fontSize:11,color:(r.ytdSqlAmt+r.ytdAccelAmt)>=ANNUAL_SQL_CAP?C.red:C.text3}}>{Math.round((r.ytdSqlAmt+r.ytdAccelAmt)/ANNUAL_SQL_CAP*100)}%</td>
                       </tr>
                     ))}
-                    {periodRepData.length>1&&(
+                    {isBdmViewer&&summaryRepData.length>1&&(
                       <tr style={{borderTop:`2px solid ${C.border2}`,background:C.surface2}}>
                         <td style={{padding:'10px',fontWeight:800,color:C.text}}>Total</td>
-                        <td style={{padding:'10px',textAlign:'right',fontWeight:700,color:C.text}}>{periodRepData.reduce((s,r)=>s+r.periodMeetings,0)}</td>
-                        <td style={{padding:'10px',textAlign:'right',fontWeight:700,color:C.green}}>${periodRepData.reduce((s,r)=>s+r.periodMeetingAmt,0).toLocaleString()}</td>
-                        <td style={{padding:'10px',textAlign:'right',fontWeight:700,color:C.text}}>{periodRepData.reduce((s,r)=>s+r.periodSqls,0)}</td>
-                        <td style={{padding:'10px',textAlign:'right',fontWeight:700,color:'#c084fc'}}>${periodRepData.reduce((s,r)=>s+r.periodSqlAmt,0).toLocaleString()}</td>
-                        <td style={{padding:'10px',textAlign:'right',fontWeight:700,color:C.amber}}>${periodRepData.reduce((s,r)=>s+r.periodAccelAmt,0).toLocaleString()}</td>
-                        <td style={{padding:'10px',textAlign:'right',fontWeight:800,color:C.text}}>${periodRepData.reduce((s,r)=>s+r.periodTotal,0).toLocaleString()}</td>
+                        <td style={{padding:'10px',textAlign:'right',fontWeight:700,color:C.text}}>{summaryRepData.reduce((s,r)=>s+r.periodMeetings,0)}</td>
+                        <td style={{padding:'10px',textAlign:'right',fontWeight:700,color:C.green}}>${summaryRepData.reduce((s,r)=>s+r.periodMeetingAmt,0).toLocaleString()}</td>
+                        <td style={{padding:'10px',textAlign:'right',fontWeight:700,color:C.text}}>{summaryRepData.reduce((s,r)=>s+r.periodSqls,0)}</td>
+                        <td style={{padding:'10px',textAlign:'right',fontWeight:700,color:'#c084fc'}}>${summaryRepData.reduce((s,r)=>s+r.periodSqlAmt,0).toLocaleString()}</td>
+                        <td style={{padding:'10px',textAlign:'right',fontWeight:700,color:C.amber}}>${summaryRepData.reduce((s,r)=>s+r.periodAccelAmt,0).toLocaleString()}</td>
+                        <td style={{padding:'10px',textAlign:'right',fontWeight:800,color:C.text}}>${summaryRepData.reduce((s,r)=>s+r.periodTotal,0).toLocaleString()}</td>
                         <td/><td/>
                       </tr>
                     )}
                   </tbody>
                 </table>
               </div>
+              )}
 
               {/* Detailed attribution table — filtered by period */}
               <div style={{...card,marginBottom:20}}>
