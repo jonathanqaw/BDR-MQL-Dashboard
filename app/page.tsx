@@ -1462,6 +1462,11 @@ export default function Dashboard() {
       if (parsed && parsed.role && !('allowedViews' in parsed) && parsed.role!=='rep') {
         sessionStorage.removeItem('mql-auth')
       } else {
+        // Re-validate allowedViews from current credentials to pick up permission changes
+        if (parsed && parsed.email && parsed.role!=='rep') {
+          const cred=USER_CREDENTIALS.find(u=>u.email===parsed.email)
+          if (cred) { parsed.allowedViews=cred.allowedViews; parsed.role=cred.role; sessionStorage.setItem('mql-auth',JSON.stringify(parsed)) }
+        }
         setAuth(parsed)
       }
     } catch { sessionStorage.removeItem('mql-auth') } }
