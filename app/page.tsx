@@ -1698,6 +1698,11 @@ export default function Dashboard() {
   const [rrBfNotes,setRrBfNotes]=useState('')
   const [rrBfPass,setRrBfPass]=useState('')
   const [rrBfPassErr,setRrBfPassErr]=useState(false)
+  const [rrEditAssignId,setRrEditAssignId]=useState<string|null>(null)
+  const [rrEditAE,setRrEditAE]=useState('')
+  const [rrEditSeg,setRrEditSeg]=useState<'Major'|'Commercial'>('Commercial')
+  const [rrEditRegion,setRrEditRegion]=useState<'West'|'East'>('East')
+  const [rrEditAcct,setRrEditAcct]=useState('')
   const [rrMgmtEditId,setRrMgmtEditId]=useState<string|null>(null)
   const [rrMgmtAddOpen,setRrMgmtAddOpen]=useState(false)
   const [rrMgmtName,setRrMgmtName]=useState('')
@@ -6232,15 +6237,63 @@ export default function Dashboard() {
               </button>
               {rrShowRecent&&recentAssignments.length>0&&(
                 <div style={{marginTop:12}}>
-                  {recentAssignments.slice(0,10).map(a=>(
-                    <div key={a.id} style={{display:'flex',justifyContent:'space-between',padding:'6px 0',borderBottom:`1px solid ${C.border}`,fontSize:10}}>
-                      <span style={{color:C.text2}}>
-                        {new Date(a.assignedAt).toLocaleDateString('en-US',{month:'short',day:'numeric'})} · <strong style={{color:C.text}}>{a.accountName}</strong> → <span style={{color:C.green}}>{a.assignedAE}</span>
-                        {a.manualBackfill&&<span style={{marginLeft:4,fontSize:8,fontWeight:700,color:C.amber,background:'rgba(245,166,35,0.15)',padding:'1px 5px',borderRadius:3,verticalAlign:'middle'}}>Manual</span>}
-                      </span>
-                      <span style={{color:C.text3}}>{a.segment} · {a.region}{a.skippedAEs.length>0?` · skipped ${a.skippedAEs.length}`:''}{a.source?` · ${a.source}`:''}</span>
-                    </div>
-                  ))}
+                  {recentAssignments.slice(0,10).map(a=>{
+                    const isEditing=rrEditAssignId===a.id
+                    return (<div key={a.id} style={{borderBottom:`1px solid ${C.border}`}}>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',fontSize:10}}>
+                        <span style={{color:C.text2}}>
+                          {new Date(a.assignedAt).toLocaleDateString('en-US',{month:'short',day:'numeric'})} · <strong style={{color:C.text}}>{a.accountName}</strong> → <span style={{color:C.green}}>{a.assignedAE}</span>
+                          {a.manualBackfill&&<span style={{marginLeft:4,fontSize:8,fontWeight:700,color:C.amber,background:'rgba(245,166,35,0.15)',padding:'1px 5px',borderRadius:3,verticalAlign:'middle'}}>Manual</span>}
+                        </span>
+                        <span style={{display:'flex',alignItems:'center',gap:6}}>
+                          <span style={{color:C.text3}}>{a.segment} · {a.region}{a.skippedAEs.length>0?` · skipped ${a.skippedAEs.length}`:''}{a.source?` · ${a.source}`:''}</span>
+                          <button onClick={()=>{
+                            if(isEditing){setRrEditAssignId(null)} else {
+                              setRrEditAssignId(a.id);setRrEditAE(a.assignedAE);setRrEditSeg(a.segment);setRrEditRegion(a.region);setRrEditAcct(a.accountName)
+                            }
+                          }} style={{fontSize:8,fontWeight:600,padding:'2px 6px',borderRadius:3,cursor:'pointer',border:`1px solid ${isEditing?C.amber:C.border2}`,background:isEditing?'rgba(245,166,35,0.12)':'transparent',color:isEditing?C.amber:C.text3}}>
+                            {isEditing?'Cancel':'Edit'}
+                          </button>
+                        </span>
+                      </div>
+                      {isEditing&&(
+                        <div style={{padding:'8px 0 10px',display:'flex',gap:6,alignItems:'end',flexWrap:'wrap'}}>
+                          <div style={{flex:'1 1 120px',minWidth:100}}>
+                            <label style={{fontSize:8,fontWeight:700,color:C.text3,textTransform:'uppercase',display:'block',marginBottom:2}}>Account</label>
+                            <input value={rrEditAcct} onChange={e=>setRrEditAcct(e.target.value)} style={{...inputStyle,fontSize:10,padding:'4px 7px'}}/>
+                          </div>
+                          <div style={{flex:'0 0 auto',minWidth:90}}>
+                            <label style={{fontSize:8,fontWeight:700,color:C.text3,textTransform:'uppercase',display:'block',marginBottom:2}}>AE</label>
+                            <select value={rrEditAE} onChange={e=>{
+                              setRrEditAE(e.target.value)
+                              const ae=rrRoster.find(r=>r.name===e.target.value)
+                              if(ae){setRrEditSeg(ae.segment);setRrEditRegion(ae.region)}
+                            }} style={{...inputStyle,fontSize:10,padding:'4px 7px'}}>
+                              {rrRoster.filter(ae=>ae.status==='Active').map(ae=><option key={ae.id} value={ae.name}>{ae.name}</option>)}
+                            </select>
+                          </div>
+                          <div style={{flex:'0 0 auto'}}>
+                            <label style={{fontSize:8,fontWeight:700,color:C.text3,textTransform:'uppercase',display:'block',marginBottom:2}}>Segment</label>
+                            <select value={rrEditSeg} onChange={e=>setRrEditSeg(e.target.value as 'Major'|'Commercial')} style={{...inputStyle,fontSize:10,padding:'4px 7px'}}>
+                              <option value="Commercial">Commercial</option><option value="Major">Major</option>
+                            </select>
+                          </div>
+                          <div style={{flex:'0 0 auto'}}>
+                            <label style={{fontSize:8,fontWeight:700,color:C.text3,textTransform:'uppercase',display:'block',marginBottom:2}}>Region</label>
+                            <select value={rrEditRegion} onChange={e=>setRrEditRegion(e.target.value as 'West'|'East')} style={{...inputStyle,fontSize:10,padding:'4px 7px'}}>
+                              <option value="East">East</option><option value="West">West</option>
+                            </select>
+                          </div>
+                          <button onClick={()=>{
+                            if(!rrEditAcct.trim()||!rrEditAE) return
+                            const aeMatch=rrRoster.find(r=>r.name===rrEditAE)
+                            const updated=rrAssignments.map(x=>x.id===a.id?{...x,accountName:rrEditAcct.trim(),assignedAE:rrEditAE,calendarId:aeMatch?.calendarId||x.calendarId,segment:rrEditSeg,region:rrEditRegion}:x)
+                            saveAssignments(updated);setRrEditAssignId(null)
+                          }} style={{fontSize:9,fontWeight:700,padding:'5px 12px',borderRadius:5,border:'none',background:C.green,color:'#000',cursor:'pointer'}}>Save</button>
+                        </div>
+                      )}
+                    </div>)
+                  })}
                 </div>
               )}
             </div>
@@ -6307,6 +6360,11 @@ export default function Dashboard() {
                         <option value="">Select AE...</option>
                         {rrRoster.filter(ae=>ae.status==='Active').map(ae=><option key={ae.id} value={ae.name}>{ae.name} — {ae.segment} · {ae.region}</option>)}
                       </select>
+                      {(()=>{const sel=rrRoster.find(a=>a.name===rrBfAE);return sel?<div style={{marginTop:5,display:'flex',gap:6,alignItems:'center'}}>
+                        <span style={{fontSize:9,fontWeight:700,padding:'2px 7px',borderRadius:4,background:'rgba(123,110,246,0.15)',color:C.purpleL}}>{sel.segment}</span>
+                        <span style={{fontSize:9,fontWeight:700,padding:'2px 7px',borderRadius:4,background:sel.region==='West'?'rgba(96,212,244,0.15)':'rgba(0,229,160,0.15)',color:sel.region==='West'?'#60d4f4':C.green}}>{sel.region} Coast</span>
+                        <span style={{fontSize:9,color:C.text3}}>Team {sel.team} · SE: {SE_ROSTER[sel.se]?.name||sel.se}</span>
+                      </div>:null})()}
                     </div>
                     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
                       <div>
