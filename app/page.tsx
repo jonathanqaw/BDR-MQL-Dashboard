@@ -5221,31 +5221,52 @@ export default function Dashboard() {
           }
 
           // Count metric for a set of leads
+          // Use HISTORICAL_DETAILS fallback to match pipeline behavior
+          const getDet = (email: string) => details[email] || (HISTORICAL_DETAILS[email] ? {...EMPTY_DETAIL,...HISTORICAL_DETAILS[email]} : null)
+          const getDateProxy = (l: AppLead, det: LeadDetail | null) => det?.meetingDate || l.receivedAt || l.date || null
+          const BOOKED_STATUSES = new Set(['booked','inprogress','closedwon'])
+
           const countMetric = (leads: AppLead[], metric: LbMetric): number => {
             switch (metric) {
               case 'meetings':
                 return leads.filter(l => {
-                  const det = details[l.email]
-                  return det?.meetingDate && inLbRange(det.meetingDate)
+                  const det = getDet(l.email)
+                  const s = statuses[l.email] || 'new'
+                  // A lead counts as a meeting if it has a meetingDate OR is in a booked status
+                  const isMeeting = det?.meetingDate || BOOKED_STATUSES.has(s)
+                  if (!isMeeting) return false
+                  // Use meetingDate for time range, fall back to receivedAt/date
+                  const rangeDate = det?.meetingDate || getDateProxy(l, det)
+                  return rangeDate ? inLbRange(rangeDate) : false
                 }).length
               case 'meetings_held':
                 return leads.filter(l => {
-                  const det = details[l.email]
-                  if (!det?.meetingDate || !inLbRange(det.meetingDate)) return false
-                  const md = new Date(det.meetingDate)
-                  if (md > now) return false
+                  const det = getDet(l.email)
                   const s = statuses[l.email] || 'new'
-                  return ['booked','inprogress','closedwon'].includes(s) || (det.sqlDq||'').toLowerCase()==='yes'
+                  const isMeeting = det?.meetingDate || BOOKED_STATUSES.has(s)
+                  if (!isMeeting) return false
+                  const rangeDate = det?.meetingDate || getDateProxy(l, det)
+                  if (!rangeDate || !inLbRange(rangeDate)) return false
+                  // Must be in the past to count as "held"
+                  const md = new Date(det?.meetingDate || rangeDate)
+                  if (md > now) return false
+                  return BOOKED_STATUSES.has(s) || (det?.sqlDq||'').toLowerCase()==='yes'
                 }).length
               case 'sqls':
                 return leads.filter(l => {
-                  const det = details[l.email]
-                  return (det?.sqlDq||'').toLowerCase()==='yes' && det?.sqlDate && inLbRange(det.sqlDate)
+                  const det = getDet(l.email)
+                  if ((det?.sqlDq||'').toLowerCase()!=='yes') return false
+                  // Use sqlDate, fall back to meetingDate, then receivedAt/date
+                  const rangeDate = det?.sqlDate || det?.meetingDate || getDateProxy(l, det)
+                  return rangeDate ? inLbRange(rangeDate) : true // if no date at all, still count
                 }).length
               case 'sqos':
                 return leads.filter(l => {
-                  const det = details[l.email]
-                  return (det?.sqo||'').toLowerCase()==='yes' && det?.sqoDate && inLbRange(det.sqoDate)
+                  const det = getDet(l.email)
+                  if ((det?.sqo||'').toLowerCase()!=='yes') return false
+                  // Use sqoDate, fall back to sqlDate, meetingDate, receivedAt/date
+                  const rangeDate = det?.sqoDate || det?.sqlDate || det?.meetingDate || getDateProxy(l, det)
+                  return rangeDate ? inLbRange(rangeDate) : true
                 }).length
             }
           }
@@ -5303,10 +5324,10 @@ export default function Dashboard() {
               }
               let count = 0
               const m = activeSpiff.metric
-              if (m === 'meetings') count = repLeads.filter(l => { const det=details[l.email]; return det?.meetingDate && inSpiffRange(det.meetingDate) }).length
-              else if (m === 'meetings_held') count = repLeads.filter(l => { const det=details[l.email]; if(!det?.meetingDate||!inSpiffRange(det.meetingDate)) return false; const md=new Date(det.meetingDate); if(md>now) return false; const s=statuses[l.email]||'new'; return ['booked','inprogress','closedwon'].includes(s)||(det.sqlDq||'').toLowerCase()==='yes' }).length
-              else if (m === 'sqls') count = repLeads.filter(l => { const det=details[l.email]; return (det?.sqlDq||'').toLowerCase()==='yes'&&det?.sqlDate&&inSpiffRange(det.sqlDate) }).length
-              else if (m === 'sqos') count = repLeads.filter(l => { const det=details[l.email]; return (det?.sqo||'').toLowerCase()==='yes'&&det?.sqoDate&&inSpiffRange(det.sqoDate) }).length
+              if (m === 'meetings') count = repLeads.filter(l => { const det=getDet(l.email); const s=statuses[l.email]||'new'; const isMtg=det?.meetingDate||BOOKED_STATUSES.has(s); if(!isMtg) return false; const rd=det?.meetingDate||getDateProxy(l,det); return rd?inSpiffRange(rd):false }).length
+              else if (m === 'meetings_held') count = repLeads.filter(l => { const det=getDet(l.email); const s=statuses[l.email]||'new'; const isMtg=det?.meetingDate||BOOKED_STATUSES.has(s); if(!isMtg) return false; const rd=det?.meetingDate||getDateProxy(l,det); if(!rd||!inSpiffRange(rd)) return false; if(new Date(det?.meetingDate||rd)>now) return false; return BOOKED_STATUSES.has(s)||(det?.sqlDq||'').toLowerCase()==='yes' }).length
+              else if (m === 'sqls') count = repLeads.filter(l => { const det=getDet(l.email); if((det?.sqlDq||'').toLowerCase()!=='yes') return false; const rd=det?.sqlDate||det?.meetingDate||getDateProxy(l,det); return rd?inSpiffRange(rd):true }).length
+              else if (m === 'sqos') count = repLeads.filter(l => { const det=getDet(l.email); if((det?.sqo||'').toLowerCase()!=='yes') return false; const rd=det?.sqoDate||det?.sqlDate||det?.meetingDate||getDateProxy(l,det); return rd?inSpiffRange(rd):true }).length
               return { rep: r.rep, count }
             })
             .sort((a,b) => b.count - a.count)
