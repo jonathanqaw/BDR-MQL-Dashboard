@@ -2590,6 +2590,7 @@ export default function Dashboard() {
           <>
           <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.1em',padding:'6px 20px 4px'}}>Views</div>
           {([
+            ['pipeline','📋','Pipeline','Lead management · tracking'] as const,
             ['reporting','🧾','Reporting','Generated summaries'] as const,
             ['analytics','📈','Analytics','Charts · trends · conversion'] as const,
             ['commissions','💲','Commissions','Bonus tracking · payouts'] as const,
