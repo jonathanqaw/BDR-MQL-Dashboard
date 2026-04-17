@@ -370,9 +370,19 @@ const SE_ROSTER:Record<string,{name:string;calendarId:string;tz:string}>={
   Becca:{name:'Becca',calendarId:'becca@qawolf.com',tz:'CST/EST'},
   Jun:{name:'Jun Park',calendarId:'jun@qawolf.com',tz:'EST'},
 }
-interface RRAssignment { id:string; accountName:string; segment:'Major'|'Commercial'; region:'West'|'East'; assignedAE:string; calendarId:string; meetingTime:string; assignedAt:string; skippedAEs:{name:string;reason:string}[]; seIncluded?:string }
+interface RRAssignment { id:string; accountName:string; segment:'Major'|'Commercial'; region:'West'|'East'; assignedAE:string; calendarId:string; meetingTime:string; assignedAt:string; skippedAEs:{name:string;reason:string}[]; seIncluded?:string; manualBackfill?:boolean; prospectName?:string; prospectCompany?:string; source?:string; sfUrl?:string; notes?:string }
 interface RRSkip { timestamp:string; accountName:string; skippedAE:string; reason:string; assignedTo:string }
 interface RRManagerSettings { removedAEs:string[] }
+interface RosterAE { id:string; name:string; calendarId:string; se:string; team:string; segment:'Major'|'Commercial'; region:'West'|'East'; status:'Active'|'Inactive'; dateAdded:string }
+const SE_TO_TEAM:Record<string,string>={Ricky:'Yoshi',Dion:'Bowser',Ian:'Sonic',Becca:'Kirby',Jun:'Zelda'}
+const BACKFILL_SOURCES=['Inbound MQL','Outbound','Self-sourced','Hand-off','Other'] as const
+const migrateAERoster=():RosterAE[]=>{
+  const r:RosterAE[]=[]
+  const add=(entries:AERosterEntry[],region:'West'|'East',segment:'Major'|'Commercial')=>{entries.forEach(ae=>r.push({id:`ae-${ae.name.toLowerCase().replace(/\s+/g,'-')}`,name:ae.name,calendarId:ae.calendarId,se:ae.se,team:ae.team,segment,region,status:'Active',dateAdded:'2026-01-01'}))}
+  add(AE_ROSTER.west.major,'West','Major');add(AE_ROSTER.west.commercial,'West','Commercial')
+  add(AE_ROSTER.east.major,'East','Major');add(AE_ROSTER.east.commercial,'East','Commercial')
+  return r
+}
 
 // ─── localStorage ─────────────────────────────────────────────────────────────
 const getSt        = (): Record<string,Status>     => { try { return JSON.parse(localStorage.getItem('mql-st')||'{}') } catch { return {} } }
@@ -1486,6 +1496,8 @@ export default function Dashboard() {
     try { const a=JSON.parse(localStorage.getItem('rr-manager')||'{}'); if(a&&typeof a==='object'&&Array.isArray(a.removedAEs)) setRrMgr(a) } catch {}
     try { const s=localStorage.getItem('rr-seg'); if(s==='Major'||s==='Commercial') setRrSeg(s) } catch {}
     try { const r=localStorage.getItem('rr-region'); if(r==='West'||r==='East') setRrRegion(r) } catch {}
+    try { const r=JSON.parse(localStorage.getItem('roundRobinAERoster')||'null'); if(Array.isArray(r)&&r.length>0) setRrRoster(r); else { const m=migrateAERoster(); setRrRoster(m); localStorage.setItem('roundRobinAERoster',JSON.stringify(m)) } } catch { const m=migrateAERoster(); setRrRoster(m); localStorage.setItem('roundRobinAERoster',JSON.stringify(m)) }
+    try { const w=localStorage.getItem('rr-equity-window'); if(w==='week'||w==='month'||w==='quarter'||w==='year') setRrEquityWindow(w) } catch {}
   },[])
 
   const isManagerRole=(a:AuthState):boolean=>!!a&&'role' in a&&MANAGER_ROLES.includes(a.role as UserRole)
@@ -1672,12 +1684,32 @@ export default function Dashboard() {
   const [rrSeError,setRrSeError]=useState<string|null>(null)
   const [rrFetchedCalKey,setRrFetchedCalKey]=useState('')
   const [rrFetchedSeKey,setRrFetchedSeKey]=useState('')
-  const [rrManualOpen,setRrManualOpen]=useState(false)
-  const [rrManualAE,setRrManualAE]=useState('')
-  const [rrManualAcct,setRrManualAcct]=useState('')
-  const [rrManualSeg,setRrManualSeg]=useState<'Major'|'Commercial'>('Commercial')
-  const [rrManualRegion,setRrManualRegion]=useState<'West'|'East'>('East')
-  const [rrManualDate,setRrManualDate]=useState(new Date().toISOString().slice(0,10))
+  const [rrRoster,setRrRoster]=useState<RosterAE[]>([])
+  const [rrEquityWindow,setRrEquityWindow]=useState<'week'|'month'|'quarter'|'year'>('month')
+  const [rrShowBackfillModal,setRrShowBackfillModal]=useState(false)
+  const [rrShowManageModal,setRrShowManageModal]=useState(false)
+  const [rrBfAE,setRrBfAE]=useState('')
+  const [rrBfDate,setRrBfDate]=useState('')
+  const [rrBfTime,setRrBfTime]=useState('')
+  const [rrBfProspectName,setRrBfProspectName]=useState('')
+  const [rrBfCompany,setRrBfCompany]=useState('')
+  const [rrBfSource,setRrBfSource]=useState<string>('Inbound MQL')
+  const [rrBfSfUrl,setRrBfSfUrl]=useState('')
+  const [rrBfNotes,setRrBfNotes]=useState('')
+  const [rrBfPass,setRrBfPass]=useState('')
+  const [rrBfPassErr,setRrBfPassErr]=useState(false)
+  const [rrMgmtEditId,setRrMgmtEditId]=useState<string|null>(null)
+  const [rrMgmtAddOpen,setRrMgmtAddOpen]=useState(false)
+  const [rrMgmtName,setRrMgmtName]=useState('')
+  const [rrMgmtEmail,setRrMgmtEmail]=useState('')
+  const [rrMgmtCalEmail,setRrMgmtCalEmail]=useState('')
+  const [rrMgmtSe,setRrMgmtSe]=useState('Ricky')
+  const [rrMgmtSeg,setRrMgmtSeg]=useState<'Major'|'Commercial'>('Commercial')
+  const [rrMgmtRegion,setRrMgmtRegion]=useState<'West'|'East'>('East')
+  const [rrMgmtStatus,setRrMgmtStatus]=useState<'Active'|'Inactive'>('Active')
+  const [rrMgmtPass,setRrMgmtPass]=useState('')
+  const [rrMgmtPassErr,setRrMgmtPassErr]=useState(false)
+  const [rrMgmtToast,setRrMgmtToast]=useState('')
 
   // Fetch AE calendar when the viewed AE or week changes
   const rrFetchCal=useCallback(async(calendarId:string,weekStart:string)=>{
@@ -5839,17 +5871,21 @@ export default function Dashboard() {
           const setSeg=(s:'Major'|'Commercial')=>{setRrSeg(s);localStorage.setItem('rr-seg',s);setRrViewAeIdx(0);setRrBookSlot(null)}
           const setRegion=(r:'West'|'East')=>{setRrRegion(r);localStorage.setItem('rr-region',r);setRrViewAeIdx(0);setRrBookSlot(null)}
 
-          // ── Rolling 30-day counts ──────────────────────────────
+          // ── Rolling 30-day counts (queue fairness) ──────────────
           const thirtyDaysAgo=new Date();thirtyDaysAgo.setDate(thirtyDaysAgo.getDate()-30)
           const recentAssignments=rrAssignments.filter(a=>new Date(a.assignedAt)>=thirtyDaysAgo)
           const countByAE=(name:string)=>recentAssignments.filter(a=>a.assignedAE===name).length
           const lastAssigned=(name:string)=>{const a=rrAssignments.filter(x=>x.assignedAE===name).sort((a,b)=>b.assignedAt.localeCompare(a.assignedAt))[0];return a?.assignedAt||''}
+          // ── Equity window counts (display) ─────────────────────
+          const eqDays={week:7,month:30,quarter:90,year:365}[rrEquityWindow]
+          const eqAgo=new Date();eqAgo.setDate(eqAgo.getDate()-eqDays)
+          const eqAssignments=rrAssignments.filter(a=>new Date(a.assignedAt)>=eqAgo)
+          const eqCountByAE=(name:string)=>eqAssignments.filter(a=>a.assignedAE===name).length
+          const eqWindowLabel={week:'7 Days',month:'30 Days',quarter:'90 Days',year:'365 Days'}[rrEquityWindow]
 
           // ── Queue computation ──────────────────────────────────
           const removedAEs=rrMgr.removedAEs||[]
-          const regionRoster=AE_ROSTER[rrRegion.toLowerCase() as 'west'|'east']
-          // No crossover: Major → only major AEs, Commercial → only commercial AEs
-          const eligible:AERosterEntry[]=rrSeg==='Major'?[...regionRoster.major]:[...regionRoster.commercial]
+          const eligible=rrRoster.filter(ae=>ae.status==='Active'&&ae.region===rrRegion&&ae.segment===rrSeg)
           const queue=eligible
             .filter(ae=>!removedAEs.includes(ae.name))
             .map(ae=>({...ae,count:countByAE(ae.name),lastDate:lastAssigned(ae.name)}))
@@ -5908,14 +5944,11 @@ export default function Dashboard() {
           }
 
           // ── All AEs for leaderboard ────────────────────────────
-          const allAEs=[
-            ...AE_ROSTER.west.major.map(a=>({...a,region:'West' as const})),
-            ...AE_ROSTER.west.commercial.map(a=>({...a,region:'West' as const})),
-            ...AE_ROSTER.east.major.map(a=>({...a,region:'East' as const})),
-            ...AE_ROSTER.east.commercial.map(a=>({...a,region:'East' as const})),
-          ].map(ae=>({...ae,count:countByAE(ae.name),removed:removedAEs.includes(ae.name)}))
+          const allAEs=rrRoster
+            .map(ae=>({...ae,count:eqCountByAE(ae.name),count30:countByAE(ae.name),removed:removedAEs.includes(ae.name)||ae.status==='Inactive'}))
             .sort((a,b)=>a.count-b.count||a.name.localeCompare(b.name))
           const maxCount=Math.max(1,...allAEs.map(a=>a.count))
+          const saveRoster=(r:RosterAE[])=>{setRrRoster(r);localStorage.setItem('roundRobinAERoster',JSON.stringify(r))}
 
           // ── Assign from slot click ─────────────────────────────
           const assignFromSlot=(acct:string)=>{
@@ -5943,9 +5976,21 @@ export default function Dashboard() {
           const fetchSeKey=`${seInfo?.calendarId||''}|${monday.toISOString().split('T')[0]}|${rrShowSe}`
 
           return (<>
-            <div style={{marginBottom:20}}>
-              <div style={{fontSize:26,fontWeight:800,letterSpacing:'-0.02em',lineHeight:1.15}}>Round Robin<br/><span style={{color:C.green}}>Click to Book.</span></div>
-              <div style={{fontSize:12,color:C.text3,marginTop:4}}>Live AE calendar · click a slot to assign · rolling 30-day equity</div>
+            <div style={{marginBottom:20,display:'flex',justifyContent:'space-between',alignItems:'flex-start',flexWrap:'wrap',gap:12}}>
+              <div>
+                <div style={{fontSize:26,fontWeight:800,letterSpacing:'-0.02em',lineHeight:1.15}}>Round Robin<br/><span style={{color:C.green}}>Click to Book.</span></div>
+                <div style={{fontSize:12,color:C.text3,marginTop:4}}>Live AE calendar · click a slot to assign · rolling 30-day equity</div>
+              </div>
+              {isManagerRole(auth)&&(
+                <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+                  <button onClick={()=>{setRrShowBackfillModal(true);setRrBfDate(new Date().toISOString().slice(0,10))}} style={{fontSize:11,fontWeight:700,padding:'8px 16px',borderRadius:7,border:`1px solid ${C.amber}`,background:'rgba(245,166,35,0.1)',color:C.amber,cursor:'pointer',display:'flex',alignItems:'center',gap:5}}>
+                    <span style={{fontSize:14}}>+</span> Log Past Meeting
+                  </button>
+                  <button onClick={()=>setRrShowManageModal(true)} style={{fontSize:11,fontWeight:700,padding:'8px 16px',borderRadius:7,border:`1px solid ${C.purple}`,background:'rgba(123,110,246,0.1)',color:C.purpleL,cursor:'pointer',display:'flex',alignItems:'center',gap:5}}>
+                    Manage AEs
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* ── Segment & Region Toggles ── */}
@@ -6152,7 +6197,14 @@ export default function Dashboard() {
 
             {/* ── Equity Bar Chart ── */}
             <div style={{...card,marginBottom:20}}>
-              <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:14}}>AE Equity · Rolling 30 Days</div>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
+                <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em'}}>AE Equity · Rolling {eqWindowLabel}</div>
+                <div style={{display:'flex',gap:4}}>
+                  {(['week','month','quarter','year'] as const).map(w=>(
+                    <button key={w} onClick={()=>{setRrEquityWindow(w);localStorage.setItem('rr-equity-window',w)}} style={{fontSize:9,fontWeight:600,padding:'3px 8px',borderRadius:4,cursor:'pointer',border:`1px solid ${rrEquityWindow===w?C.purple:C.border2}`,background:rrEquityWindow===w?'rgba(123,110,246,0.15)':'transparent',color:rrEquityWindow===w?C.purpleL:C.text3,textTransform:'capitalize'}}>{w}</button>
+                  ))}
+                </div>
+              </div>
               <div style={{display:'grid',gap:5}}>
                 {allAEs.map(ae=>(
                   <div key={ae.name} style={{display:'grid',gridTemplateColumns:'70px 1fr 30px',gap:8,alignItems:'center',opacity:ae.removed?0.35:1}}>
@@ -6182,8 +6234,11 @@ export default function Dashboard() {
                 <div style={{marginTop:12}}>
                   {recentAssignments.slice(0,10).map(a=>(
                     <div key={a.id} style={{display:'flex',justifyContent:'space-between',padding:'6px 0',borderBottom:`1px solid ${C.border}`,fontSize:10}}>
-                      <span style={{color:C.text2}}>{new Date(a.assignedAt).toLocaleDateString('en-US',{month:'short',day:'numeric'})} · <strong style={{color:C.text}}>{a.accountName}</strong> → <span style={{color:C.green}}>{a.assignedAE}</span></span>
-                      <span style={{color:C.text3}}>{a.segment} · {a.region}{a.skippedAEs.length>0?` · skipped ${a.skippedAEs.length}`:''}</span>
+                      <span style={{color:C.text2}}>
+                        {new Date(a.assignedAt).toLocaleDateString('en-US',{month:'short',day:'numeric'})} · <strong style={{color:C.text}}>{a.accountName}</strong> → <span style={{color:C.green}}>{a.assignedAE}</span>
+                        {a.manualBackfill&&<span style={{marginLeft:4,fontSize:8,fontWeight:700,color:C.amber,background:'rgba(245,166,35,0.15)',padding:'1px 5px',borderRadius:3,verticalAlign:'middle'}}>Manual</span>}
+                      </span>
+                      <span style={{color:C.text3}}>{a.segment} · {a.region}{a.skippedAEs.length>0?` · skipped ${a.skippedAEs.length}`:''}{a.source?` · ${a.source}`:''}</span>
                     </div>
                   ))}
                 </div>
@@ -6220,7 +6275,7 @@ export default function Dashboard() {
                 </div>
                 <div style={{fontSize:10,fontWeight:700,color:C.text3,marginBottom:6}}>Remove AE from rotation:</div>
                 <div style={{display:'flex',gap:4,flexWrap:'wrap'}}>
-                  {allAEs.map(ae=>(
+                  {allAEs.filter(ae=>ae.status==='Active').map(ae=>(
                     <button key={ae.name} onClick={()=>{
                       const removed=removedAEs.includes(ae.name)?removedAEs.filter(n=>n!==ae.name):[...removedAEs,ae.name]
                       saveMgr({...rrMgr,removedAEs:removed})
@@ -6232,53 +6287,242 @@ export default function Dashboard() {
                     </button>
                   ))}
                 </div>
-                {/* ── Log Past Assignment ── */}
-                <div style={{marginTop:16,paddingTop:14,borderTop:`1px solid ${C.border}`}}>
-                  <button onClick={()=>setRrManualOpen(!rrManualOpen)} style={{fontSize:10,fontWeight:700,color:C.text3,background:'none',border:'none',cursor:'pointer',padding:0}}>
-                    {rrManualOpen?'▼':'▶'} Log Past Assignment
-                  </button>
-                  {rrManualOpen&&(
-                    <div style={{marginTop:10,display:'grid',gap:8}}>
-                      <div style={{display:'flex',gap:6}}>
-                        <select value={rrManualAE} onChange={e=>setRrManualAE(e.target.value)} style={{flex:1,fontSize:10,padding:'5px 8px',borderRadius:5,border:`1px solid ${C.border2}`,background:C.surface2,color:C.text}}>
-                          <option value="">Select AE...</option>
-                          {allAEs.map(ae=><option key={ae.name} value={ae.name}>{ae.name} ({ae.region})</option>)}
-                        </select>
-                        <input type="date" value={rrManualDate} onChange={e=>setRrManualDate(e.target.value)} style={{fontSize:10,padding:'5px 8px',borderRadius:5,border:`1px solid ${C.border2}`,background:C.surface2,color:C.text}}/>
-                      </div>
-                      <input value={rrManualAcct} onChange={e=>setRrManualAcct(e.target.value)} placeholder="Account name" style={{fontSize:10,padding:'5px 8px',borderRadius:5,border:`1px solid ${C.border2}`,background:C.surface2,color:C.text}}/>
-                      <div style={{display:'flex',gap:6}}>
-                        <div style={{display:'flex',gap:4}}>
-                          {(['Major','Commercial'] as const).map(s=>(
-                            <button key={s} onClick={()=>setRrManualSeg(s)} style={{fontSize:9,fontWeight:600,padding:'3px 8px',borderRadius:4,cursor:'pointer',border:`1px solid ${rrManualSeg===s?C.green:C.border2}`,background:rrManualSeg===s?'rgba(0,200,150,0.12)':'transparent',color:rrManualSeg===s?C.green:C.text3}}>{s}</button>
-                          ))}
-                        </div>
-                        <div style={{display:'flex',gap:4}}>
-                          {(['West','East'] as const).map(r=>(
-                            <button key={r} onClick={()=>setRrManualRegion(r)} style={{fontSize:9,fontWeight:600,padding:'3px 8px',borderRadius:4,cursor:'pointer',border:`1px solid ${rrManualRegion===r?C.green:C.border2}`,background:rrManualRegion===r?'rgba(0,200,150,0.12)':'transparent',color:rrManualRegion===r?C.green:C.text3}}>{r}</button>
-                          ))}
-                        </div>
-                      </div>
-                      <button onClick={()=>{
-                        if(!rrManualAE||!rrManualAcct.trim()||!rrManualDate) return
-                        const aeMatch=allAEs.find(a=>a.name===rrManualAE)
-                        if(!aeMatch) return
-                        const assignedAt=new Date(rrManualDate+'T12:00:00').toISOString()
-                        const assignment:RRAssignment={
-                          id:`rr-manual-${Date.now()}`,accountName:rrManualAcct.trim(),segment:rrManualSeg,region:rrManualRegion,
-                          assignedAE:aeMatch.name,calendarId:aeMatch.calendarId,
-                          meetingTime:assignedAt,assignedAt,skippedAEs:[],
-                        }
-                        saveAssignments([assignment,...rrAssignments])
-                        setRrManualAcct('');setRrManualAE('')
-                      }} disabled={!rrManualAE||!rrManualAcct.trim()} style={{fontSize:10,fontWeight:700,padding:'6px 12px',borderRadius:5,border:'none',cursor:(!rrManualAE||!rrManualAcct.trim())?'not-allowed':'pointer',background:(!rrManualAE||!rrManualAcct.trim())?C.surface3:C.green,color:(!rrManualAE||!rrManualAcct.trim())?C.text3:'#000',opacity:(!rrManualAE||!rrManualAcct.trim())?0.5:1}}>
-                        Log Assignment
-                      </button>
+              </div>
+            )}
+
+            {/* ═══════════════════════════════════════════════════════
+                LOG PAST MEETING MODAL
+            ═══════════════════════════════════════════════════════ */}
+            {rrShowBackfillModal&&(
+              <div style={{position:'fixed',inset:0,zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center',background:'rgba(0,0,0,0.6)',backdropFilter:'blur(4px)'}} onClick={e=>{if(e.target===e.currentTarget){setRrShowBackfillModal(false);setRrBfPassErr(false)}}}>
+                <div style={{background:C.surface,border:`1px solid ${C.border2}`,borderRadius:14,padding:28,width:440,maxHeight:'90vh',overflowY:'auto'}} onClick={e=>e.stopPropagation()}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+                    <div style={{fontSize:18,fontWeight:800,color:C.text}}>Log Past Meeting</div>
+                    <button onClick={()=>{setRrShowBackfillModal(false);setRrBfPassErr(false)}} style={{fontSize:18,background:'none',border:'none',color:C.text3,cursor:'pointer'}}>✕</button>
+                  </div>
+                  <div style={{display:'grid',gap:12}}>
+                    <div>
+                      <label style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',display:'block',marginBottom:4}}>AE *</label>
+                      <select value={rrBfAE} onChange={e=>setRrBfAE(e.target.value)} style={{...inputStyle,fontSize:11}}>
+                        <option value="">Select AE...</option>
+                        {rrRoster.filter(ae=>ae.status==='Active').map(ae=><option key={ae.id} value={ae.name}>{ae.name} — {ae.segment} · {ae.region}</option>)}
+                      </select>
                     </div>
-                  )}
+                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+                      <div>
+                        <label style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',display:'block',marginBottom:4}}>Meeting Date *</label>
+                        <input type="date" value={rrBfDate} onChange={e=>setRrBfDate(e.target.value)} style={{...inputStyle,fontSize:11}}/>
+                      </div>
+                      <div>
+                        <label style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',display:'block',marginBottom:4}}>Meeting Time</label>
+                        <input type="time" value={rrBfTime} onChange={e=>setRrBfTime(e.target.value)} style={{...inputStyle,fontSize:11}} placeholder="Optional"/>
+                      </div>
+                    </div>
+                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+                      <div>
+                        <label style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',display:'block',marginBottom:4}}>Prospect Name *</label>
+                        <input value={rrBfProspectName} onChange={e=>setRrBfProspectName(e.target.value)} placeholder="First Last" style={{...inputStyle,fontSize:11}}/>
+                      </div>
+                      <div>
+                        <label style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',display:'block',marginBottom:4}}>Prospect Company *</label>
+                        <input value={rrBfCompany} onChange={e=>setRrBfCompany(e.target.value)} placeholder="Company name" style={{...inputStyle,fontSize:11}}/>
+                      </div>
+                    </div>
+                    <div>
+                      <label style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',display:'block',marginBottom:4}}>Source</label>
+                      <select value={rrBfSource} onChange={e=>setRrBfSource(e.target.value)} style={{...inputStyle,fontSize:11}}>
+                        {BACKFILL_SOURCES.map(s=><option key={s} value={s}>{s}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',display:'block',marginBottom:4}}>Salesforce URL</label>
+                      <input value={rrBfSfUrl} onChange={e=>setRrBfSfUrl(e.target.value)} placeholder="https://qawolf.lightning.force.com/..." style={{...inputStyle,fontSize:11}}/>
+                    </div>
+                    <div>
+                      <label style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',display:'block',marginBottom:4}}>Notes</label>
+                      <textarea value={rrBfNotes} onChange={e=>setRrBfNotes(e.target.value)} placeholder="Optional notes..." rows={3} style={{...inputStyle,fontSize:11,resize:'vertical'}}/>
+                    </div>
+                    <div>
+                      <label style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',display:'block',marginBottom:4}}>Manager Passcode *</label>
+                      <input type="password" value={rrBfPass} onChange={e=>{setRrBfPass(e.target.value);setRrBfPassErr(false)}} placeholder="Enter passcode" style={{...inputStyle,fontSize:11,borderColor:rrBfPassErr?C.red:undefined}}/>
+                      {rrBfPassErr&&<div style={{fontSize:9,color:C.red,marginTop:3}}>Incorrect passcode</div>}
+                    </div>
+                    <button onClick={()=>{
+                      if(rrBfPass!=='johnnywolfpack2026'){setRrBfPassErr(true);return}
+                      if(!rrBfAE||!rrBfProspectName.trim()||!rrBfCompany.trim()||!rrBfDate) return
+                      const aeMatch=rrRoster.find(a=>a.name===rrBfAE)
+                      if(!aeMatch) return
+                      const mtDate=rrBfTime?new Date(`${rrBfDate}T${rrBfTime}:00`):new Date(`${rrBfDate}T12:00:00`)
+                      const assignment:RRAssignment={
+                        id:`rr-manual-${Date.now()}`,
+                        accountName:`${rrBfProspectName.trim()} — ${rrBfCompany.trim()}`,
+                        segment:aeMatch.segment,region:aeMatch.region,
+                        assignedAE:aeMatch.name,calendarId:aeMatch.calendarId,
+                        meetingTime:mtDate.toISOString(),
+                        assignedAt:new Date().toISOString(),
+                        skippedAEs:[],
+                        manualBackfill:true,
+                        prospectName:rrBfProspectName.trim(),
+                        prospectCompany:rrBfCompany.trim(),
+                        source:rrBfSource,
+                        sfUrl:rrBfSfUrl.trim()||undefined,
+                        notes:rrBfNotes.trim()||undefined,
+                      }
+                      saveAssignments([assignment,...rrAssignments])
+                      setRrBfAE('');setRrBfDate('');setRrBfTime('');setRrBfProspectName('');setRrBfCompany('');setRrBfSource('Inbound MQL');setRrBfSfUrl('');setRrBfNotes('');setRrBfPass('');setRrBfPassErr(false)
+                      setRrShowBackfillModal(false)
+                    }} disabled={!rrBfAE||!rrBfProspectName.trim()||!rrBfCompany.trim()||!rrBfDate||!rrBfPass}
+                      style={{padding:'10px 0',borderRadius:8,border:'none',fontWeight:700,fontSize:12,cursor:(!rrBfAE||!rrBfProspectName.trim()||!rrBfCompany.trim()||!rrBfDate||!rrBfPass)?'not-allowed':'pointer',background:(!rrBfAE||!rrBfProspectName.trim()||!rrBfCompany.trim()||!rrBfDate||!rrBfPass)?C.surface3:C.green,color:(!rrBfAE||!rrBfProspectName.trim()||!rrBfCompany.trim()||!rrBfDate||!rrBfPass)?C.text3:'#000',opacity:(!rrBfAE||!rrBfProspectName.trim()||!rrBfCompany.trim()||!rrBfDate||!rrBfPass)?0.5:1}}>
+                      Log Meeting
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
+
+            {/* ═══════════════════════════════════════════════════════
+                MANAGE AEs MODAL
+            ═══════════════════════════════════════════════════════ */}
+            {rrShowManageModal&&(()=>{
+              const closeManage=()=>{setRrShowManageModal(false);setRrMgmtEditId(null);setRrMgmtAddOpen(false);setRrMgmtPassErr(false);setRrMgmtPass('');setRrMgmtToast('')}
+              const resetForm=()=>{setRrMgmtName('');setRrMgmtEmail('');setRrMgmtCalEmail('');setRrMgmtSe('Ricky');setRrMgmtSeg('Commercial');setRrMgmtRegion('East');setRrMgmtStatus('Active')}
+              const emailValid=(e:string)=>/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)
+              const startEdit=(ae:RosterAE)=>{setRrMgmtEditId(ae.id);setRrMgmtAddOpen(false);setRrMgmtName(ae.name);setRrMgmtEmail(ae.calendarId);setRrMgmtCalEmail(ae.calendarId);setRrMgmtSe(ae.se);setRrMgmtSeg(ae.segment);setRrMgmtRegion(ae.region);setRrMgmtStatus(ae.status)}
+              const startAdd=()=>{setRrMgmtEditId(null);setRrMgmtAddOpen(true);resetForm()}
+              const showToast=(msg:string)=>{setRrMgmtToast(msg);setTimeout(()=>setRrMgmtToast(''),4000)}
+              const formValid=rrMgmtName.trim()&&emailValid(rrMgmtEmail)&&rrMgmtCalEmail.trim()
+              const formFields=(<div style={{display:'grid',gap:10,marginTop:12,padding:14,background:C.surface2,borderRadius:8,border:`1px solid ${C.border}`}}>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+                  <div>
+                    <label style={{fontSize:9,fontWeight:700,color:C.text3,textTransform:'uppercase',display:'block',marginBottom:3}}>Full Name *</label>
+                    <input value={rrMgmtName} onChange={e=>setRrMgmtName(e.target.value)} style={{...inputStyle,fontSize:11}} placeholder="Full name"/>
+                  </div>
+                  <div>
+                    <label style={{fontSize:9,fontWeight:700,color:C.text3,textTransform:'uppercase',display:'block',marginBottom:3}}>Email *</label>
+                    <input value={rrMgmtEmail} onChange={e=>setRrMgmtEmail(e.target.value)} style={{...inputStyle,fontSize:11,borderColor:rrMgmtEmail&&!emailValid(rrMgmtEmail)?C.red:undefined}} placeholder="ae@qawolf.com"/>
+                  </div>
+                </div>
+                <div>
+                  <label style={{fontSize:9,fontWeight:700,color:C.text3,textTransform:'uppercase',display:'block',marginBottom:3}}>Google Calendar Email *</label>
+                  <input value={rrMgmtCalEmail} onChange={e=>setRrMgmtCalEmail(e.target.value)} style={{...inputStyle,fontSize:11}} placeholder="calendar@qawolf.com"/>
+                  <div style={{fontSize:8,color:C.text3,marginTop:2}}>Adding an AE here registers them in the dashboard. Don{"'"}t forget to subscribe to their calendar in your Google Calendar settings.</div>
+                </div>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8}}>
+                  <div>
+                    <label style={{fontSize:9,fontWeight:700,color:C.text3,textTransform:'uppercase',display:'block',marginBottom:3}}>Assigned SE</label>
+                    <select value={rrMgmtSe} onChange={e=>setRrMgmtSe(e.target.value)} style={{...inputStyle,fontSize:11}}>
+                      {Object.entries(SE_ROSTER).map(([k,v])=><option key={k} value={k}>{v.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{fontSize:9,fontWeight:700,color:C.text3,textTransform:'uppercase',display:'block',marginBottom:3}}>Segment</label>
+                    <select value={rrMgmtSeg} onChange={e=>setRrMgmtSeg(e.target.value as 'Major'|'Commercial')} style={{...inputStyle,fontSize:11}}>
+                      <option value="Commercial">Commercial</option><option value="Major">Major</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{fontSize:9,fontWeight:700,color:C.text3,textTransform:'uppercase',display:'block',marginBottom:3}}>Region</label>
+                    <select value={rrMgmtRegion} onChange={e=>setRrMgmtRegion(e.target.value as 'West'|'East')} style={{...inputStyle,fontSize:11}}>
+                      <option value="East">East</option><option value="West">West</option>
+                    </select>
+                  </div>
+                </div>
+                {rrMgmtEditId&&(
+                  <div>
+                    <label style={{fontSize:9,fontWeight:700,color:C.text3,textTransform:'uppercase',display:'block',marginBottom:3}}>Status</label>
+                    <select value={rrMgmtStatus} onChange={e=>setRrMgmtStatus(e.target.value as 'Active'|'Inactive')} style={{...inputStyle,fontSize:11}}>
+                      <option value="Active">Active</option><option value="Inactive">Inactive</option>
+                    </select>
+                  </div>
+                )}
+                <div>
+                  <label style={{fontSize:9,fontWeight:700,color:C.text3,textTransform:'uppercase',display:'block',marginBottom:3}}>Manager Passcode *</label>
+                  <input type="password" value={rrMgmtPass} onChange={e=>{setRrMgmtPass(e.target.value);setRrMgmtPassErr(false)}} style={{...inputStyle,fontSize:11,borderColor:rrMgmtPassErr?C.red:undefined}} placeholder="Enter passcode"/>
+                  {rrMgmtPassErr&&<div style={{fontSize:9,color:C.red,marginTop:2}}>Incorrect passcode</div>}
+                </div>
+                <div style={{display:'flex',gap:8}}>
+                  <button onClick={()=>{
+                    if(rrMgmtPass!=='johnnywolfpack2026'){setRrMgmtPassErr(true);return}
+                    if(!formValid) return
+                    if(rrMgmtEditId){
+                      const updated=rrRoster.map(ae=>ae.id===rrMgmtEditId?{...ae,name:rrMgmtName.trim(),calendarId:rrMgmtCalEmail.trim(),se:rrMgmtSe,team:SE_TO_TEAM[rrMgmtSe]||rrMgmtSe,segment:rrMgmtSeg,region:rrMgmtRegion,status:rrMgmtStatus}:ae)
+                      saveRoster(updated);setRrMgmtEditId(null);resetForm();setRrMgmtPass('');showToast(rrMgmtStatus==='Inactive'?`${rrMgmtName.trim()} deactivated. Historical data preserved.`:`${rrMgmtName.trim()} updated.`)
+                    } else {
+                      const newAE:RosterAE={id:`ae-${Date.now()}`,name:rrMgmtName.trim(),calendarId:rrMgmtCalEmail.trim(),se:rrMgmtSe,team:SE_TO_TEAM[rrMgmtSe]||rrMgmtSe,segment:rrMgmtSeg,region:rrMgmtRegion,status:'Active',dateAdded:new Date().toISOString().slice(0,10)}
+                      saveRoster([...rrRoster,newAE]);setRrMgmtAddOpen(false);resetForm();setRrMgmtPass('')
+                      showToast(`AE added to roster. Don't forget to subscribe to their calendar in your Google Calendar settings.`)
+                    }
+                  }} disabled={!formValid||!rrMgmtPass} style={{flex:1,padding:'8px 0',borderRadius:6,border:'none',fontWeight:700,fontSize:11,cursor:(!formValid||!rrMgmtPass)?'not-allowed':'pointer',background:(!formValid||!rrMgmtPass)?C.surface3:C.green,color:(!formValid||!rrMgmtPass)?C.text3:'#000',opacity:(!formValid||!rrMgmtPass)?0.5:1}}>
+                    {rrMgmtEditId?'Save Changes':'Add AE'}
+                  </button>
+                  <button onClick={()=>{rrMgmtEditId?setRrMgmtEditId(null):setRrMgmtAddOpen(false);resetForm();setRrMgmtPass('');setRrMgmtPassErr(false)}} style={{padding:'8px 16px',borderRadius:6,border:`1px solid ${C.border2}`,background:'transparent',color:C.text3,fontSize:11,fontWeight:600,cursor:'pointer'}}>Cancel</button>
+                </div>
+              </div>)
+              return (
+                <div style={{position:'fixed',inset:0,zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center',background:'rgba(0,0,0,0.6)',backdropFilter:'blur(4px)'}} onClick={e=>{if(e.target===e.currentTarget)closeManage()}}>
+                  <div style={{background:C.surface,border:`1px solid ${C.border2}`,borderRadius:14,padding:28,width:560,maxHeight:'90vh',overflowY:'auto'}} onClick={e=>e.stopPropagation()}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+                      <div style={{fontSize:18,fontWeight:800,color:C.text}}>Manage AEs</div>
+                      <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                        {!rrMgmtAddOpen&&!rrMgmtEditId&&<button onClick={startAdd} style={{fontSize:11,fontWeight:700,padding:'6px 14px',borderRadius:6,border:'none',background:C.green,color:'#000',cursor:'pointer'}}>+ Add AE</button>}
+                        <button onClick={closeManage} style={{fontSize:18,background:'none',border:'none',color:C.text3,cursor:'pointer'}}>✕</button>
+                      </div>
+                    </div>
+                    {rrMgmtToast&&<div style={{marginBottom:12,padding:'8px 12px',borderRadius:6,background:'rgba(0,229,160,0.12)',border:`1px solid rgba(0,229,160,0.3)`,fontSize:10,color:C.green,fontWeight:600}}>{rrMgmtToast}</div>}
+                    {rrMgmtAddOpen&&!rrMgmtEditId&&formFields}
+                    <div style={{marginTop:rrMgmtAddOpen?16:0}}>
+                      <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:8}}>Active AEs ({rrRoster.filter(a=>a.status==='Active').length})</div>
+                      {rrRoster.filter(a=>a.status==='Active').map(ae=>(
+                        <div key={ae.id}>
+                          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:`1px solid ${C.border}`}}>
+                            <div>
+                              <div style={{fontSize:12,fontWeight:600,color:C.text}}>{ae.name}</div>
+                              <div style={{fontSize:9,color:C.text3}}>{ae.calendarId} · {ae.segment} · {ae.region} · SE: {SE_ROSTER[ae.se]?.name||ae.se} · Added {ae.dateAdded}</div>
+                            </div>
+                            <div style={{display:'flex',gap:4}}>
+                              <button onClick={()=>startEdit(ae)} style={{fontSize:9,fontWeight:600,padding:'3px 8px',borderRadius:4,cursor:'pointer',border:`1px solid ${C.border2}`,background:'transparent',color:C.text3}}>Edit</button>
+                              <button onClick={()=>{
+                                if(!window.confirm(`Deactivate ${ae.name}? They will be removed from the active queue but historical data is preserved.`)) return
+                                const p=window.prompt('Enter manager passcode:')
+                                if(p!=='johnnywolfpack2026'){if(p!==null)alert('Incorrect passcode');return}
+                                saveRoster(rrRoster.map(a=>a.id===ae.id?{...a,status:'Inactive' as const}:a))
+                                showToast(`${ae.name} deactivated. Historical data preserved.`)
+                              }} style={{fontSize:9,fontWeight:600,padding:'3px 8px',borderRadius:4,cursor:'pointer',border:`1px solid ${C.red}`,background:'transparent',color:C.red}}>Deactivate</button>
+                            </div>
+                          </div>
+                          {rrMgmtEditId===ae.id&&formFields}
+                        </div>
+                      ))}
+                      {rrRoster.some(a=>a.status==='Inactive')&&(
+                        <>
+                          <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',marginTop:16,marginBottom:8}}>Inactive AEs ({rrRoster.filter(a=>a.status==='Inactive').length})</div>
+                          {rrRoster.filter(a=>a.status==='Inactive').map(ae=>(
+                            <div key={ae.id}>
+                              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:`1px solid ${C.border}`,opacity:0.6}}>
+                                <div>
+                                  <div style={{fontSize:12,fontWeight:600,color:C.text}}>{ae.name}</div>
+                                  <div style={{fontSize:9,color:C.text3}}>{ae.calendarId} · {ae.segment} · {ae.region} · SE: {SE_ROSTER[ae.se]?.name||ae.se}</div>
+                                </div>
+                                <div style={{display:'flex',gap:4}}>
+                                  <button onClick={()=>startEdit(ae)} style={{fontSize:9,fontWeight:600,padding:'3px 8px',borderRadius:4,cursor:'pointer',border:`1px solid ${C.border2}`,background:'transparent',color:C.text3}}>Edit</button>
+                                  <button onClick={()=>{
+                                    const p=window.prompt('Enter manager passcode to reactivate:')
+                                    if(p!=='johnnywolfpack2026'){if(p!==null)alert('Incorrect passcode');return}
+                                    saveRoster(rrRoster.map(a=>a.id===ae.id?{...a,status:'Active' as const}:a))
+                                    showToast(`${ae.name} reactivated. They join at the back of the queue.`)
+                                  }} style={{fontSize:9,fontWeight:600,padding:'3px 8px',borderRadius:4,cursor:'pointer',border:`1px solid ${C.green}`,background:'transparent',color:C.green}}>Reactivate</button>
+                                </div>
+                              </div>
+                              {rrMgmtEditId===ae.id&&formFields}
+                            </div>
+                          ))}
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )
+            })()}
           </>)
         })()}
       </main>
