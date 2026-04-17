@@ -970,10 +970,11 @@ function DetailPanel({lead,detail,onSave,onClose}:{lead:AppLead;detail:LeadDetai
             </div>
           </div>
 
-          <div style={{display:'grid',gridTemplateColumns:'160px 140px 160px 1fr 1fr',gap:12}}>
+          <div style={{display:'grid',gridTemplateColumns:'160px 140px 160px 1fr 1fr 1fr',gap:12}}>
             <Field label="ACV ($)"><Inp value={d.acv} onChange={setVal('acv')} placeholder="e.g. 72000"/></Field>
             <Field label="Closed-Won"><Sel value={d.closedWon} onChange={setVal('closedWon')} opts={CLOSED_WON_OPTIONS}/></Field>
             <Field label="Closed-Won Date"><DateField value={d.closedWonDate} onChange={setVal('closedWonDate')}/></Field>
+            <Field label="Salesforce URL"><Inp value={d.sfLink} onChange={setVal('sfLink')} placeholder="https://qawolf.lightning.force.com/…"/></Field>
             <Field label="Gong URL"><Inp value={d.gongUrl} onChange={setVal('gongUrl')} placeholder="https://app.gong.io/…"/></Field>
             <div style={{display:'flex',flexDirection:'column',gap:4}}>
               <span style={labelStyle}>Notes</span>
