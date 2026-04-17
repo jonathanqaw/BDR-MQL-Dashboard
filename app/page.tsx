@@ -1997,18 +1997,40 @@ export default function Dashboard() {
     return acc
   },{} as Record<Status,number>)
 
-  // SQL and SQO counts — driven by detail fields, scoped to period
-  const sqlCount=allLeads.filter(l=>{
-    if (!l.date&&!l.receivedAt) return false
-    if (period!=='all'&&!hasActivityInPeriod(l,periodStart)) return false
+  // ── Milestone-based counts (date-driven, not status-driven) ──
+  // A lead counts as "booked" if it has a meetingDate OR is in a post-booked status
+  // (inprogress, closedwon). Scoped to period using meetingDate.
+  const BOOKED_STATUSES_SET=new Set<Status>(['booked','inprogress','closedwon'])
+  const dateInRange=(d:string|undefined,start:Date,end:Date):boolean=>{if(!d)return false;const dt=new Date(d);return dt>=start&&dt<=end}
+  const bookedCount=allLeads.filter(l=>{
     if (!dirFilter(l)) return false
-    return (details[l.email]?.sqlDq||'')==='Yes'
+    const det=details[l.email]
+    const s=statuses[l.email]||'new'
+    const isBooked=!!(det?.meetingDate)||BOOKED_STATUSES_SET.has(s)
+    if (!isBooked) return false
+    if (period==='all') return true
+    // Use meetingDate for period scoping if available, else fall back to activity dates
+    if (det?.meetingDate) return dateInRange(det.meetingDate,periodRange.start,periodRange.end)
+    return hasActivityInRange(l,periodRange.start,periodRange.end)
+  }).length
+  // SQL and SQO counts — driven by detail fields, scoped to period by their specific dates
+  const sqlCount=allLeads.filter(l=>{
+    if (!dirFilter(l)) return false
+    const det=details[l.email]
+    if ((det?.sqlDq||'')!=='Yes') return false
+    if (period==='all') return true
+    const rd=det?.sqlDate||det?.meetingDate
+    if (rd) return dateInRange(rd,periodRange.start,periodRange.end)
+    return hasActivityInRange(l,periodRange.start,periodRange.end)
   }).length
   const sqoCount=allLeads.filter(l=>{
-    if (!l.date&&!l.receivedAt) return false
-    if (period!=='all'&&!hasActivityInPeriod(l,periodStart)) return false
     if (!dirFilter(l)) return false
-    return (details[l.email]?.sqo||'')==='Yes'
+    const det=details[l.email]
+    if ((det?.sqo||'')!=='Yes') return false
+    if (period==='all') return true
+    const rd=det?.sqoDate||det?.sqlDate||det?.meetingDate
+    if (rd) return dateInRange(rd,periodRange.start,periodRange.end)
+    return hasActivityInRange(l,periodRange.start,periodRange.end)
   }).length
   const sqlAllTime=allLeads.filter(l=>(details[l.email]?.sqlDq||'')==='Yes').length
   const sqoAllTime=allLeads.filter(l=>(details[l.email]?.sqo||'')==='Yes').length
@@ -2877,7 +2899,7 @@ export default function Dashboard() {
           <div style={{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:12,marginBottom:20}}>
             {[
               {label:'Total in period', value:Object.values(pCounts).reduce((s,v)=>s+v,0), color:C.green,   sub:period,          filter:'all'      as StatusFilter},
-              {label:'Booked',          value:pCounts.booked,                                color:C.green,   sub:'meetings set',  filter:'booked'   as StatusFilter},
+              {label:'Booked',          value:bookedCount,                                   color:C.green,   sub:'meetings set',  filter:'booked'   as StatusFilter},
               {label:'Contacted',       value:pCounts.contacted,                             color:C.purpleL, sub:'in progress',   filter:'contacted' as StatusFilter},
               {label:'Untouched',       value:pCounts.new,                                   color:C.amber,   sub:'needs action',  filter:'new'      as StatusFilter},
               {label:'SQLs',            value:sqlCount,                                      color:'#60d4f4',  sub:'qualified',     filter:'all'      as StatusFilter, df:'sql' as const},
@@ -2900,21 +2922,45 @@ export default function Dashboard() {
           {pipCompare&&(()=>{
             const PERIOD_LABELS:Record<PeriodFilter,string>={all:'All Time',week:'This Week',month:'This Month',quarter:'This Qtr',q1:'Q1',q2:'Q2',q3:'Q3',q4:'Q4',year:'YTD',custom:'Custom'}
             const compRange=getPeriodRange(pipComparePeriod,pipCompareFrom,pipCompareTo)
-            const compCountByStatus=(s:Status)=>allLeads.filter(l=>{if(!l.date&&!l.receivedAt)return false;if(!hasActivityInRange(l,compRange.start,compRange.end))return false;if(!dirFilter(l))return false;return(statuses[l.email]||'new')===s}).length
-            const compBooked=compCountByStatus('booked')
-            const compContacted=compCountByStatus('contacted')
-            const compNew=compCountByStatus('new')
             const compTotal=allLeads.filter(l=>{if(!l.date&&!l.receivedAt)return false;if(!hasActivityInRange(l,compRange.start,compRange.end))return false;return dirFilter(l)}).length
-            const compSqls=allLeads.filter(l=>{if(!l.date&&!l.receivedAt)return false;if(!hasActivityInRange(l,compRange.start,compRange.end))return false;if(!dirFilter(l))return false;return(details[l.email]?.sqlDq||'')==='Yes'}).length
-            const compSqos=allLeads.filter(l=>{if(!l.date&&!l.receivedAt)return false;if(!hasActivityInRange(l,compRange.start,compRange.end))return false;if(!dirFilter(l))return false;return(details[l.email]?.sqo||'')==='Yes'}).length
+            // Milestone-based comparison counts
+            const compBooked=allLeads.filter(l=>{
+              if(!dirFilter(l))return false;const det=details[l.email];const s=statuses[l.email]||'new'
+              const isB=!!(det?.meetingDate)||BOOKED_STATUSES_SET.has(s);if(!isB)return false
+              if(det?.meetingDate)return dateInRange(det.meetingDate,compRange.start,compRange.end)
+              return hasActivityInRange(l,compRange.start,compRange.end)
+            }).length
+            const compSqls=allLeads.filter(l=>{
+              if(!dirFilter(l))return false;const det=details[l.email];if((det?.sqlDq||'')!=='Yes')return false
+              const rd=det?.sqlDate||det?.meetingDate;if(rd)return dateInRange(rd,compRange.start,compRange.end)
+              return hasActivityInRange(l,compRange.start,compRange.end)
+            }).length
+            const compSqos=allLeads.filter(l=>{
+              if(!dirFilter(l))return false;const det=details[l.email];if((det?.sqo||'')!=='Yes')return false
+              const rd=det?.sqoDate||det?.sqlDate||det?.meetingDate;if(rd)return dateInRange(rd,compRange.start,compRange.end)
+              return hasActivityInRange(l,compRange.start,compRange.end)
+            }).length
+            const compHeld=allLeads.filter(l=>{
+              if(!dirFilter(l))return false;const det=details[l.email];const s=statuses[l.email]||'new'
+              if(!det?.meetingDate)return false;const md=new Date(det.meetingDate);if(md>new Date())return false
+              const isHeld=BOOKED_STATUSES_SET.has(s)||(det.sqlDq||'').toLowerCase()==='yes';if(!isHeld)return false
+              return dateInRange(det.meetingDate,compRange.start,compRange.end)
+            }).length
             const curTotal=Object.values(pCounts).reduce((s,v)=>s+v,0)
+            // Held count for current period
+            const curHeld=allLeads.filter(l=>{
+              if(!dirFilter(l))return false;const det=details[l.email];const s=statuses[l.email]||'new'
+              if(!det?.meetingDate)return false;const md=new Date(det.meetingDate);if(md>new Date())return false
+              const isHeld=BOOKED_STATUSES_SET.has(s)||(det.sqlDq||'').toLowerCase()==='yes';if(!isHeld)return false
+              if(period==='all')return true
+              return dateInRange(det.meetingDate,periodRange.start,periodRange.end)
+            }).length
             const delta=(a:number,b:number)=>{if(b===0)return a>0?'+∞':'—';const pct=Math.round((a-b)/b*100);return pct>0?`+${pct}%`:pct===0?'0%':`${pct}%`}
             const deltaColor=(a:number,b:number)=>a>b?C.green:a<b?C.red:C.text3
             const metrics=[
               {label:'Total',cur:curTotal,comp:compTotal},
-              {label:'Booked',cur:pCounts.booked,comp:compBooked},
-              {label:'Contacted',cur:pCounts.contacted,comp:compContacted},
-              {label:'Untouched',cur:pCounts.new,comp:compNew},
+              {label:'Meetings Booked',cur:bookedCount,comp:compBooked},
+              {label:'Meetings Held',cur:curHeld,comp:compHeld},
               {label:'SQLs',cur:sqlCount,comp:compSqls},
               {label:'SQOs',cur:sqoCount,comp:compSqos},
             ]
