@@ -1750,6 +1750,13 @@ export default function Dashboard() {
 
   const getDeletedEmails=():Set<string>=>{ try { return new Set(JSON.parse(localStorage.getItem('mql-deleted')||'[]')) } catch { return new Set() } }
   const deleteAccount=(email:string)=>{
+    // Remove from manual leads if it's a manual entry
+    const isManual=manualLeads.some(l=>l.email===email)
+    if(isManual){
+      const cleaned=manualLeads.filter(l=>l.email!==email)
+      setManualLeads(cleaned);saveManualLeads(cleaned)
+    }
+    // Also add to deleted set (needed for live/historical leads that keep reappearing from Slack)
     const updated=new Set([...getDeletedEmails(),email])
     localStorage.setItem('mql-deleted',JSON.stringify([...updated]))
     setDeletedEmails(updated)
@@ -1870,7 +1877,8 @@ export default function Dashboard() {
       localStorage.setItem('mql-deleted',JSON.stringify([...cleaned]));setDeletedEmails(cleaned)
     }
     const newLead:AppLead={ email, domain, account, name:null, sfUrl:null, date:new Date().toISOString().split('T')[0], receivedAt:new Date().toISOString(), source:'bdr', repSlackId: currentRep?.slackId||null, repId: currentRep?.id||null, isManual:true }
-    const updated=[...manualLeads,newLead]
+    // Replace any existing manual lead with the same email (prevent duplicates)
+    const updated=[...manualLeads.filter(l=>l.email!==email),newLead]
     setManualLeads(updated); saveManualLeads(updated)
     saveSt(email,'new')
     setStatuses(p=>({...p,[email]:'new'}))
