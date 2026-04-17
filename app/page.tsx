@@ -1672,6 +1672,12 @@ export default function Dashboard() {
   const [rrSeError,setRrSeError]=useState<string|null>(null)
   const [rrFetchedCalKey,setRrFetchedCalKey]=useState('')
   const [rrFetchedSeKey,setRrFetchedSeKey]=useState('')
+  const [rrManualOpen,setRrManualOpen]=useState(false)
+  const [rrManualAE,setRrManualAE]=useState('')
+  const [rrManualAcct,setRrManualAcct]=useState('')
+  const [rrManualSeg,setRrManualSeg]=useState<'Major'|'Commercial'>('Commercial')
+  const [rrManualRegion,setRrManualRegion]=useState<'West'|'East'>('East')
+  const [rrManualDate,setRrManualDate]=useState(new Date().toISOString().slice(0,10))
 
   // Fetch AE calendar when the viewed AE or week changes
   const rrFetchCal=useCallback(async(calendarId:string,weekStart:string)=>{
@@ -6225,6 +6231,51 @@ export default function Dashboard() {
                       {ae.name}{removedAEs.includes(ae.name)?' ✕':''}
                     </button>
                   ))}
+                </div>
+                {/* ── Log Past Assignment ── */}
+                <div style={{marginTop:16,paddingTop:14,borderTop:`1px solid ${C.border}`}}>
+                  <button onClick={()=>setRrManualOpen(!rrManualOpen)} style={{fontSize:10,fontWeight:700,color:C.text3,background:'none',border:'none',cursor:'pointer',padding:0}}>
+                    {rrManualOpen?'▼':'▶'} Log Past Assignment
+                  </button>
+                  {rrManualOpen&&(
+                    <div style={{marginTop:10,display:'grid',gap:8}}>
+                      <div style={{display:'flex',gap:6}}>
+                        <select value={rrManualAE} onChange={e=>setRrManualAE(e.target.value)} style={{flex:1,fontSize:10,padding:'5px 8px',borderRadius:5,border:`1px solid ${C.border2}`,background:C.surface2,color:C.text}}>
+                          <option value="">Select AE...</option>
+                          {allAEs.map(ae=><option key={ae.name} value={ae.name}>{ae.name} ({ae.region})</option>)}
+                        </select>
+                        <input type="date" value={rrManualDate} onChange={e=>setRrManualDate(e.target.value)} style={{fontSize:10,padding:'5px 8px',borderRadius:5,border:`1px solid ${C.border2}`,background:C.surface2,color:C.text}}/>
+                      </div>
+                      <input value={rrManualAcct} onChange={e=>setRrManualAcct(e.target.value)} placeholder="Account name" style={{fontSize:10,padding:'5px 8px',borderRadius:5,border:`1px solid ${C.border2}`,background:C.surface2,color:C.text}}/>
+                      <div style={{display:'flex',gap:6}}>
+                        <div style={{display:'flex',gap:4}}>
+                          {(['Major','Commercial'] as const).map(s=>(
+                            <button key={s} onClick={()=>setRrManualSeg(s)} style={{fontSize:9,fontWeight:600,padding:'3px 8px',borderRadius:4,cursor:'pointer',border:`1px solid ${rrManualSeg===s?C.green:C.border2}`,background:rrManualSeg===s?'rgba(0,200,150,0.12)':'transparent',color:rrManualSeg===s?C.green:C.text3}}>{s}</button>
+                          ))}
+                        </div>
+                        <div style={{display:'flex',gap:4}}>
+                          {(['West','East'] as const).map(r=>(
+                            <button key={r} onClick={()=>setRrManualRegion(r)} style={{fontSize:9,fontWeight:600,padding:'3px 8px',borderRadius:4,cursor:'pointer',border:`1px solid ${rrManualRegion===r?C.green:C.border2}`,background:rrManualRegion===r?'rgba(0,200,150,0.12)':'transparent',color:rrManualRegion===r?C.green:C.text3}}>{r}</button>
+                          ))}
+                        </div>
+                      </div>
+                      <button onClick={()=>{
+                        if(!rrManualAE||!rrManualAcct.trim()||!rrManualDate) return
+                        const aeMatch=allAEs.find(a=>a.name===rrManualAE)
+                        if(!aeMatch) return
+                        const assignedAt=new Date(rrManualDate+'T12:00:00').toISOString()
+                        const assignment:RRAssignment={
+                          id:`rr-manual-${Date.now()}`,accountName:rrManualAcct.trim(),segment:rrManualSeg,region:rrManualRegion,
+                          assignedAE:aeMatch.name,calendarId:aeMatch.calendarId,
+                          meetingTime:assignedAt,assignedAt,skippedAEs:[],
+                        }
+                        saveAssignments([assignment,...rrAssignments])
+                        setRrManualAcct('');setRrManualAE('')
+                      }} disabled={!rrManualAE||!rrManualAcct.trim()} style={{fontSize:10,fontWeight:700,padding:'6px 12px',borderRadius:5,border:'none',cursor:(!rrManualAE||!rrManualAcct.trim())?'not-allowed':'pointer',background:(!rrManualAE||!rrManualAcct.trim())?C.surface3:C.green,color:(!rrManualAE||!rrManualAcct.trim())?C.text3:'#000',opacity:(!rrManualAE||!rrManualAcct.trim())?0.5:1}}>
+                        Log Assignment
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
