@@ -27,7 +27,7 @@ const USER_CREDENTIALS: UserCredential[] = [
   { email:'scott@qawolf.com',       password:'ScottQAW2026',       role:'cmo',     name:'Scott Wilson', allowedViews:['pipeline','analytics','reporting','leaderboard','revops_commissions','roundrobin'] },
   { email:'arnav@qawolf.com',       password:'PMLQAW2026',         role:'pm', name:'Arnav Shome', allowedViews:['pipeline','reporting','analytics','revops_commissions','roundrobin'] },
   { email:'meenal@qawolf.com',      password:'RevOpsQAW#123',      role:'revops',  name:'Meenal Gupta', allowedViews:['revops_commissions','roundrobin'] },
-  { email:'leon@qawolf.com',        password:'PMLQAW2026',         role:'revops',  name:'Leon Tang', allowedViews:['pipeline','revops_commissions','roundrobin'] },
+  { email:'leon@qawolf.com',        password:'PMLQAW2026',         role:'pm',      name:'Leon Tang', allowedViews:['pipeline','reporting','analytics','revops_commissions','roundrobin'] },
 ]
 const MANAGER_ROLES: UserRole[] = ['manager','cmo'] // full access roles that can edit reps, manage pipeline, etc.
 // BDM-only: commission adjustments, cap attainment, manager commission view
