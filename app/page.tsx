@@ -44,7 +44,7 @@ interface Spiff { id:string; title:string; description:string; metric:LbMetric; 
 type PeriodFilter = 'week' | 'month' | 'quarter' | 'q1' | 'q2' | 'q3' | 'q4' | 'year' | 'custom' | 'all'
 type WorkedFilter = 'all' | 'worked' | 'untouched'
 type StatusFilter = 'all' | Status
-type ReportTimeframe = 'monthly' | 'quarterly' | 'custom'
+type ReportTimeframe = 'monthly' | 'quarterly' | 'yearly' | 'custom'
 type ReportScope = 'all_bdrs' | 'individual_bdr'
 type ReportType = 'full_funnel' | 'pipeline_performance' | 'mql_quality' | 'conversion_analysis'
 
@@ -1640,6 +1640,9 @@ export default function Dashboard() {
   const [reportRangeStart, setReportRangeStart] = useState('')
   const [reportRangeEnd, setReportRangeEnd] = useState('')
   const [reportGenerated, setReportGenerated] = useState(false)
+  const [reportExpandedStatus,setReportExpandedStatus]=useState<string|null>(null)
+  const [reportExpandedSource,setReportExpandedSource]=useState<string|null>(null)
+  const [reportExpandedVelocity,setReportExpandedVelocity]=useState<string|null>(null)
   const [oppPeriod,setOppPeriod]=useState<'week'|'month'|'quarter'>('quarter')
   const [oppMode,setOppMode]=useState<'sqo'|'active'|'lost'|'closedwon'>('sqo')
   const [oppFrom,setOppFrom]=useState('')
@@ -2238,21 +2241,39 @@ export default function Dashboard() {
     background:active?'rgba(123,110,246,0.18)':'transparent',
   })
 
-  const reportBaseLeads =
+  // ── Report date range (must be computed before reportBaseLeads) ──
+  const getReportRange = () => {
+    const now = new Date()
+    if (reportTimeframe === 'monthly') return {start:new Date(now.getFullYear(),now.getMonth(),1),end:new Date(now.getFullYear(),now.getMonth()+1,0,23,59,59)}
+    if (reportTimeframe === 'quarterly') {const qm=Math.floor(now.getMonth()/3)*3;return {start:new Date(now.getFullYear(),qm,1),end:new Date(now.getFullYear(),qm+3,0,23,59,59)}}
+    if (reportTimeframe === 'yearly') return {start:new Date(now.getFullYear(),0,1),end:new Date(now.getFullYear(),11,31,23,59,59)}
+    if (reportTimeframe === 'custom' && reportRangeStart && reportRangeEnd) return {start:new Date(reportRangeStart+'T00:00:00'),end:new Date(reportRangeEnd+'T23:59:59')}
+    const qm2=Math.floor(now.getMonth()/3)*3;return {start:new Date(now.getFullYear(),qm2,1),end:new Date(now.getFullYear(),qm2+3,0,23,59,59)}
+  }
+  const { start: reportStart, end: reportEnd } = getReportRange()
+  const reportRangeMs = Math.max(1, reportEnd.getTime() - reportStart.getTime())
+  const reportPrevStart = new Date(reportStart.getTime() - reportRangeMs)
+  const reportPrevEnd = new Date(reportEnd.getTime() - reportRangeMs)
+
+  const reportScopeLeads =
   reportScope === 'individual_bdr' && reportBdrId
     ? allLeads.filter(l => {
         const rep = reps.find(r => r.id === reportBdrId)
         if (!rep) return false
-
-        // Manager view should include unassigned leads plus anything explicitly assigned to Jonathan
         if (rep.id === 'jonathan') {
           return !l.repSlackId || (rep.slackId && l.repSlackId === rep.slackId)
         }
-
-        // Individual reps only see leads explicitly assigned to them
         return !!rep.slackId && l.repSlackId === rep.slackId
       })
     : allLeads
+  // Scope by report date range using activity dates
+  const reportInRange=(l:AppLead):boolean=>{
+    const det=details[l.email]
+    const dates=[det?.connectedDate,det?.meetingDate,det?.sqlDate,det?.sqoDate,det?.closedWonDate,l.date,l.receivedAt].filter(Boolean)
+    if(dates.length===0) return false
+    return dates.some(d=>{const dt=new Date(d as string);return dt>=reportStart&&dt<=reportEnd})
+  }
+  const reportBaseLeads = reportScopeLeads.filter(reportInRange)
   const pct = (n:number,d:number)=> d>0 ? Math.round((n/d)*100) : 0
 
   const reportStatusCounts = {
@@ -2362,41 +2383,15 @@ export default function Dashboard() {
 
 
 
-  const getReportRange = () => {
-    const now = new Date()
-    let start = new Date(now)
-    let end = new Date(now)
-
-    if (reportTimeframe === 'monthly') {
-      start = new Date(now.getFullYear(), now.getMonth(), 1)
-      end = new Date(now.getFullYear(), now.getMonth() + 1, 0)
-    } else if (reportTimeframe === 'quarterly') {
-      const qStartMonth = Math.floor(now.getMonth() / 3) * 3
-      start = new Date(now.getFullYear(), qStartMonth, 1)
-      end = new Date(now.getFullYear(), qStartMonth + 3, 0)
-    } else if (reportTimeframe === 'custom' && reportRangeStart && reportRangeEnd) {
-      start = new Date(reportRangeStart + 'T00:00:00')
-      end = new Date(reportRangeEnd + 'T23:59:59')
-    } else {
-      start = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1)
-      end = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3 + 3, 0)
-    }
-
-    return { start, end }
+  const reportLeadInRange = (lead:any, start:Date, end:Date) => {
+    const det=details[lead.email]
+    const dates=[det?.connectedDate,det?.meetingDate,det?.sqlDate,det?.sqoDate,det?.closedWonDate,lead.date,lead.receivedAt].filter(Boolean)
+    if(dates.length===0) return false
+    return dates.some((d:string)=>{const dt=new Date(d);return dt>=start&&dt<=end})
   }
 
-  const { start: reportStart, end: reportEnd } = getReportRange()
-  const rangeMs = Math.max(1, reportEnd.getTime() - reportStart.getTime())
-  const prevStart = new Date(reportStart.getTime() - rangeMs)
-  const prevEnd = new Date(reportEnd.getTime() - rangeMs)
-
-  const inRange = (lead:any, start:Date, end:Date) => {
-    const d = lead.date ? new Date(lead.date + 'T12:00:00') : null
-    return !!d && d >= start && d <= end
-  }
-
-  const currentPeriodLeads = reportBaseLeads.filter(l => inRange(l, reportStart, reportEnd))
-  const previousPeriodLeads = reportBaseLeads.filter(l => inRange(l, prevStart, prevEnd))
+  const previousPeriodLeads = reportScopeLeads.filter(l => reportLeadInRange(l, reportPrevStart, reportPrevEnd))
+  const currentPeriodLeads = reportBaseLeads
 
   const calcPeriodMetrics = (leads:any[]) => {
     const total = leads.length
@@ -2437,7 +2432,9 @@ export default function Dashboard() {
       ? 'Monthly'
       : reportTimeframe === 'quarterly'
         ? 'Quarterly'
-        : 'Custom Range'
+        : reportTimeframe === 'yearly'
+          ? 'Yearly'
+          : 'Custom Range'
 
   const reportCopyText = [
     `🧾 ${reportLabel} Reporting Summary`,
@@ -4157,6 +4154,7 @@ export default function Dashboard() {
                 >
                   <option value="monthly">Monthly</option>
                   <option value="quarterly">Quarterly</option>
+                  <option value="yearly">Yearly</option>
                   <option value="custom">Custom range</option>
                 </select>
               </div>
@@ -4331,6 +4329,9 @@ export default function Dashboard() {
                 ))}
               </div>
 
+              <div style={{fontSize:11,color:C.text3,marginBottom:8,padding:'6px 10px',background:C.surface3,borderRadius:6,display:'inline-block'}}>
+                {reportStart.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})} → {reportEnd.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})} · {reportBaseLeads.length} leads in range
+              </div>
               <div style={{fontSize:14,color:C.text2,lineHeight:1.65}}>
                 {reportGenerated
                   ? reportSummaryText
@@ -4344,24 +4345,39 @@ export default function Dashboard() {
                   Status Volume Summary
                 </div>
                 <div style={{display:'grid',gap:8}}>
-                  {[
-                    ['New', reportStatusCounts.new],
-                    ['Contacted', reportStatusCounts.contacted],
-                    ['In Progress', reportStatusCounts.inprogress],
-                    ['Booked', reportStatusCounts.booked],
-                    ['Nurture', reportStatusCounts.nurture],
-                    ['Lost', reportStatusCounts.lost],
-                    ['DQ', reportStatusCounts.dq],
-                    ['NA', reportStatusCounts.na],
-                    ['SQL', reportSqlCount],
-                    ['SQO', reportSqoCount],
-                  ].map(([label,count])=>(
-                    <div key={String(label)} style={{display:'grid',gridTemplateColumns:'1fr auto auto',gap:10,alignItems:'center',padding:'9px 10px',background:C.surface3,border:`1px solid ${C.border}`,borderRadius:10}}>
-                      <div style={{fontSize:13,color:C.text2}}>{label}</div>
-                      <div style={{fontSize:13,fontWeight:700,color:C.text}}>{count as number}</div>
-                      <div style={{fontSize:11,color:C.text3,width:54,textAlign:'right'}}>{pct(count as number, reportTotal)}%</div>
-                    </div>
-                  ))}
+                  {([
+                    ['New', reportStatusCounts.new, 'new'] as const,
+                    ['Contacted', reportStatusCounts.contacted, 'contacted'] as const,
+                    ['In Progress', reportStatusCounts.inprogress, 'inprogress'] as const,
+                    ['Booked', reportStatusCounts.booked, 'booked'] as const,
+                    ['Nurture', reportStatusCounts.nurture, 'nurture'] as const,
+                    ['Lost', reportStatusCounts.lost, 'lost'] as const,
+                    ['DQ', reportStatusCounts.dq, 'dq'] as const,
+                    ['NA', reportStatusCounts.na, 'na'] as const,
+                    ['SQL', reportSqlCount, '_sql'] as const,
+                    ['SQO', reportSqoCount, '_sqo'] as const,
+                  ]).map(([label,count,key])=>{
+                    const isExp=reportExpandedStatus===key
+                    const leads=key==='_sql'?reportBaseLeads.filter(l=>(details[l.email]?.sqlDq||'')==='Yes')
+                      :key==='_sqo'?reportBaseLeads.filter(l=>(details[l.email]?.sqo||'')==='Yes')
+                      :reportBaseLeads.filter(l=>(statuses[l.email]||'new')===key)
+                    return (
+                    <div key={String(label)}>
+                      <div onClick={()=>setReportExpandedStatus(isExp?null:key)} style={{display:'grid',gridTemplateColumns:'1fr auto auto',gap:10,alignItems:'center',padding:'9px 10px',background:isExp?C.surface2:C.surface3,border:`1px solid ${isExp?C.amber+'60':C.border}`,borderRadius:isExp?'10px 10px 0 0':10,cursor:'pointer'}}>
+                        <div style={{fontSize:13,color:isExp?C.amber:C.text2}}>{isExp?'▼ ':''}{label}</div>
+                        <div style={{fontSize:13,fontWeight:700,color:C.text}}>{count}</div>
+                        <div style={{fontSize:11,color:C.text3,width:54,textAlign:'right'}}>{pct(count, reportTotal)}%</div>
+                      </div>
+                      {isExp&&leads.length>0&&(
+                        <div style={{background:C.surface2,border:`1px solid ${C.amber}60`,borderTop:'none',borderRadius:'0 0 10px 10px',padding:'6px 10px',maxHeight:180,overflowY:'auto'}}>
+                          {leads.map(l=><div key={l.email} style={{fontSize:10,padding:'3px 0',borderBottom:`1px solid ${C.border}`,display:'flex',justifyContent:'space-between',color:C.text2}}>
+                            <span>{nameOverrides[l.email]||l.account||formatDomain(l.domain)||l.email}</span>
+                            <span style={{color:C.text3}}>{(l.date||l.receivedAt||'').slice(0,10)}</span>
+                          </div>)}
+                        </div>
+                      )}
+                    </div>)
+                  })}
                 </div>
               </div>
 
@@ -4392,15 +4408,32 @@ export default function Dashboard() {
                   <div style={{display:'grid',gridTemplateColumns:'1.5fr .7fr .7fr .7fr .9fr',gap:10,fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',padding:'0 4px'}}>
                     <div>Source</div><div>MQLs</div><div>SQL %</div><div>SQO %</div><div>Pipeline</div>
                   </div>
-                  {reportSourceRows.map(row=>(
-                    <div key={row.source} style={{display:'grid',gridTemplateColumns:'1.5fr .7fr .7fr .7fr .9fr',gap:10,alignItems:'center',padding:'9px 10px',background:C.surface3,border:`1px solid ${C.border}`,borderRadius:10}}>
-                      <div style={{fontSize:12,color:C.text2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{row.source}</div>
-                      <div style={{fontSize:12,fontWeight:700,color:C.text}}>{row.mqls}</div>
-                      <div style={{fontSize:12,color:C.text2}}>{row.sqlRate}%</div>
-                      <div style={{fontSize:12,color:C.text2}}>{row.sqoRate}%</div>
-                      <div style={{fontSize:12,color:C.text2}}>${row.pipeline.toLocaleString()}</div>
-                    </div>
-                  ))}
+                  {reportSourceRows.map(row=>{
+                    const isExp=reportExpandedSource===row.source
+                    const leads=reportBaseLeads.filter(l=>(details[l.email]?.sourceChannel||l.source||'unknown')===row.source)
+                    return (
+                    <div key={row.source}>
+                      <div onClick={()=>setReportExpandedSource(isExp?null:row.source)} style={{display:'grid',gridTemplateColumns:'1.5fr .7fr .7fr .7fr .9fr',gap:10,alignItems:'center',padding:'9px 10px',background:isExp?C.surface2:C.surface3,border:`1px solid ${isExp?C.amber+'60':C.border}`,borderRadius:isExp?'10px 10px 0 0':10,cursor:'pointer'}}>
+                        <div style={{fontSize:12,color:isExp?C.amber:C.text2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{isExp?'▼ ':''}{row.source}</div>
+                        <div style={{fontSize:12,fontWeight:700,color:C.text}}>{row.mqls}</div>
+                        <div style={{fontSize:12,color:C.text2}}>{row.sqlRate}%</div>
+                        <div style={{fontSize:12,color:C.text2}}>{row.sqoRate}%</div>
+                        <div style={{fontSize:12,color:C.text2}}>${row.pipeline.toLocaleString()}</div>
+                      </div>
+                      {isExp&&leads.length>0&&(
+                        <div style={{background:C.surface2,border:`1px solid ${C.amber}60`,borderTop:'none',borderRadius:'0 0 10px 10px',padding:'6px 10px',maxHeight:180,overflowY:'auto'}}>
+                          {leads.map(l=>{const det=details[l.email];return <div key={l.email} style={{fontSize:10,padding:'3px 0',borderBottom:`1px solid ${C.border}`,display:'flex',justifyContent:'space-between',color:C.text2}}>
+                            <span>{nameOverrides[l.email]||l.account||formatDomain(l.domain)||l.email}</span>
+                            <span style={{display:'flex',gap:8}}>
+                              {(det?.sqlDq||'')==='Yes'&&<span style={{color:'#60d4f4',fontSize:8,fontWeight:700}}>SQL</span>}
+                              {(det?.sqo||'')==='Yes'&&<span style={{color:'#c084fc',fontSize:8,fontWeight:700}}>SQO</span>}
+                              <span style={{color:C.text3}}>{(l.date||l.receivedAt||'').slice(0,10)}</span>
+                            </span>
+                          </div>})}
+                        </div>
+                      )}
+                    </div>)
+                  })}
                 </div>
               </div>
 
@@ -4430,20 +4463,46 @@ export default function Dashboard() {
                 <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:12}}>
                   Velocity Summary
                 </div>
-                <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12}}>
-                  {[
-                    {label:'Avg Days MQL → SQL',value:velocityData.mqlSql.avg,n:velocityData.mqlSql.n},
-                    {label:'Avg Days SQL → SQO',value:velocityData.sqlSqo.avg,n:velocityData.sqlSqo.n},
-                    {label:'Avg Days SQO → Won',value:velocityData.sqoWon.avg,n:velocityData.sqoWon.n},
-                    {label:'Avg Days MQL → Won',value:velocityData.mqlWon.avg,n:velocityData.mqlWon.n},
-                  ].map(c=>(
-                    <div key={c.label} style={{background:C.surface3,border:`1px solid ${C.border}`,borderRadius:10,padding:12}}>
-                      <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:8}}>{c.label}</div>
-                      <div style={{fontSize:18,fontWeight:800,color:c.value!==null?C.green:C.text3}}>{c.value!==null?`${c.value}d`:'N/A'}</div>
-                      <div style={{fontSize:11,color:C.text3,marginTop:4}}>{c.n} lead{c.n!==1?'s':''} measured</div>
-                    </div>
-                  ))}
-                </div>
+                {(()=>{
+                  // Build velocity lead lists for drill-down
+                  const velLeads={mqlSql:[] as {name:string;days:number}[],sqlSqo:[] as {name:string;days:number}[],sqoWon:[] as {name:string;days:number}[],mqlWon:[] as {name:string;days:number}[]}
+                  reportBaseLeads.forEach(l=>{
+                    const d=details[l.email];const r=new Date(l.receivedAt||l.date||Date.now())
+                    const nm=nameOverrides[l.email]||l.account||formatDomain(l.domain)||l.email
+                    const isWon=(d?.closedWon==='Yes'||(statuses[l.email]||'new')==='closedwon')
+                    if((d?.sqlDq||'').toLowerCase()==='yes'&&d?.sqlDate){const dy=Math.round((new Date(d.sqlDate).getTime()-r.getTime())/864e5);if(dy>=0&&dy<730)velLeads.mqlSql.push({name:nm,days:dy})}
+                    if((d?.sqo||'').toLowerCase()==='yes'&&d?.sqlDate&&d?.sqoDate){const dy=Math.round((new Date(d.sqoDate).getTime()-new Date(d.sqlDate).getTime())/864e5);if(dy>=0&&dy<730)velLeads.sqlSqo.push({name:nm,days:dy})}
+                    if(isWon&&d?.sqoDate&&d?.closedWonDate){const dy=Math.round((new Date(d.closedWonDate).getTime()-new Date(d.sqoDate).getTime())/864e5);if(dy>=0&&dy<730)velLeads.sqoWon.push({name:nm,days:dy})}
+                    if(isWon&&d?.closedWonDate){const dy=Math.round((new Date(d.closedWonDate).getTime()-r.getTime())/864e5);if(dy>=0&&dy<730)velLeads.mqlWon.push({name:nm,days:dy})}
+                  })
+                  return (
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12}}>
+                    {([
+                      {label:'Avg Days MQL → SQL',value:velocityData.mqlSql.avg,n:velocityData.mqlSql.n,key:'mqlSql',leads:velLeads.mqlSql},
+                      {label:'Avg Days SQL → SQO',value:velocityData.sqlSqo.avg,n:velocityData.sqlSqo.n,key:'sqlSqo',leads:velLeads.sqlSqo},
+                      {label:'Avg Days SQO → Won',value:velocityData.sqoWon.avg,n:velocityData.sqoWon.n,key:'sqoWon',leads:velLeads.sqoWon},
+                      {label:'Avg Days MQL → Won',value:velocityData.mqlWon.avg,n:velocityData.mqlWon.n,key:'mqlWon',leads:velLeads.mqlWon},
+                    ]).map(c=>{
+                      const isExp=reportExpandedVelocity===c.key
+                      return (
+                      <div key={c.label} onClick={()=>setReportExpandedVelocity(isExp?null:c.key)} style={{background:isExp?C.surface2:C.surface3,border:`1px solid ${isExp?C.amber+'60':C.border}`,borderRadius:10,padding:12,cursor:'pointer'}}>
+                        <div style={{fontSize:10,fontWeight:700,color:isExp?C.amber:C.text3,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:8}}>{isExp?'▼ ':''}{c.label}</div>
+                        <div style={{fontSize:18,fontWeight:800,color:c.value!==null?C.green:C.text3}}>{c.value!==null?`${c.value}d`:'N/A'}</div>
+                        <div style={{fontSize:11,color:C.text3,marginTop:4}}>{c.n} lead{c.n!==1?'s':''} measured</div>
+                        {isExp&&c.leads.length>0&&(
+                          <div style={{marginTop:8,maxHeight:140,overflowY:'auto',borderTop:`1px solid ${C.border}`,paddingTop:6}}>
+                            {c.leads.sort((a,b)=>a.days-b.days).map((v,i)=>(
+                              <div key={i} style={{fontSize:9,padding:'2px 0',display:'flex',justifyContent:'space-between',color:C.text2,borderBottom:`1px solid ${C.border}`}}>
+                                <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:'70%'}}>{v.name}</span>
+                                <span style={{fontWeight:700,color:C.green,flexShrink:0}}>{v.days}d</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>)
+                    })}
+                  </div>)
+                })()}
               </div>
 
               <div style={card}>
