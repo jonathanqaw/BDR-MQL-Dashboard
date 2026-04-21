@@ -4408,6 +4408,7 @@ export default function Dashboard() {
                   <div style={{display:'grid',gridTemplateColumns:'1.5fr .7fr .7fr .7fr .9fr',gap:10,fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',padding:'0 4px'}}>
                     <div>Source</div><div>MQLs</div><div>SQL %</div><div>SQO %</div><div>Pipeline</div>
                   </div>
+                  {reportSourceRows.length===0&&<div style={{padding:'12px',fontSize:11,color:C.text3,textAlign:'center'}}>No source data for this timeframe</div>}
                   {reportSourceRows.map(row=>{
                     const isExp=reportExpandedSource===row.source
                     const leads=reportBaseLeads.filter(l=>(details[l.email]?.sourceChannel||l.source||'unknown')===row.source)
