@@ -1689,6 +1689,8 @@ export default function Dashboard() {
   const [sqoExpandedAcct,setSqoExpandedAcct]=useState<string|null>(null)
   const [convSeg,setConvSeg]=useState<'year'|'quarter'|'month'|'week'>('month')
   const [convCompare,setConvCompare]=useState(false)
+  const [convExpandedRow,setConvExpandedRow]=useState<string|null>(null)
+  const [convExpandedMetric,setConvExpandedMetric]=useState<string>('all')
   // Round Robin state (v2 — click-to-book)
   const [rrAssignments,setRrAssignments]=useState<RRAssignment[]>([])
   const [rrSkips,setRrSkips]=useState<RRSkip[]>([])
@@ -3673,23 +3675,35 @@ export default function Dashboard() {
                         const full=r.mqls>0?Math.round(r.sqos/r.mqls*100):0
                         const avgMs=avgDays(r.mqlToSqlDays)
                         const avgSs=avgDays(r.sqlToSqoDays)
-                        // Comparison — rates: higher=better (green). Days: lower=better (green).
                         const prevRow=convCompare?rowMap.get(getPrevKey(r.key)):null
                         const prevMs=prevRow&&prevRow.mqls>0?Math.round(prevRow.sqls/prevRow.mqls*100):null
                         const prevSs=prevRow&&prevRow.sqls>0?Math.round(prevRow.sqos/prevRow.sqls*100):null
                         const prevAvgMs=prevRow?avgDays(prevRow.mqlToSqlDays):null
                         const prevAvgSs=prevRow?avgDays(prevRow.sqlToSqoDays):null
-                        // For rates: higher is better
                         const rateDelta=(cur:number,prev:number|null)=>{if(prev===null)return null;const d=cur-prev;return {d,color:d>0?C.green:d<0?C.red:C.text3,arrow:d>0?'↑':d<0?'↓':'→'}}
-                        // For days: lower is better
                         const daysDelta=(cur:number|null,prev:number|null)=>{if(cur===null||prev===null)return null;const d=cur-prev;return {d,color:d<0?C.green:d>0?C.red:C.text3,arrow:d<0?'↑':d>0?'↓':'→'}}
                         const msD=rateDelta(ms,prevMs)
                         const ssD=rateDelta(ss,prevSs)
                         const avgMsD=daysDelta(avgMs,prevAvgMs)
                         const avgSsD=daysDelta(avgSs,prevAvgSs)
+                        const isExp=convExpandedRow===r.key
+                        // Filter leads by selected metric tab
+                        const filteredLeads=isExp?r.leads.filter(e=>{
+                          if(convExpandedMetric==='all')return true
+                          if(convExpandedMetric==='mqls')return true
+                          if(convExpandedMetric==='sqls')return e.isSql
+                          if(convExpandedMetric==='sqos')return e.isSqo
+                          if(convExpandedMetric==='mql_sql')return e.isSql
+                          if(convExpandedMetric==='sql_sqo')return e.isSqo
+                          if(convExpandedMetric==='mql_sqo')return e.isSqo
+                          if(convExpandedMetric==='avg_mql_sql')return e.isSql&&e.mqlToSql!==null
+                          if(convExpandedMetric==='avg_sql_sqo')return e.isSqo&&e.sqlToSqo!==null
+                          return true
+                        }):[]
                         return (
-                          <tr key={r.key} style={{borderBottom:`1px solid ${C.border}`}}>
-                            <td style={{padding:'7px 8px',fontWeight:600,color:C.text}}>{r.label}</td>
+                          <React.Fragment key={r.key}>
+                          <tr style={{borderBottom:isExp?'none':`1px solid ${C.border}`,cursor:'pointer',background:isExp?C.surface2:'transparent'}} onClick={()=>{setConvExpandedRow(isExp?null:r.key);setConvExpandedMetric('all')}}>
+                            <td style={{padding:'7px 8px',fontWeight:600,color:isExp?C.amber:C.text}}>{isExp?'▼ ':''}{r.label}</td>
                             <td style={{padding:'7px 8px',textAlign:'right',color:C.text}}>{r.mqls}</td>
                             <td style={{padding:'7px 8px',textAlign:'right',color:'#60d4f4'}}>{r.sqls}</td>
                             <td style={{padding:'7px 8px',textAlign:'right',fontWeight:700,color:C.green}}>{ms}%{msD&&<span style={{fontSize:8,color:msD.color,marginLeft:3}}>{msD.arrow}{Math.abs(msD.d)}</span>}</td>
@@ -3699,6 +3713,47 @@ export default function Dashboard() {
                             <td style={{padding:'7px 8px',textAlign:'right',color:avgMs!==null?C.text2:C.text3}}>{avgMs!==null?`${avgMs}d`:'—'}{avgMsD&&<span style={{fontSize:8,color:avgMsD.color,marginLeft:3}}>{avgMsD.arrow}{Math.abs(avgMsD.d)}d</span>}</td>
                             <td style={{padding:'7px 8px',textAlign:'right',color:avgSs!==null?C.text2:C.text3}}>{avgSs!==null?`${avgSs}d`:'—'}{avgSsD&&<span style={{fontSize:8,color:avgSsD.color,marginLeft:3}}>{avgSsD.arrow}{Math.abs(avgSsD.d)}d</span>}</td>
                           </tr>
+                          {isExp&&(
+                            <tr style={{borderBottom:`1px solid ${C.border}`,background:C.surface2}}>
+                              <td colSpan={9} style={{padding:'12px 10px'}}>
+                                <div style={{display:'flex',gap:4,marginBottom:10,flexWrap:'wrap'}}>
+                                  {([['all','All Opps'],['mqls','MQLs'],['sqls','SQLs'],['mql_sql','MQL→SQL'],['sqos','SQOs'],['sql_sqo','SQL→SQO'],['mql_sqo','MQL→SQO'],['avg_mql_sql','Avg MQL→SQL'],['avg_sql_sqo','Avg SQL→SQO']] as [string,string][]).map(([k,label])=>(
+                                    <button key={k} onClick={e=>{e.stopPropagation();setConvExpandedMetric(k)}} style={{fontSize:9,fontWeight:600,padding:'3px 8px',borderRadius:4,cursor:'pointer',border:`1px solid ${convExpandedMetric===k?C.amber:C.border2}`,background:convExpandedMetric===k?'rgba(245,166,35,0.15)':'transparent',color:convExpandedMetric===k?C.amber:C.text3}}>{label} ({k==='all'?r.leads.length:filteredLeads.length})</button>
+                                  ))}
+                                </div>
+                                <div style={{maxHeight:280,overflowY:'auto'}}>
+                                  <table style={{width:'100%',borderCollapse:'collapse',fontSize:10}}>
+                                    <thead>
+                                      <tr style={{borderBottom:`1px solid ${C.border}`}}>
+                                        {['Account','MQL Date','SQL Date','SQO Date','MQL→SQL','SQL→SQO','Stage'].map(h=>(
+                                          <th key={h} style={{padding:'5px 7px',textAlign:'left',fontSize:8,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',whiteSpace:'nowrap',position:'sticky',top:0,background:C.surface2}}>{h}</th>
+                                        ))}
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {filteredLeads.map((e,i)=>{
+                                        const stage=e.isSqo?'SQO':e.isSql?'SQL':'MQL'
+                                        const stageColor=stage==='SQO'?'#c084fc':stage==='SQL'?'#60d4f4':C.text3
+                                        return (
+                                          <tr key={`${e.email}-${i}`} style={{borderBottom:`1px solid ${C.border}`}}>
+                                            <td style={{padding:'5px 7px',fontWeight:600,color:C.text,maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{e.account}</td>
+                                            <td style={{padding:'5px 7px',color:C.text3,whiteSpace:'nowrap'}}>{e.mqlDate?new Date(e.mqlDate).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'2-digit'}):'—'}</td>
+                                            <td style={{padding:'5px 7px',color:e.sqlDate?'#60d4f4':C.text3,whiteSpace:'nowrap'}}>{e.sqlDate?new Date(e.sqlDate).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'2-digit'}):'—'}</td>
+                                            <td style={{padding:'5px 7px',color:e.sqoDate?'#c084fc':C.text3,whiteSpace:'nowrap'}}>{e.sqoDate?new Date(e.sqoDate).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'2-digit'}):'—'}</td>
+                                            <td style={{padding:'5px 7px',color:e.mqlToSql!==null?C.text2:C.text3}}>{e.mqlToSql!==null?`${e.mqlToSql}d`:'—'}</td>
+                                            <td style={{padding:'5px 7px',color:e.sqlToSqo!==null?C.text2:C.text3}}>{e.sqlToSqo!==null?`${e.sqlToSqo}d`:'—'}</td>
+                                            <td style={{padding:'5px 7px'}}><span style={{fontSize:8,fontWeight:700,color:stageColor,background:`${stageColor}18`,padding:'1px 5px',borderRadius:3}}>{stage}</span></td>
+                                          </tr>
+                                        )
+                                      })}
+                                      {filteredLeads.length===0&&<tr><td colSpan={7} style={{padding:'10px 7px',textAlign:'center',color:C.text3}}>No leads for this filter</td></tr>}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                          </React.Fragment>
                         )
                       })}
                     </tbody>
