@@ -4229,17 +4229,47 @@ export default function Dashboard() {
                   const w=window.open('','_blank')
                   if(!w)return
                   const rc=reportStatusCounts
-                  const rows=reportRatioCards.map(c=>`<tr><td style="padding:8px 12px;border-bottom:1px solid #e2e8f0">${c.label}</td><td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;font-weight:700;text-align:right">${c.value}</td><td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;color:#64748b;font-size:12px">${c.sub}</td></tr>`).join('')
+                  const ratioRows=reportRatioCards.map(c=>`<tr><td style="padding:8px 12px;border-bottom:1px solid #e2e8f0">${c.label}</td><td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;font-weight:700;text-align:right">${c.value}</td><td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;color:#64748b;font-size:12px">${c.sub}</td></tr>`).join('')
                   const statusRows=[['New',rc.new],['Contacted',rc.contacted],['In Progress',rc.inprogress],['Booked',rc.booked],['Nurture',rc.nurture],['Lost',rc.lost],['DQ',rc.dq],['N/A',rc.na],['Closed-Won',rc.closedwon]].map(([s,n])=>`<tr><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0">${s}</td><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0;font-weight:700;text-align:right">${n}</td><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0;color:#64748b;text-align:right">${reportTotal?Math.round(Number(n)/reportTotal*100):0}%</td></tr>`).join('')
+                  // Status volume lead lists
+                  const statusLeadRows=(status:string,leads:AppLead[])=>leads.length===0?'':`<table style="margin:8px 0 16px;font-size:11px"><thead><tr><th>Account</th><th>Date</th></tr></thead><tbody>${leads.map(l=>`<tr><td style="padding:4px 12px;border-bottom:1px solid #f1f5f9">${nameOverrides[l.email]||l.account||formatDomain(l.domain)||l.email}</td><td style="padding:4px 12px;border-bottom:1px solid #f1f5f9;color:#64748b">${(l.date||l.receivedAt||'').slice(0,10)}</td></tr>`).join('')}</tbody></table>`
+                  const statusDetail=[['New','new'],['Contacted','contacted'],['In Progress','inprogress'],['Booked','booked'],['Nurture','nurture'],['Lost','lost'],['DQ','dq'],['N/A','na'],['Closed-Won','closedwon']].map(([label,key])=>{
+                    const leads=reportBaseLeads.filter(l=>(statuses[l.email]||'new')===key)
+                    return leads.length>0?`<details><summary style="cursor:pointer;padding:4px 0;font-weight:600">${label} (${leads.length})</summary>${statusLeadRows(key,leads)}</details>`:''
+                  }).join('')
+                  // Source quality rows
+                  const sourceRows=reportSourceRows.map(r=>`<tr><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0">${r.source}</td><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0;text-align:right;font-weight:700">${r.mqls}</td><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0;text-align:right">${r.sqlRate}%</td><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0;text-align:right">${r.sqoRate}%</td><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0;text-align:right">$${r.pipeline.toLocaleString()}</td></tr>`).join('')
+                  // Source detail with leads
+                  const sourceDetail=reportSourceRows.map(r=>{
+                    const leads=reportBaseLeads.filter(l=>(details[l.email]?.sourceChannel||l.source||'unknown')===r.source)
+                    return `<details><summary style="cursor:pointer;padding:4px 0;font-weight:600">${r.source} (${r.mqls} MQLs · ${r.sqlRate}% SQL · ${r.sqoRate}% SQO)</summary><table style="margin:8px 0 8px;font-size:11px"><thead><tr><th>Account</th><th>Stage</th><th>Date</th></tr></thead><tbody>${leads.map(l=>{const det=details[l.email];const stage=(det?.sqo||'')==='Yes'?'SQO':(det?.sqlDq||'')==='Yes'?'SQL':'MQL';return `<tr><td style="padding:4px 12px;border-bottom:1px solid #f1f5f9">${nameOverrides[l.email]||l.account||formatDomain(l.domain)||l.email}</td><td style="padding:4px 12px;border-bottom:1px solid #f1f5f9;font-weight:600;color:${stage==='SQO'?'#7c3aed':stage==='SQL'?'#0284c7':'#64748b'}">${stage}</td><td style="padding:4px 12px;border-bottom:1px solid #f1f5f9;color:#64748b">${(l.date||l.receivedAt||'').slice(0,10)}</td></tr>`}).join('')}</tbody></table></details>`
+                  }).join('')
+                  // BDR performance rows
+                  const bdrRows=reportBdrRows.filter(r=>r.mqls>0).map(r=>`<tr><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0">${r.name}</td><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0;text-align:right;font-weight:700">${r.mqls}</td><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0;text-align:right">${r.sqls}</td><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0;text-align:right">${r.sqos}</td><td style="padding:6px 12px;border-bottom:1px solid #e2e8f0;text-align:right">$${r.pipeline.toLocaleString()}</td></tr>`).join('')
+                  // Velocity lead lists
                   const vel=velocityData
+                  const velLeadHtml=(label:string,leads:{name:string;days:number}[])=>leads.length===0?'':`<details style="margin-bottom:12px"><summary style="cursor:pointer;padding:4px 0;font-weight:600">${label} — ${leads.length} leads (avg ${Math.round(leads.reduce((s,l)=>s+l.days,0)/leads.length)}d)</summary><table style="margin:8px 0;font-size:11px"><thead><tr><th>Account</th><th style="text-align:right">Days</th></tr></thead><tbody>${leads.sort((a,b)=>a.days-b.days).map(l=>`<tr><td style="padding:4px 12px;border-bottom:1px solid #f1f5f9">${l.name}</td><td style="padding:4px 12px;border-bottom:1px solid #f1f5f9;text-align:right;font-weight:700">${l.days}d</td></tr>`).join('')}</tbody></table></details>`
+                  const velLeadsData:{mqlSql:{name:string;days:number}[];sqlSqo:{name:string;days:number}[];sqoWon:{name:string;days:number}[];mqlWon:{name:string;days:number}[]}={mqlSql:[],sqlSqo:[],sqoWon:[],mqlWon:[]}
+                  reportBaseLeads.forEach(l=>{
+                    const d=details[l.email];const r2=new Date(l.receivedAt||l.date||Date.now())
+                    const nm=nameOverrides[l.email]||l.account||formatDomain(l.domain)||l.email
+                    const isWon=(d?.closedWon==='Yes'||(statuses[l.email]||'new')==='closedwon')
+                    if((d?.sqlDq||'').toLowerCase()==='yes'&&d?.sqlDate){const dy=Math.round((new Date(d.sqlDate).getTime()-r2.getTime())/864e5);if(dy>=0&&dy<730)velLeadsData.mqlSql.push({name:nm,days:dy})}
+                    if((d?.sqo||'').toLowerCase()==='yes'&&d?.sqlDate&&d?.sqoDate){const dy=Math.round((new Date(d.sqoDate).getTime()-new Date(d.sqlDate).getTime())/864e5);if(dy>=0&&dy<730)velLeadsData.sqlSqo.push({name:nm,days:dy})}
+                    if(isWon&&d?.sqoDate&&d?.closedWonDate){const dy=Math.round((new Date(d.closedWonDate).getTime()-new Date(d.sqoDate).getTime())/864e5);if(dy>=0&&dy<730)velLeadsData.sqoWon.push({name:nm,days:dy})}
+                    if(isWon&&d?.closedWonDate){const dy=Math.round((new Date(d.closedWonDate).getTime()-r2.getTime())/864e5);if(dy>=0&&dy<730)velLeadsData.mqlWon.push({name:nm,days:dy})}
+                  })
                   const now=new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})
+                  const dateRange=`${reportStart.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})} — ${reportEnd.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}`
                   w.document.write(`<!DOCTYPE html><html><head><title>QA Wolf BDR Report</title><style>
                     *{margin:0;padding:0;box-sizing:border-box}
                     body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#1e293b;padding:40px 48px;max-width:900px;margin:0 auto;line-height:1.5}
                     h1{font-size:28px;font-weight:800;margin-bottom:4px}
                     h2{font-size:16px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#475569;margin:28px 0 12px;padding-bottom:6px;border-bottom:2px solid #e2e8f0}
-                    .subtitle{font-size:13px;color:#64748b;margin-bottom:24px}
+                    .subtitle{font-size:13px;color:#64748b;margin-bottom:4px}
+                    .daterange{font-size:12px;color:#94a3b8;margin-bottom:24px}
                     .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px}
+                    .grid2{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:24px}
                     .card{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px}
                     .card .label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#64748b;margin-bottom:6px}
                     .card .val{font-size:22px;font-weight:800}
@@ -4247,12 +4277,12 @@ export default function Dashboard() {
                     table{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:16px}
                     th{padding:8px 12px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#64748b;border-bottom:2px solid #cbd5e1}
                     .summary{font-size:14px;line-height:1.7;color:#334155;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:16px;margin-bottom:24px}
-                    .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:24px}
-                    .grid4v{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px}
-                    @media print{body{padding:20px 24px}h1{font-size:22px}.card .val{font-size:18px}}
+                    details{margin-bottom:4px} summary{font-size:13px;color:#334155}
+                    @media print{body{padding:20px 24px}h1{font-size:22px}.card .val{font-size:18px}details[open]{break-inside:avoid}}
                   </style></head><body>
                     <h1>QA Wolf — BDR Report</h1>
                     <div class="subtitle">${reportLabel} · ${reportScope==='all_bdrs'?'All BDRs':currentRep?.name||'Jonathan Kim'} · Generated ${now}</div>
+                    <div class="daterange">${dateRange} · ${reportTotal} leads in range</div>
                     <div class="summary">${reportSummaryText}</div>
                     <h2>Executive Summary</h2>
                     <div class="grid4">
@@ -4261,20 +4291,33 @@ export default function Dashboard() {
                       <div class="card"><div class="label">SQOs</div><div class="val">${reportSqoCount}</div><div class="sub">${pct(reportSqoCount,reportTotal)}% conversion</div></div>
                       <div class="card"><div class="label">Pipeline</div><div class="val">$${reportPipeline.toLocaleString()}</div></div>
                     </div>
-                    <div class="grid4v">
-                      <div class="card"><div class="label">Avg Days MQL → SQL</div><div class="val">${vel.mqlSql.avg!==null?vel.mqlSql.avg+'d':'N/A'}</div><div class="sub">${vel.mqlSql.n} leads</div></div>
-                      <div class="card"><div class="label">Avg Days SQL → SQO</div><div class="val">${vel.sqlSqo.avg!==null?vel.sqlSqo.avg+'d':'N/A'}</div><div class="sub">${vel.sqlSqo.n} leads</div></div>
-                      <div class="card"><div class="label">Avg Days SQO → Won</div><div class="val">${vel.sqoWon.avg!==null?vel.sqoWon.avg+'d':'N/A'}</div><div class="sub">${vel.sqoWon.n} leads</div></div>
-                      <div class="card"><div class="label">Avg Days MQL → Won</div><div class="val">${vel.mqlWon.avg!==null?vel.mqlWon.avg+'d':'N/A'}</div><div class="sub">${vel.mqlWon.n} leads</div></div>
-                    </div>
-                    <h2>Status Volume</h2>
+                    <h2>Status Volume Summary</h2>
                     <table><thead><tr><th>Status</th><th style="text-align:right">Count</th><th style="text-align:right">%</th></tr></thead><tbody>${statusRows}</tbody></table>
+                    ${statusDetail}
                     <h2>Key Ratios</h2>
-                    <table><thead><tr><th>Metric</th><th style="text-align:right">Value</th><th>Detail</th></tr></thead><tbody>${rows}</tbody></table>
+                    <table><thead><tr><th>Metric</th><th style="text-align:right">Value</th><th>Detail</th></tr></thead><tbody>${ratioRows}</tbody></table>
+                    <h2>Source Quality Breakdown</h2>
+                    <table><thead><tr><th>Source</th><th style="text-align:right">MQLs</th><th style="text-align:right">SQL %</th><th style="text-align:right">SQO %</th><th style="text-align:right">Pipeline</th></tr></thead><tbody>${sourceRows}</tbody></table>
+                    ${sourceDetail}
+                    <h2>BDR Performance</h2>
+                    <table><thead><tr><th>BDR</th><th style="text-align:right">MQLs</th><th style="text-align:right">SQLs</th><th style="text-align:right">SQOs</th><th style="text-align:right">Pipeline</th></tr></thead><tbody>${bdrRows}</tbody></table>
+                    <h2>Velocity Summary</h2>
+                    <div class="grid4">
+                      <div class="card"><div class="label">Avg MQL → SQL</div><div class="val">${vel.mqlSql.avg!==null?vel.mqlSql.avg+'d':'N/A'}</div><div class="sub">${vel.mqlSql.n} leads</div></div>
+                      <div class="card"><div class="label">Avg SQL → SQO</div><div class="val">${vel.sqlSqo.avg!==null?vel.sqlSqo.avg+'d':'N/A'}</div><div class="sub">${vel.sqlSqo.n} leads</div></div>
+                      <div class="card"><div class="label">Avg SQO → Won</div><div class="val">${vel.sqoWon.avg!==null?vel.sqoWon.avg+'d':'N/A'}</div><div class="sub">${vel.sqoWon.n} leads</div></div>
+                      <div class="card"><div class="label">Avg MQL → Won</div><div class="val">${vel.mqlWon.avg!==null?vel.mqlWon.avg+'d':'N/A'}</div><div class="sub">${vel.mqlWon.n} leads</div></div>
+                    </div>
+                    ${velLeadHtml('MQL → SQL',velLeadsData.mqlSql)}
+                    ${velLeadHtml('SQL → SQO',velLeadsData.sqlSqo)}
+                    ${velLeadHtml('SQO → Won',velLeadsData.sqoWon)}
+                    ${velLeadHtml('MQL → Won',velLeadsData.mqlWon)}
                     <h2>Funnel Insights</h2>
-                    <div class="grid3" style="grid-template-columns:repeat(2,1fr)">
+                    <div class="grid2">
                       <div class="card"><div class="label">Biggest Drop-off</div><div class="val" style="font-size:16px">${biggestDropoff.label}</div><div class="sub">${biggestDropoff.value}% conversion</div></div>
                       <div class="card"><div class="label">Strongest Stage</div><div class="val" style="font-size:16px">${strongestStage.label}</div><div class="sub">${strongestStage.value}% conversion</div></div>
+                      <div class="card"><div class="label">Most Common Terminal</div><div class="val" style="font-size:16px">${mostCommonTerminal.label}</div><div class="sub">${mostCommonTerminal.value} leads</div></div>
+                      <div class="card"><div class="label">Most Recoverable Pool</div><div class="val" style="font-size:16px">${mostRecoverablePool.label}</div><div class="sub">${mostRecoverablePool.value} leads</div></div>
                     </div>
                   </body></html>`)
                   w.document.close()
