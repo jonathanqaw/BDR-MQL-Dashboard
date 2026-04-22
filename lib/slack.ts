@@ -224,15 +224,32 @@ export function parseMessage(msg: SlackMessage): Lead | null {
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
+async function fetchMessagesMultiPage(token: string, channelId: string, maxPages = 4): Promise<SlackMessage[]> {
+  const all: SlackMessage[] = []
+  let cursor: string | undefined
+  let page = 0
+  do {
+    const params = new URLSearchParams({ channel: channelId, limit: '200' })
+    if (cursor) params.set('cursor', cursor)
+    const res = await fetch(`${SLACK_API}/conversations.history?${params}`, {
+      headers: { Authorization: `Bearer ${token}` }, next: { revalidate: 0 },
+    })
+    const data = await res.json()
+    if (!data.ok) throw new Error(`Slack API error: ${data.error}`)
+    const msgs = (data.messages as SlackMessage[]).filter(m => m.bot_id || m.subtype === 'bot_message')
+    all.push(...msgs)
+    cursor = data.response_metadata?.next_cursor
+    page++
+  } while (cursor && page < maxPages)
+  return all
+}
+
 export async function fetchLeads(): Promise<Lead[]> {
   const token = process.env.SLACK_BOT_TOKEN
   if (!token) throw new Error('SLACK_BOT_TOKEN is not set')
 
-  // Paginate through full channel history to get ALL leads (not just last 200)
-  // Oldest: Sept 1 2025 (start of BDR tracking)
-  const oldest = String(new Date('2025-09-01T00:00:00Z').getTime() / 1000)
-  const latest = String(Date.now() / 1000)
-  const messages = await fetchMessagesPaginated(token, BDR_CHANNEL, oldest, latest)
+  // Fetch last ~800 messages (4 pages × 200) for fast live load
+  const messages = await fetchMessagesMultiPage(token, BDR_CHANNEL, 4)
 
   // Dedup: by email when present, else by sfdc: + contactId, also by messageTs
   const seen = new Map<string, Lead>()
