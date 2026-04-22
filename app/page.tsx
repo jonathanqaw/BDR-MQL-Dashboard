@@ -1517,6 +1517,8 @@ export default function Dashboard() {
     try { const r=localStorage.getItem('rr-region'); if(r==='West'||r==='East') setRrRegion(r) } catch {}
     try { const r=JSON.parse(localStorage.getItem('roundRobinAERoster')||'null'); if(Array.isArray(r)&&r.length>0) setRrRoster(r); else { const m=migrateAERoster(); setRrRoster(m); localStorage.setItem('roundRobinAERoster',JSON.stringify(m)) } } catch { const m=migrateAERoster(); setRrRoster(m); localStorage.setItem('roundRobinAERoster',JSON.stringify(m)) }
     try { const w=localStorage.getItem('rr-equity-window'); if(w==='week'||w==='month'||w==='quarter'||w==='year') setRrEquityWindow(w) } catch {}
+    try { const t=localStorage.getItem('dashboard.activeTab'); if(t==='inbound'||t==='outbound'||t==='all') setPipelineDir(t) } catch {}
+    try { const r=JSON.parse(localStorage.getItem('ls-reviewed')||'[]'); if(Array.isArray(r)) setLsReviewed(new Set(r)) } catch {}
   },[])
 
   const isManagerRole=(a:AuthState):boolean=>!!a&&'role' in a&&MANAGER_ROLES.includes(a.role as UserRole)
@@ -1649,8 +1651,9 @@ export default function Dashboard() {
   const [oppTo,setOppTo]=useState('')
   const [mqlView,setMqlView]=useState<'daily'|'quarterly'>('daily')
   const [detailFilter,setDetailFilter]=useState<'none'|'sql'|'sqo'>('none')
-  const [pipelineDir,setPipelineDir]=useState<'all'|'inbound'|'outbound'>(()=>{if(typeof window==='undefined')return 'inbound';const saved=localStorage.getItem('dashboard.activeTab');return saved==='inbound'||saved==='outbound'||saved==='all'?saved:'inbound'})
-  const [lsReviewed,setLsReviewed]=useState<Set<string>>(()=>{try{return new Set(JSON.parse(localStorage.getItem('ls-reviewed')||'[]'))}catch{return new Set()}})
+  const [pipelineDir,setPipelineDir]=useState<'all'|'inbound'|'outbound'>('inbound')
+  const [lsReviewed,setLsReviewed]=useState<Set<string>>(new Set())
+  const [lsExpandedBatches,setLsExpandedBatches]=useState<Set<string>>(new Set())
   const [loading,    setLoading]    = useState(true)
   const [error,      setError]      = useState<string|null>(null)
   const [fetchedAt,  setFetchedAt]  = useState<string|null>(null)
@@ -3113,7 +3116,8 @@ export default function Dashboard() {
                 <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:10}}>Lonescale Intent Signals · {lsLeads.length} pings</div>
                 {batches.map(batch=>{
                   const reviewed=batch.pings.filter(p=>lsReviewed.has(p.email)).length
-                  const [batchOpen,setBatchOpen]=React.useState(false) // eslint-disable-line
+                  const batchOpen=lsExpandedBatches.has(batch.id)
+                  const toggleBatch=()=>setLsExpandedBatches(prev=>{const next=new Set(prev);if(next.has(batch.id))next.delete(batch.id);else next.add(batch.id);return next})
                   const fmtDate=(iso:string)=>{
                     const d=new Date(iso);const now2=new Date()
                     const isToday=d.toDateString()===now2.toDateString()
@@ -3125,7 +3129,7 @@ export default function Dashboard() {
                   }
                   return (
                     <div key={batch.id} style={{marginBottom:8,border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden'}}>
-                      <div onClick={()=>setBatchOpen(!batchOpen)} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 14px',background:C.surface2,cursor:'pointer'}}>
+                      <div onClick={toggleBatch} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 14px',background:C.surface2,cursor:'pointer'}}>
                         <div style={{display:'flex',alignItems:'center',gap:10}}>
                           <span style={{fontSize:12,color:batchOpen?C.amber:C.text3}}>{batchOpen?'▼':'▶'}</span>
                           <span style={{fontSize:12,fontWeight:600,color:C.text}}>{fmtDate(batch.firstAt)}</span>
