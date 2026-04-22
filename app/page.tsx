@@ -1979,6 +1979,7 @@ export default function Dashboard() {
   }
   const hasActivityInPeriod=(l:AppLead,start:Date):boolean=>hasActivityInRange(l,start,periodRange.end)
   // Inbound / Outbound direction filter — uses leadType from parser OR sourceChannel fallback
+  // Defensive: missing leadType defaults to inbound (historical leads + legacy records)
   const isOutbound=(l:AppLead):boolean=>l.leadType==='outbound'||OUTBOUND_SOURCES.has(details[l.email]?.sourceChannel||'')||l.email.includes('_lonescale')||l.domain==='lonescale.intent'
   const isLonescale=(l:AppLead):boolean=>l.domain==='lonescale.intent'||!!l.email?.includes('lonescale.placeholder')||l.sfdcContactId!=null
   const dirFilter=(l:AppLead):boolean=>pipelineDir==='all'?true:pipelineDir==='outbound'?isOutbound(l):!isOutbound(l)

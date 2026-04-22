@@ -30,6 +30,16 @@ interface SlackMessage {
   ts: string
 }
 
+// ── Normalize Slack text ─────────────────────────────────────────────────────
+// Slack API returns HTML entities in message text: &gt; &lt; &amp;
+// Normalize these so our detectors and parsers work on clean text.
+function normalizeSlackText(raw: string): string {
+  return raw
+    .replace(/&gt;/g, '>')
+    .replace(/&lt;/g, '<')
+    .replace(/&amp;/g, '&')
+}
+
 // ── Message shape detection ──────────────────────────────────────────────────
 
 function isRattleInbound(text: string): boolean {
@@ -106,15 +116,19 @@ export async function fetchMessagesPaginated(
 }
 
 function parseEmail(text: string): string | null {
-  const mailto = text.match(/<mailto:([^|>]+)\|/)
+  // Handle Slack's <mailto:email|email> format
+  const mailto = text.match(/<mailto:([^|>]+)[|>]/)
   if (mailto) return mailto[1].toLowerCase()
   const plain = text.match(/[\w.+%-]+@[\w-]+\.[\w.]+/)
   return plain ? plain[0].toLowerCase() : null
 }
 
 function parseSfUrl(text: string): string | null {
-  const match = text.match(/https:\/\/qawolf1\.(lightning\.force|my\.salesforce)\.com\/[^\s>|)]+/)
-  return match ? match[0] : null
+  // Handle both raw URLs and Slack's <url> or <url|label> wrapping
+  const slackLink = text.match(/<(https:\/\/qawolf1\.[^\s>|]+)(?:\|[^>]*)?>/)
+  if (slackLink) return slackLink[1]
+  const raw = text.match(/https:\/\/qawolf1\.(lightning\.force|my\.salesforce)\.com\/[^\s>|)]+/)
+  return raw ? raw[0] : null
 }
 
 function parseSfdcContactId(text: string): string | null {
@@ -146,7 +160,8 @@ function parseLastIbDate(text: string): string | null {
 // ── Lead construction ────────────────────────────────────────────────────────
 
 export function parseMessage(msg: SlackMessage): Lead | null {
-  const text = msg.text || ''
+  // Normalize HTML entities FIRST — all detection and parsing uses clean text
+  const text = normalizeSlackText(msg.text || '')
 
   // ── Inbound (Rattle / legacy Zapier) ──
   if (isRattleInbound(text)) {
