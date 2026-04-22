@@ -3071,12 +3071,12 @@ export default function Dashboard() {
                 </tr>
               </thead>
               <tbody>
-                {loading&&liveLeads.length===0
-                  ? <tr><td/><td colSpan={6} style={{textAlign:'center',padding:'52px 20px',color:C.text3,fontSize:14}}>Loading live leads from Slack…</td></tr>
-                  : pipelineLeads.length===0
-                  ? <tr><td/><td colSpan={6} style={{textAlign:'center',padding:'52px 20px',color:C.text3,fontSize:14}}>No leads match this filter.</td></tr>
-                  : pipelineLeads.map(lead=>{
-                    // Source pill for All Leads tab
+                {(()=>{
+                  // On Outbound tab, exclude Lonescale from the main table (they render in the batched section below)
+                  const tableLeads=pipelineDir==='outbound'?pipelineLeads.filter(l=>!isLonescale(l)):pipelineLeads
+                  if(loading&&liveLeads.length===0) return <tr><td/><td colSpan={6} style={{textAlign:'center',padding:'52px 20px',color:C.text3,fontSize:14}}>Loading live leads from Slack…</td></tr>
+                  if(tableLeads.length===0&&pipelineDir!=='outbound') return <tr><td/><td colSpan={6} style={{textAlign:'center',padding:'52px 20px',color:C.text3,fontSize:14}}>No leads match this filter.</td></tr>
+                  return tableLeads.map(lead=>{
                     const sourcePill=pipelineDir==='all'?(
                       <span style={{fontSize:8,fontWeight:700,padding:'1px 5px',borderRadius:3,marginLeft:5,verticalAlign:'middle',
                         background:isOutbound(lead)?'rgba(232,121,249,0.15)':'rgba(96,212,244,0.15)',
@@ -3085,63 +3085,76 @@ export default function Dashboard() {
                     ):null
                     return <React.Fragment key={lead.email}>{renderRow(lead,sourcePill)}</React.Fragment>
                   })
-                }
+                })()}
               </tbody>
             </table>
           </div>
 
-          {/* ── Lonescale Batches (Outbound tab only) ── */}
+          {/* ── Lonescale Section (Outbound tab only) ── */}
           {pipelineDir==='outbound'&&(()=>{
             const lsLeads=allLeads.filter(l=>isLonescale(l))
             if(lsLeads.length===0) return null
-            const sorted=[...lsLeads].sort((a,b)=>(a.receivedAt||'').localeCompare(b.receivedAt||''))
-            type LsBatch={id:string;firstAt:string;lastAt:string;pings:AppLead[]}
-            const batches:LsBatch[]=[]
-            let cur:LsBatch|null=null
-            sorted.forEach(l=>{
-              const ts=l.receivedAt?new Date(l.receivedAt).getTime():0
-              if(!cur||ts-new Date(cur.lastAt).getTime()>30*60*1000){
-                cur={id:`ls-batch-${batches.length}`,firstAt:l.receivedAt||'',lastAt:l.receivedAt||'',pings:[l]}
-                batches.push(cur)
-              } else {
-                cur.pings.push(l)
-                cur.lastAt=l.receivedAt||cur.lastAt
-              }
-            })
-            batches.reverse()
-            const fmtBatchDate=(iso:string)=>{
-              const d=new Date(iso);const now2=new Date()
-              const isToday=d.toDateString()===now2.toDateString()
-              const isYesterday=new Date(now2.getTime()-864e5).toDateString()===d.toDateString()
-              const time=d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})
-              if(isToday)return `Today, ${time}`
-              if(isYesterday)return `Yesterday, ${time}`
-              return `${d.toLocaleDateString('en-US',{month:'short',day:'numeric'})}, ${time}`
-            }
             const intentPill=<span style={{fontSize:8,fontWeight:700,padding:'1px 5px',borderRadius:3,marginLeft:5,verticalAlign:'middle',background:'rgba(96,165,250,0.15)',color:'#60a5fa'}}>Intent Signal</span>
+            const todayStr=new Date().toDateString()
+            // Split into today (flat) vs older (grouped by day)
+            const todayLeads=lsLeads.filter(l=>l.receivedAt&&new Date(l.receivedAt).toDateString()===todayStr).sort((a,b)=>(b.receivedAt||'').localeCompare(a.receivedAt||''))
+            const olderLeads=lsLeads.filter(l=>!l.receivedAt||new Date(l.receivedAt).toDateString()!==todayStr)
+            // Group older leads by day
+            const dayMap=new Map<string,AppLead[]>()
+            olderLeads.forEach(l=>{
+              const d=l.receivedAt?new Date(l.receivedAt).toDateString():(l.date||'unknown')
+              if(!dayMap.has(d))dayMap.set(d,[])
+              dayMap.get(d)!.push(l)
+            })
+            // Sort days newest first
+            const dayGroups=Array.from(dayMap.entries()).sort((a,b)=>{
+              const da=new Date(a[0]).getTime()||0;const db=new Date(b[0]).getTime()||0;return db-da
+            })
+            const fmtDayLabel=(dayStr:string)=>{
+              const d=new Date(dayStr)
+              if(isNaN(d.getTime()))return dayStr
+              const yesterday=new Date();yesterday.setDate(yesterday.getDate()-1)
+              if(d.toDateString()===yesterday.toDateString())return 'Yesterday'
+              return d.toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric',year:'numeric'})
+            }
             return (
               <div style={{marginTop:20}}>
                 <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:10}}>Lonescale Intent Signals · {lsLeads.length} pings</div>
-                {batches.map(batch=>{
-                  const reviewed=batch.pings.filter(p=>lsReviewed.has(p.email)).length
-                  const batchOpen=lsExpandedBatches.has(batch.id)
-                  const toggleBatch=()=>setLsExpandedBatches(prev=>{const next=new Set(prev);if(next.has(batch.id))next.delete(batch.id);else next.add(batch.id);return next})
+                {/* Today's leads — flat, ungrouped */}
+                {todayLeads.length>0&&(
+                  <div style={{marginBottom:16}}>
+                    <div style={{fontSize:10,fontWeight:700,color:C.green,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:6}}>Today · {todayLeads.length} pings</div>
+                    <div style={{border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden'}}>
+                      <table style={{width:'100%',borderCollapse:'collapse'}}>
+                        <tbody>
+                          {todayLeads.map(ping=><React.Fragment key={ping.email}>{renderRow(ping,intentPill)}</React.Fragment>)}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+                {/* Older leads — grouped by day, collapsed */}
+                {dayGroups.map(([dayStr,pings])=>{
+                  const groupId=`ls-day-${dayStr}`
+                  const reviewed=pings.filter(p=>lsReviewed.has(p.email)).length
+                  const groupOpen=lsExpandedBatches.has(groupId)
+                  const toggleGroup=()=>setLsExpandedBatches(prev=>{const next=new Set(prev);if(next.has(groupId))next.delete(groupId);else next.add(groupId);return next})
                   return (
-                    <div key={batch.id} style={{marginBottom:8,border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden'}}>
-                      <div onClick={toggleBatch} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 14px',background:C.surface2,cursor:'pointer'}}>
+                    <div key={groupId} style={{marginBottom:8,border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden'}}>
+                      <div onClick={toggleGroup} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 14px',background:C.surface2,cursor:'pointer'}}>
                         <div style={{display:'flex',alignItems:'center',gap:10}}>
-                          <span style={{fontSize:12,color:batchOpen?C.amber:C.text3}}>{batchOpen?'▼':'▶'}</span>
-                          <span style={{fontSize:12,fontWeight:600,color:C.text}}>{fmtBatchDate(batch.firstAt)}</span>
-                          <span style={{fontSize:11,color:C.text3}}>{batch.pings.length} pings</span>
-                          {reviewed>0&&<span style={{fontSize:10,color:C.green}}>{reviewed}/{batch.pings.length} reviewed</span>}
+                          <span style={{fontSize:12,color:groupOpen?C.amber:C.text3}}>{groupOpen?'▼':'▶'}</span>
+                          <span style={{fontSize:12,fontWeight:600,color:C.text}}>{fmtDayLabel(dayStr)}</span>
+                          <span style={{fontSize:11,color:C.text3}}>{pings.length} pings</span>
+                          {reviewed>0&&<span style={{fontSize:10,color:C.green}}>{reviewed}/{pings.length} reviewed</span>}
                         </div>
-                        <button onClick={e=>{e.stopPropagation();markLsReviewed(batch.pings.map(p=>p.email))}} style={{fontSize:9,fontWeight:600,padding:'3px 8px',borderRadius:4,cursor:'pointer',border:`1px solid ${C.green}`,background:'rgba(0,229,160,0.1)',color:C.green}}>Mark all reviewed</button>
+                        <button onClick={e=>{e.stopPropagation();markLsReviewed(pings.map(p=>p.email))}} style={{fontSize:9,fontWeight:600,padding:'3px 8px',borderRadius:4,cursor:'pointer',border:`1px solid ${C.green}`,background:'rgba(0,229,160,0.1)',color:C.green}}>Mark all reviewed</button>
                       </div>
-                      {batchOpen&&(
+                      {groupOpen&&(
                         <div style={{background:C.surface,borderRadius:'0 0 10px 10px'}}>
                           <table style={{width:'100%',borderCollapse:'collapse'}}>
                             <tbody>
-                              {[...batch.pings].sort((a,b)=>(a.account||a.email).localeCompare(b.account||b.email)).map(ping=><React.Fragment key={ping.email}>{renderRow(ping,intentPill)}</React.Fragment>)}
+                              {[...pings].sort((a,b)=>(b.receivedAt||'').localeCompare(a.receivedAt||'')).map(ping=><React.Fragment key={ping.email}>{renderRow(ping,intentPill)}</React.Fragment>)}
                             </tbody>
                           </table>
                         </div>
