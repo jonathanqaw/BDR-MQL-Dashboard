@@ -228,7 +228,11 @@ export async function fetchLeads(): Promise<Lead[]> {
   const token = process.env.SLACK_BOT_TOKEN
   if (!token) throw new Error('SLACK_BOT_TOKEN is not set')
 
-  const messages = await fetchMessages(token, BDR_CHANNEL)
+  // Paginate through full channel history to get ALL leads (not just last 200)
+  // Oldest: Sept 1 2025 (start of BDR tracking)
+  const oldest = String(new Date('2025-09-01T00:00:00Z').getTime() / 1000)
+  const latest = String(Date.now() / 1000)
+  const messages = await fetchMessagesPaginated(token, BDR_CHANNEL, oldest, latest)
 
   // Dedup: by email when present, else by sfdc: + contactId, also by messageTs
   const seen = new Map<string, Lead>()

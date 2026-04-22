@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { fetchLeads } from '@/lib/slack'
 
 export const dynamic = 'force-dynamic'
+export const maxDuration = 60 // allow up to 60s for paginated Slack fetch
 
 export async function GET() {
   try {
