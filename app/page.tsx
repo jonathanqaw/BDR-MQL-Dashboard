@@ -1651,7 +1651,7 @@ export default function Dashboard() {
   const [oppTo,setOppTo]=useState('')
   const [mqlView,setMqlView]=useState<'daily'|'quarterly'>('daily')
   const [detailFilter,setDetailFilter]=useState<'none'|'sql'|'sqo'>('none')
-  const [pipelineDir,setPipelineDir]=useState<'all'|'inbound'|'outbound'>('inbound')
+  const [pipelineDir,setPipelineDir]=useState<'all'|'inbound'|'outbound'>('all')
   const [lsReviewed,setLsReviewed]=useState<Set<string>>(new Set())
   const [lsExpandedBatches,setLsExpandedBatches]=useState<Set<string>>(new Set())
   const [loading,    setLoading]    = useState(true)
@@ -2866,7 +2866,7 @@ export default function Dashboard() {
           <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:16,marginBottom:24}}>
             <div>
               <div style={{fontSize:26,fontWeight:800,letterSpacing:'-0.02em',lineHeight:1.15}}>Pipeline<br/><span style={{color:C.green}}>Overview.</span></div>
-              <div style={{fontSize:12,color:C.text3,marginTop:4}}>{currentRep.name} · {pipelineDir==='all'?`${allLeads.length} total`:pipelineDir==='inbound'?'inbound':'outbound'} leads · click any row to expand{ecSaving&&<span style={{color:C.amber,marginLeft:8}}>↑ syncing…</span>}</div>
+              <div style={{fontSize:12,color:C.text3,marginTop:4}}>{currentRep.name} · {pipelineLeads.length} {pipelineDir==='all'?'total':pipelineDir} leads · {allLeads.length} total across all tabs · click any row to expand{ecSaving&&<span style={{color:C.amber,marginLeft:8}}>↑ syncing…</span>}</div>
             </div>
             <div style={{display:'flex',flexDirection:'column',gap:8,alignItems:'flex-end'}}>
               <div style={{display:'flex',gap:0,background:C.surface3,borderRadius:8,padding:2}}>
@@ -2905,7 +2905,7 @@ export default function Dashboard() {
           {/* Summary cards — clickable to filter */}
           <div style={{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:12,marginBottom:20}}>
             {[
-              {label:'Total in period', value:Object.values(pCounts).reduce((s,v)=>s+v,0), color:C.green,   sub:period,          filter:'all'      as StatusFilter},
+              {label:'Total in period', value:Object.values(pCounts).reduce((s,v)=>s+v,0), color:C.green,   sub:`${period} · ${pipelineDir==='all'?'all tabs':pipelineDir}`,          filter:'all'      as StatusFilter},
               {label:'Booked',          value:bookedCount,                                   color:C.green,   sub:'meetings set',  filter:'booked'   as StatusFilter},
               {label:'Contacted',       value:pCounts.contacted,                             color:C.purpleL, sub:'in progress',   filter:'contacted' as StatusFilter},
               {label:'Untouched',       value:pCounts.new,                                   color:C.amber,   sub:'needs action',  filter:'new'      as StatusFilter},
