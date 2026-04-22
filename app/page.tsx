@@ -3095,26 +3095,31 @@ export default function Dashboard() {
             const lsLeads=allLeads.filter(l=>isLonescale(l))
             if(lsLeads.length===0) return null
             const intentPill=<span style={{fontSize:8,fontWeight:700,padding:'1px 5px',borderRadius:3,marginLeft:5,verticalAlign:'middle',background:'rgba(96,165,250,0.15)',color:'#60a5fa'}}>Intent Signal</span>
-            const todayStr=new Date().toDateString()
+            // Normalize every lead to a YYYY-MM-DD key for consistent grouping
+            const getDayKey=(l:AppLead):string=>{
+              if(l.receivedAt){const d=new Date(l.receivedAt);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
+              return l.date||'unknown'
+            }
+            const now2=new Date()
+            const todayKey=`${now2.getFullYear()}-${String(now2.getMonth()+1).padStart(2,'0')}-${String(now2.getDate()).padStart(2,'0')}`
             // Split into today (flat) vs older (grouped by day)
-            const todayLeads=lsLeads.filter(l=>l.receivedAt&&new Date(l.receivedAt).toDateString()===todayStr).sort((a,b)=>(b.receivedAt||'').localeCompare(a.receivedAt||''))
-            const olderLeads=lsLeads.filter(l=>!l.receivedAt||new Date(l.receivedAt).toDateString()!==todayStr)
-            // Group older leads by day
+            const todayLeads=lsLeads.filter(l=>getDayKey(l)===todayKey).sort((a,b)=>(b.receivedAt||'').localeCompare(a.receivedAt||''))
+            const olderLeads=lsLeads.filter(l=>getDayKey(l)!==todayKey)
+            // Group older leads by YYYY-MM-DD
             const dayMap=new Map<string,AppLead[]>()
             olderLeads.forEach(l=>{
-              const d=l.receivedAt?new Date(l.receivedAt).toDateString():(l.date||'unknown')
-              if(!dayMap.has(d))dayMap.set(d,[])
-              dayMap.get(d)!.push(l)
+              const k=getDayKey(l)
+              if(!dayMap.has(k))dayMap.set(k,[])
+              dayMap.get(k)!.push(l)
             })
             // Sort days newest first
-            const dayGroups=Array.from(dayMap.entries()).sort((a,b)=>{
-              const da=new Date(a[0]).getTime()||0;const db=new Date(b[0]).getTime()||0;return db-da
-            })
-            const fmtDayLabel=(dayStr:string)=>{
-              const d=new Date(dayStr)
-              if(isNaN(d.getTime()))return dayStr
+            const dayGroups=Array.from(dayMap.entries()).sort((a,b)=>b[0].localeCompare(a[0]))
+            const fmtDayLabel=(isoDay:string)=>{
+              const d=new Date(isoDay+'T12:00:00')
+              if(isNaN(d.getTime()))return isoDay
               const yesterday=new Date();yesterday.setDate(yesterday.getDate()-1)
-              if(d.toDateString()===yesterday.toDateString())return 'Yesterday'
+              const yKey=`${yesterday.getFullYear()}-${String(yesterday.getMonth()+1).padStart(2,'0')}-${String(yesterday.getDate()).padStart(2,'0')}`
+              if(isoDay===yKey)return 'Yesterday'
               return d.toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric',year:'numeric'})
             }
             return (
