@@ -3082,7 +3082,9 @@ export default function Dashboard() {
                 </table>
               </div>
             )
-            // Inbound/Outbound tabs: today's leads flat, older grouped by day
+            // Outbound tab: everything renders in the unified Lonescale section below
+            if(pipelineDir==='outbound') return null
+            // Inbound tab: today flat, older grouped
             const tKey=`${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,'0')}-${String(new Date().getDate()).padStart(2,'0')}`
             const getKey2=(l:AppLead):string=>{const ra=l.receivedAt||l.date;if(!ra)return 'unknown';const d=new Date(ra);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
             const todayLeads2=tableLeads.filter(l=>getKey2(l)===tKey).sort((a,b)=>(b.receivedAt||'').localeCompare(a.receivedAt||''))
@@ -3102,36 +3104,22 @@ export default function Dashboard() {
                 </div>
               </>)}
               {dayGroups2.map(([dayStr,leads])=>{
-                const gid=`day-${pipelineDir}-${dayStr}`
-                const gOpen=lsExpandedBatches.has(gid)
-                const toggle=()=>setLsExpandedBatches(prev=>{const next=new Set(prev);if(next.has(gid))next.delete(gid);else next.add(gid);return next})
-                return (
-                  <div key={gid} style={{marginBottom:8,border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden'}}>
-                    <div onClick={toggle} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 14px',background:C.surface2,cursor:'pointer'}}>
-                      <div style={{display:'flex',alignItems:'center',gap:10}}>
-                        <span style={{fontSize:12,color:gOpen?C.amber:C.text3}}>{gOpen?'▼':'▶'}</span>
-                        <span style={{fontSize:12,fontWeight:600,color:C.text}}>{fmtDay2(dayStr)}</span>
-                        <span style={{fontSize:11,color:C.text3}}>{leads.length} leads</span>
-                      </div>
-                    </div>
-                    {gOpen&&(
-                      <div style={{background:C.surface,borderRadius:'0 0 10px 10px'}}>
-                        <table style={{width:'100%',borderCollapse:'collapse'}}>
-                          <tbody>{[...leads].sort((a,b)=>(b.receivedAt||'').localeCompare(a.receivedAt||'')).map(lead=><React.Fragment key={lead.email}>{renderRow(lead)}</React.Fragment>)}</tbody>
-                        </table>
-                      </div>
-                    )}
+                const gid=`day-${pipelineDir}-${dayStr}`;const gOpen=lsExpandedBatches.has(gid);const toggle=()=>setLsExpandedBatches(prev=>{const next=new Set(prev);if(next.has(gid))next.delete(gid);else next.add(gid);return next})
+                return (<div key={gid} style={{marginBottom:8,border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden'}}>
+                  <div onClick={toggle} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 14px',background:C.surface2,cursor:'pointer'}}>
+                    <div style={{display:'flex',alignItems:'center',gap:10}}><span style={{fontSize:12,color:gOpen?C.amber:C.text3}}>{gOpen?'▼':'▶'}</span><span style={{fontSize:12,fontWeight:600,color:C.text}}>{fmtDay2(dayStr)}</span><span style={{fontSize:11,color:C.text3}}>{leads.length} leads</span></div>
                   </div>
-                )
+                  {gOpen&&<div style={{background:C.surface,borderRadius:'0 0 10px 10px'}}><table style={{width:'100%',borderCollapse:'collapse'}}><tbody>{[...leads].sort((a,b)=>(b.receivedAt||'').localeCompare(a.receivedAt||'')).map(lead=><React.Fragment key={lead.email}>{renderRow(lead)}</React.Fragment>)}</tbody></table></div>}
+                </div>)
               })}
               {todayLeads2.length===0&&dayGroups2.length===0&&<div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:'52px 20px',textAlign:'center',color:C.text3,fontSize:14}}>No leads match this filter.</div>}
             </>)
           })()}
 
 
-          {/* ── Lonescale Section (Outbound tab only) ── */}
+          {/* ── Lonescale Section (Outbound tab only) — includes ALL outbound leads ── */}
           {pipelineDir==='outbound'&&(()=>{
-            const lsLeads=allLeads.filter(l=>isLonescale(l))
+            const lsLeads=pipelineLeads.filter(l=>isOutbound(l))
             if(lsLeads.length===0) return null
             const intentPill=<span style={{fontSize:8,fontWeight:700,padding:'1px 5px',borderRadius:3,marginLeft:5,verticalAlign:'middle',background:'rgba(96,165,250,0.15)',color:'#60a5fa'}}>Intent Signal</span>
             // Normalize every lead to a YYYY-MM-DD key for consistent grouping
