@@ -3093,9 +3093,7 @@ export default function Dashboard() {
           {pipelineDir==='outbound'&&(()=>{
             const lsLeads=allLeads.filter(l=>isLonescale(l))
             if(lsLeads.length===0) return null
-            // Sort by receivedAt ascending for batching
             const sorted=[...lsLeads].sort((a,b)=>(a.receivedAt||'').localeCompare(b.receivedAt||''))
-            // Batch: new batch when gap > 30 min
             type LsBatch={id:string;firstAt:string;lastAt:string;pings:AppLead[]}
             const batches:LsBatch[]=[]
             let cur:LsBatch|null=null
@@ -3109,8 +3107,17 @@ export default function Dashboard() {
                 cur.lastAt=l.receivedAt||cur.lastAt
               }
             })
-            // Sort batches newest first
             batches.reverse()
+            const fmtBatchDate=(iso:string)=>{
+              const d=new Date(iso);const now2=new Date()
+              const isToday=d.toDateString()===now2.toDateString()
+              const isYesterday=new Date(now2.getTime()-864e5).toDateString()===d.toDateString()
+              const time=d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})
+              if(isToday)return `Today, ${time}`
+              if(isYesterday)return `Yesterday, ${time}`
+              return `${d.toLocaleDateString('en-US',{month:'short',day:'numeric'})}, ${time}`
+            }
+            const intentPill=<span style={{fontSize:8,fontWeight:700,padding:'1px 5px',borderRadius:3,marginLeft:5,verticalAlign:'middle',background:'rgba(96,165,250,0.15)',color:'#60a5fa'}}>Intent Signal</span>
             return (
               <div style={{marginTop:20}}>
                 <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:10}}>Lonescale Intent Signals · {lsLeads.length} pings</div>
@@ -3118,47 +3125,24 @@ export default function Dashboard() {
                   const reviewed=batch.pings.filter(p=>lsReviewed.has(p.email)).length
                   const batchOpen=lsExpandedBatches.has(batch.id)
                   const toggleBatch=()=>setLsExpandedBatches(prev=>{const next=new Set(prev);if(next.has(batch.id))next.delete(batch.id);else next.add(batch.id);return next})
-                  const fmtDate=(iso:string)=>{
-                    const d=new Date(iso);const now2=new Date()
-                    const isToday=d.toDateString()===now2.toDateString()
-                    const isYesterday=new Date(now2.getTime()-864e5).toDateString()===d.toDateString()
-                    const time=d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})
-                    if(isToday)return `Today, ${time}`
-                    if(isYesterday)return `Yesterday, ${time}`
-                    return `${d.toLocaleDateString('en-US',{month:'short',day:'numeric'})}, ${time}`
-                  }
                   return (
                     <div key={batch.id} style={{marginBottom:8,border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden'}}>
                       <div onClick={toggleBatch} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 14px',background:C.surface2,cursor:'pointer'}}>
                         <div style={{display:'flex',alignItems:'center',gap:10}}>
                           <span style={{fontSize:12,color:batchOpen?C.amber:C.text3}}>{batchOpen?'▼':'▶'}</span>
-                          <span style={{fontSize:12,fontWeight:600,color:C.text}}>{fmtDate(batch.firstAt)}</span>
+                          <span style={{fontSize:12,fontWeight:600,color:C.text}}>{fmtBatchDate(batch.firstAt)}</span>
                           <span style={{fontSize:11,color:C.text3}}>{batch.pings.length} pings</span>
                           {reviewed>0&&<span style={{fontSize:10,color:C.green}}>{reviewed}/{batch.pings.length} reviewed</span>}
                         </div>
                         <button onClick={e=>{e.stopPropagation();markLsReviewed(batch.pings.map(p=>p.email))}} style={{fontSize:9,fontWeight:600,padding:'3px 8px',borderRadius:4,cursor:'pointer',border:`1px solid ${C.green}`,background:'rgba(0,229,160,0.1)',color:C.green}}>Mark all reviewed</button>
                       </div>
                       {batchOpen&&(
-                        <div style={{padding:'4px 0'}}>
-                          {[...batch.pings].sort((a,b)=>(a.account||a.email).localeCompare(b.account||b.email)).map(ping=>{
-                            const rev=lsReviewed.has(ping.email)
-                            const displayName=nameOverrides[ping.email]||ping.account||'Unnamed contact'
-                            return (
-                              <div key={ping.email} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 14px',borderBottom:`1px solid ${C.border}`,opacity:rev?0.4:1}}>
-                                <div>
-                                  <div style={{display:'flex',alignItems:'center',gap:6}}>
-                                    <span style={{fontSize:8,fontWeight:700,padding:'1px 5px',borderRadius:3,background:'rgba(96,165,250,0.15)',color:'#60a5fa'}}>Intent Signal</span>
-                                    <span style={{fontSize:12,fontWeight:600,color:C.text,textDecoration:rev?'line-through':'none'}}>{displayName}</span>
-                                  </div>
-                                  <div style={{fontSize:10,color:C.text3,marginTop:2}}>
-                                    Last inbound: <strong style={{color:C.text2}}>{ping.lastInboundDate||ping.date||'—'}</strong>
-                                    {ping.email&&!ping.email.includes('lonescale.placeholder')&&<span style={{marginLeft:8,color:C.text3}}>{ping.email}</span>}
-                                  </div>
-                                </div>
-                                {ping.sfUrl&&<a href={ping.sfUrl} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()} style={{fontSize:10,fontWeight:700,padding:'5px 12px',borderRadius:6,border:`1px solid #60a5fa`,background:'rgba(96,165,250,0.1)',color:'#60a5fa',textDecoration:'none',whiteSpace:'nowrap'}}>Open in Salesforce</a>}
-                              </div>
-                            )
-                          })}
+                        <div style={{background:C.surface,borderRadius:'0 0 10px 10px'}}>
+                          <table style={{width:'100%',borderCollapse:'collapse'}}>
+                            <tbody>
+                              {[...batch.pings].sort((a,b)=>(a.account||a.email).localeCompare(b.account||b.email)).map(ping=>renderRow(ping,intentPill))}
+                            </tbody>
+                          </table>
                         </div>
                       )}
                     </div>
