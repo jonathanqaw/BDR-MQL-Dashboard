@@ -3060,6 +3060,7 @@ export default function Dashboard() {
           </div>
 
           {/* Lead table */}
+          {pipelineDir!=='all'&&!loading&&pipelineLeads.length>0&&<div style={{fontSize:10,fontWeight:700,color:C.green,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:6}}>Today</div>}
           <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden'}}>
             <table style={{width:'100%',borderCollapse:'collapse'}}>
               <thead>
@@ -3076,19 +3077,82 @@ export default function Dashboard() {
                   const tableLeads=pipelineDir==='outbound'?pipelineLeads.filter(l=>!isLonescale(l)):pipelineLeads
                   if(loading&&liveLeads.length===0) return <tr><td/><td colSpan={6} style={{textAlign:'center',padding:'52px 20px',color:C.text3,fontSize:14}}>Loading live leads from Slack…</td></tr>
                   if(tableLeads.length===0&&pipelineDir!=='outbound') return <tr><td/><td colSpan={6} style={{textAlign:'center',padding:'52px 20px',color:C.text3,fontSize:14}}>No leads match this filter.</td></tr>
-                  return tableLeads.map(lead=>{
-                    const sourcePill=pipelineDir==='all'?(
-                      <span style={{fontSize:8,fontWeight:700,padding:'1px 5px',borderRadius:3,marginLeft:5,verticalAlign:'middle',
-                        background:isOutbound(lead)?'rgba(232,121,249,0.15)':'rgba(96,212,244,0.15)',
-                        color:isOutbound(lead)?'#e879f9':'#60d4f4',
-                      }}>{isOutbound(lead)?'Outbound':'Inbound'}</span>
-                    ):null
+                  // On All Leads tab, show flat (no grouping)
+                  if(pipelineDir==='all') return tableLeads.map(lead=>{
+                    const sourcePill=<span style={{fontSize:8,fontWeight:700,padding:'1px 5px',borderRadius:3,marginLeft:5,verticalAlign:'middle',
+                      background:isOutbound(lead)?'rgba(232,121,249,0.15)':'rgba(96,212,244,0.15)',
+                      color:isOutbound(lead)?'#e879f9':'#60d4f4',
+                    }}>{isOutbound(lead)?'Outbound':'Inbound'}</span>
                     return <React.Fragment key={lead.email}>{renderRow(lead,sourcePill)}</React.Fragment>
                   })
+                  // On Inbound/Outbound tabs: show today's leads flat, then stop (older leads render in grouped section below)
+                  const tKey=`${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,'0')}-${String(new Date().getDate()).padStart(2,'0')}`
+                  const todayTableLeads=tableLeads.filter(l=>{
+                    const ra=l.receivedAt||l.date
+                    if(!ra)return false
+                    const d=new Date(ra)
+                    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`===tKey
+                  }).sort((a,b)=>(b.receivedAt||'').localeCompare(a.receivedAt||''))
+                  if(todayTableLeads.length===0) return null
+                  return todayTableLeads.map(lead=><React.Fragment key={lead.email}>{renderRow(lead)}</React.Fragment>)
                 })()}
               </tbody>
             </table>
           </div>
+
+          {/* ── Older leads grouped by day (Inbound & Outbound non-Lonescale) ── */}
+          {pipelineDir!=='all'&&(()=>{
+            const tableLeads=pipelineDir==='outbound'?pipelineLeads.filter(l=>!isLonescale(l)):pipelineLeads
+            const tKey=`${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,'0')}-${String(new Date().getDate()).padStart(2,'0')}`
+            const getKey=(l:AppLead):string=>{
+              const ra=l.receivedAt||l.date
+              if(!ra)return 'unknown'
+              const d=new Date(ra)
+              return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+            }
+            const olderLeads=tableLeads.filter(l=>getKey(l)!==tKey)
+            if(olderLeads.length===0) return null
+            const dayMap=new Map<string,AppLead[]>()
+            olderLeads.forEach(l=>{const k=getKey(l);if(!dayMap.has(k))dayMap.set(k,[]);dayMap.get(k)!.push(l)})
+            const dayGroups=Array.from(dayMap.entries()).sort((a,b)=>b[0].localeCompare(a[0]))
+            const fmtDay=(isoDay:string)=>{
+              const d=new Date(isoDay+'T12:00:00')
+              if(isNaN(d.getTime()))return isoDay
+              const y=new Date();y.setDate(y.getDate()-1)
+              const yKey=`${y.getFullYear()}-${String(y.getMonth()+1).padStart(2,'0')}-${String(y.getDate()).padStart(2,'0')}`
+              if(isoDay===yKey)return 'Yesterday'
+              return d.toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric',year:'numeric'})
+            }
+            return (
+              <div style={{marginTop:12}}>
+                {dayGroups.map(([dayStr,leads])=>{
+                  const gid=`day-${pipelineDir}-${dayStr}`
+                  const gOpen=lsExpandedBatches.has(gid)
+                  const toggle=()=>setLsExpandedBatches(prev=>{const next=new Set(prev);if(next.has(gid))next.delete(gid);else next.add(gid);return next})
+                  return (
+                    <div key={gid} style={{marginBottom:8,border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden'}}>
+                      <div onClick={toggle} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 14px',background:C.surface2,cursor:'pointer'}}>
+                        <div style={{display:'flex',alignItems:'center',gap:10}}>
+                          <span style={{fontSize:12,color:gOpen?C.amber:C.text3}}>{gOpen?'▼':'▶'}</span>
+                          <span style={{fontSize:12,fontWeight:600,color:C.text}}>{fmtDay(dayStr)}</span>
+                          <span style={{fontSize:11,color:C.text3}}>{leads.length} leads</span>
+                        </div>
+                      </div>
+                      {gOpen&&(
+                        <div style={{background:C.surface,borderRadius:'0 0 10px 10px'}}>
+                          <table style={{width:'100%',borderCollapse:'collapse'}}>
+                            <tbody>
+                              {[...leads].sort((a,b)=>(b.receivedAt||'').localeCompare(a.receivedAt||'')).map(lead=><React.Fragment key={lead.email}>{renderRow(lead)}</React.Fragment>)}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )
+          })()}
 
           {/* ── Lonescale Section (Outbound tab only) ── */}
           {pipelineDir==='outbound'&&(()=>{
