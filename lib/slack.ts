@@ -23,11 +23,54 @@ function shouldSkip(email: string) {
   return SKIP.some(s => email.toLowerCase().includes(s.toLowerCase()))
 }
 
+interface SlackBlock {
+  type: string
+  text?: { type: string; text: string }
+  elements?: any[]
+}
+
+interface SlackAttachment {
+  blocks?: SlackBlock[]
+  fallback?: string
+}
+
 interface SlackMessage {
   text: string
   bot_id?: string
   subtype?: string
   ts: string
+  blocks?: SlackBlock[]
+  attachments?: SlackAttachment[]
+}
+
+// ── Extract full text from Slack message (text + blocks + attachments) ────────
+// Rattle puts lead data in blocks[].text.text, not in msg.text.
+// Merge all text sources so the parser can find Email/CreatedDate/etc.
+function extractFullText(msg: SlackMessage): string {
+  const parts: string[] = []
+  if (msg.text) parts.push(msg.text)
+  if (msg.blocks) {
+    for (const block of msg.blocks) {
+      if (block.text?.text) parts.push(block.text.text)
+    }
+  }
+  if (msg.attachments) {
+    for (const att of msg.attachments) {
+      if (att.blocks) {
+        for (const block of att.blocks) {
+          if (block.text?.text) parts.push(block.text.text)
+          // Also extract URLs from button elements in action blocks
+          if (block.elements) {
+            for (const el of block.elements) {
+              if (el.url) parts.push(el.url)
+            }
+          }
+        }
+      }
+      if (att.fallback) parts.push(att.fallback)
+    }
+  }
+  return parts.join('\n')
 }
 
 // ── Normalize Slack text ─────────────────────────────────────────────────────
@@ -160,8 +203,8 @@ function parseLastIbDate(text: string): string | null {
 // ── Lead construction ────────────────────────────────────────────────────────
 
 export function parseMessage(msg: SlackMessage): Lead | null {
-  // Normalize HTML entities FIRST — all detection and parsing uses clean text
-  const text = normalizeSlackText(msg.text || '')
+  // Extract text from all sources (text + blocks + attachments) then normalize
+  const text = normalizeSlackText(extractFullText(msg))
 
   // ── Inbound (Rattle / legacy Zapier) ──
   if (isRattleInbound(text)) {
