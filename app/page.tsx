@@ -2613,7 +2613,7 @@ export default function Dashboard() {
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
 
       {/* ── Sidebar ── */}
-      <aside style={{width:252,flexShrink:0,background:C.surface,borderRight:`1px solid ${C.border}`,display:'flex',flexDirection:'column',paddingBottom:24}}>
+      <aside style={{width:252,flexShrink:0,background:C.surface,borderRight:`1px solid ${C.border}`,display:'flex',flexDirection:'column',paddingBottom:24,height:'100vh',overflowY:'auto',position:'sticky',top:0}}>
         <div style={{display:'flex',alignItems:'center',gap:11,padding:'18px 20px',borderBottom:`1px solid ${C.border}`,marginBottom:14}}>
           <div style={{width:34,height:34,borderRadius:8,background:C.green,display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,fontWeight:800,color:C.bg,flexShrink:0}}>QW</div>
           <div style={{flex:1,minWidth:0}}>
@@ -2857,7 +2857,7 @@ export default function Dashboard() {
       </aside>
 
       {/* ── Main ── */}
-      <main style={{flex:1,padding:'30px 34px 60px',overflowX:'auto',minWidth:0}}>
+      <main style={{flex:1,padding:'30px 34px 60px',overflowX:'auto',overflowY:'auto',minWidth:0,height:'100vh'}}>
 
         {/* ══════════════════════════════════════════════════════
             PIPELINE VIEW
@@ -3140,7 +3140,7 @@ export default function Dashboard() {
                         <div style={{background:C.surface,borderRadius:'0 0 10px 10px'}}>
                           <table style={{width:'100%',borderCollapse:'collapse'}}>
                             <tbody>
-                              {[...batch.pings].sort((a,b)=>(a.account||a.email).localeCompare(b.account||b.email)).map(ping=>renderRow(ping,intentPill))}
+                              {[...batch.pings].sort((a,b)=>(a.account||a.email).localeCompare(b.account||b.email)).map(ping=><React.Fragment key={ping.email}>{renderRow(ping,intentPill)}</React.Fragment>)}
                             </tbody>
                           </table>
                         </div>
