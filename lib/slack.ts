@@ -1,4 +1,5 @@
 export type LeadSource = 'bdr'
+export type LeadType = 'inbound' | 'outbound'
 
 export interface Lead {
   email: string
@@ -8,6 +9,10 @@ export interface Lead {
   date: string | null
   receivedAt: string | null  // ISO timestamp of Slack message — used for response time indicator
   source: LeadSource
+  leadType?: LeadType
+  sfdcContactId?: string | null
+  lastInboundDate?: string | null
+  messageTs?: string  // Slack message_ts for idempotent backfill dedup
 }
 
 const SLACK_API  = 'https://slack.com/api'
@@ -25,6 +30,22 @@ interface SlackMessage {
   ts: string
 }
 
+// ── Message shape detection ──────────────────────────────────────────────────
+
+function isRattleInbound(text: string): boolean {
+  // Rattle / legacy Zapier: has blockquote >*Email:* and >*Created Date:*
+  return text.includes('>*Email:*') && text.includes('>*Created Date:*')
+}
+
+function isLonescaleOutbound(text: string): boolean {
+  // Lonescale: "New contact assigned to you" + "Last IB Date:" + "Link to record:"
+  return text.includes('New contact assigned to you') &&
+    text.includes('Last IB Date:') &&
+    text.includes('Link to record:')
+}
+
+// ── Parsers ──────────────────────────────────────────────────────────────────
+
 async function fetchMessages(token: string, channelId: string, limit = 200): Promise<SlackMessage[]> {
   const res = await fetch(
     `${SLACK_API}/conversations.history?channel=${channelId}&limit=${limit}`,
@@ -37,6 +58,53 @@ async function fetchMessages(token: string, channelId: string, limit = 200): Pro
   )
 }
 
+// Paginated fetch for backfill — fetches ALL messages in a time range
+export async function fetchMessagesPaginated(
+  token: string,
+  channelId: string,
+  oldest: string,  // unix timestamp
+  latest: string,  // unix timestamp
+): Promise<SlackMessage[]> {
+  const all: SlackMessage[] = []
+  let cursor: string | undefined
+  let page = 0
+  const maxPages = 50 // safety cap
+
+  do {
+    const params = new URLSearchParams({
+      channel: channelId,
+      limit: '200',
+      oldest,
+      latest,
+    })
+    if (cursor) params.set('cursor', cursor)
+
+    const res = await fetch(`${SLACK_API}/conversations.history?${params}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    const data = await res.json()
+
+    if (!data.ok) {
+      if (data.error === 'ratelimited') {
+        const retryAfter = parseInt(data.headers?.['retry-after'] || '5', 10)
+        await new Promise(r => setTimeout(r, retryAfter * 1000))
+        continue
+      }
+      throw new Error(`Slack API error: ${data.error}`)
+    }
+
+    const msgs = (data.messages as SlackMessage[]).filter(
+      m => m.bot_id || m.subtype === 'bot_message'
+    )
+    all.push(...msgs)
+
+    cursor = data.response_metadata?.next_cursor
+    page++
+  } while (cursor && page < maxPages)
+
+  return all
+}
+
 function parseEmail(text: string): string | null {
   const mailto = text.match(/<mailto:([^|>]+)\|/)
   if (mailto) return mailto[1].toLowerCase()
@@ -45,17 +113,101 @@ function parseEmail(text: string): string | null {
 }
 
 function parseSfUrl(text: string): string | null {
-  const match = text.match(/https:\/\/qawolf1\.(lightning\.force|my\.salesforce)\.com\/[^\s>]+/)
+  const match = text.match(/https:\/\/qawolf1\.(lightning\.force|my\.salesforce)\.com\/[^\s>|)]+/)
   return match ? match[0] : null
 }
 
-function parseDate(text: string, ts: string): string {
+function parseSfdcContactId(text: string): string | null {
+  const match = text.match(/Contact\/(003[A-Za-z0-9]{15,18})/)
+  return match ? match[1] : null
+}
+
+function parseDateFlex(text: string, ts: string): string {
   // Try "Lead Created Date: YYYY-MM-DD" or "Last IB Date: YYYY-MM-DD"
   const explicit = text.match(/(?:Lead Created Date|Last IB Date):\s*(\d{4}-\d{2}-\d{2})/)
   if (explicit) return explicit[1]
+
+  // Rattle format: "Created Date:* 22nd Apr 2026, 07:16 AM" (ordinal + month name)
+  const rattleDate = text.match(/Created Date:\*?\s*(\d{1,2})(?:st|nd|rd|th)\s+(\w+)\s+(\d{4})/)
+  if (rattleDate) {
+    const d = new Date(`${rattleDate[2]} ${rattleDate[1]}, ${rattleDate[3]}`)
+    if (!isNaN(d.getTime())) return d.toISOString().split('T')[0]
+  }
+
   // Fall back to message timestamp
   return new Date(parseFloat(ts) * 1000).toISOString().split('T')[0]
 }
+
+function parseLastIbDate(text: string): string | null {
+  const match = text.match(/Last IB Date:\s*(\d{4}-\d{2}-\d{2})/)
+  return match ? match[1] : null
+}
+
+// ── Lead construction ────────────────────────────────────────────────────────
+
+export function parseMessage(msg: SlackMessage): Lead | null {
+  const text = msg.text || ''
+
+  // ── Inbound (Rattle / legacy Zapier) ──
+  if (isRattleInbound(text)) {
+    const email = parseEmail(text)
+    if (!email || shouldSkip(email)) return null
+    return {
+      email,
+      domain: email.split('@')[1] || '',
+      name: null,
+      sfUrl: parseSfUrl(text),
+      date: parseDateFlex(text, msg.ts),
+      receivedAt: new Date(parseFloat(msg.ts) * 1000).toISOString(),
+      source: 'bdr',
+      leadType: 'inbound',
+      messageTs: msg.ts,
+    }
+  }
+
+  // ── Outbound (Lonescale intent pings) ──
+  if (isLonescaleOutbound(text)) {
+    const email = parseEmail(text)
+    if (email && shouldSkip(email)) return null
+    const sfdcContactId = parseSfdcContactId(text)
+    const sfUrl = parseSfUrl(text)
+    return {
+      email: email || (sfdcContactId ? `sfdc_${sfdcContactId}@lonescale.placeholder` : ''),
+      domain: email ? (email.split('@')[1] || '') : 'lonescale.intent',
+      name: null,
+      sfUrl,
+      date: parseLastIbDate(text) || parseDateFlex(text, msg.ts),
+      receivedAt: new Date(parseFloat(msg.ts) * 1000).toISOString(),
+      source: 'bdr',
+      leadType: 'outbound',
+      sfdcContactId: sfdcContactId || null,
+      lastInboundDate: parseLastIbDate(text),
+      messageTs: msg.ts,
+    }
+  }
+
+  // ── Legacy Zapier inbound (no blockquote but has email) — back-compat ──
+  const email = parseEmail(text)
+  if (email && !shouldSkip(email)) {
+    return {
+      email,
+      domain: email.split('@')[1] || '',
+      name: null,
+      sfUrl: parseSfUrl(text),
+      date: parseDateFlex(text, msg.ts),
+      receivedAt: new Date(parseFloat(msg.ts) * 1000).toISOString(),
+      source: 'bdr',
+      leadType: 'inbound',
+      messageTs: msg.ts,
+    }
+  }
+
+  // Unknown shape — skip with warning
+  console.warn('[slack parser] Unknown message shape, skipping:', text.slice(0, 200))
+  return null
+}
+
+// ── Public API ───────────────────────────────────────────────────────────────
 
 export async function fetchLeads(): Promise<Lead[]> {
   const token = process.env.SLACK_BOT_TOKEN
@@ -63,22 +215,21 @@ export async function fetchLeads(): Promise<Lead[]> {
 
   const messages = await fetchMessages(token, BDR_CHANNEL)
 
+  // Dedup: by email when present, else by sfdc: + contactId, also by messageTs
   const seen = new Map<string, Lead>()
+  const seenTs = new Set<string>()
 
   for (const msg of messages) {
-    const email = parseEmail(msg.text)
-    if (!email || shouldSkip(email)) continue
-    if (seen.has(email)) continue // dedupe — keep first (most recent) occurrence
+    if (seenTs.has(msg.ts)) continue
+    const lead = parseMessage(msg)
+    if (!lead) continue
 
-    seen.set(email, {
-      email,
-      domain: email.split('@')[1] || '',
-      name: null,
-      sfUrl: parseSfUrl(msg.text),
-      date: parseDate(msg.text, msg.ts),
-      receivedAt: new Date(parseFloat(msg.ts) * 1000).toISOString(),
-      source: 'bdr',
-    })
+    const dedupKey = lead.email || (lead.sfdcContactId ? `sfdc:${lead.sfdcContactId}` : null)
+    if (!dedupKey) continue
+    if (seen.has(dedupKey)) continue
+
+    seenTs.add(msg.ts)
+    seen.set(dedupKey, lead)
   }
 
   const leads = Array.from(seen.values())
@@ -94,3 +245,5 @@ export async function fetchLeads(): Promise<Lead[]> {
 
   return leads
 }
+
+export { BDR_CHANNEL }

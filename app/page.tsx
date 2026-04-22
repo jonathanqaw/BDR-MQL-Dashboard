@@ -1649,7 +1649,8 @@ export default function Dashboard() {
   const [oppTo,setOppTo]=useState('')
   const [mqlView,setMqlView]=useState<'daily'|'quarterly'>('daily')
   const [detailFilter,setDetailFilter]=useState<'none'|'sql'|'sqo'>('none')
-  const [pipelineDir,setPipelineDir]=useState<'all'|'inbound'|'outbound'>('all')
+  const [pipelineDir,setPipelineDir]=useState<'all'|'inbound'|'outbound'>(()=>{if(typeof window==='undefined')return 'inbound';const saved=localStorage.getItem('dashboard.activeTab');return saved==='inbound'||saved==='outbound'||saved==='all'?saved:'inbound'})
+  const [lsReviewed,setLsReviewed]=useState<Set<string>>(()=>{try{return new Set(JSON.parse(localStorage.getItem('ls-reviewed')||'[]'))}catch{return new Set()}})
   const [loading,    setLoading]    = useState(true)
   const [error,      setError]      = useState<string|null>(null)
   const [fetchedAt,  setFetchedAt]  = useState<string|null>(null)
@@ -1974,9 +1975,12 @@ export default function Dashboard() {
     return dt>=start&&dt<=end
   }
   const hasActivityInPeriod=(l:AppLead,start:Date):boolean=>hasActivityInRange(l,start,periodRange.end)
-  // Inbound / Outbound direction filter
-  const isOutbound=(l:AppLead):boolean=>OUTBOUND_SOURCES.has(details[l.email]?.sourceChannel||'')||l.email.includes('_lonescale')
+  // Inbound / Outbound direction filter — uses leadType from parser OR sourceChannel fallback
+  const isOutbound=(l:AppLead):boolean=>l.leadType==='outbound'||OUTBOUND_SOURCES.has(details[l.email]?.sourceChannel||'')||l.email.includes('_lonescale')||l.domain==='lonescale.intent'
+  const isLonescale=(l:AppLead):boolean=>l.domain==='lonescale.intent'||!!l.email?.includes('lonescale.placeholder')||l.sfdcContactId!=null
   const dirFilter=(l:AppLead):boolean=>pipelineDir==='all'?true:pipelineDir==='outbound'?isOutbound(l):!isOutbound(l)
+  const setTab=(t:'all'|'inbound'|'outbound')=>{setPipelineDir(t);localStorage.setItem('dashboard.activeTab',t)}
+  const markLsReviewed=(keys:string[])=>{const next=new Set([...lsReviewed,...keys]);setLsReviewed(next);localStorage.setItem('ls-reviewed',JSON.stringify([...next]))}
 
   const pipelineLeads=allLeads.filter(l=>{
     if (!l.date&&!l.receivedAt) return false
@@ -2072,7 +2076,7 @@ export default function Dashboard() {
   }
 
   // ── Row renderer ─────────────────────────────────────────────────────────────
-  const renderRow=(lead:AppLead)=>{
+  const renderRow=(lead:AppLead,sourcePill?:React.ReactNode)=>{
     // Guard: if localStorage has stale hqmql/lqmql from old version, treat as new
     const rawStatus=statuses[lead.email]||'new'
     const s=(rawStatus in STATUS_CONFIG ? rawStatus : 'new') as Status
@@ -2108,6 +2112,7 @@ export default function Dashboard() {
               />
               {lead.isHistorical&&<span style={{fontSize:10,color:C.text3,background:C.surface3,borderRadius:4,padding:'1px 6px'}}>historical</span>}
               {lead.isManual&&<span style={{fontSize:10,color:C.amber,background:'rgba(245,166,35,0.12)',borderRadius:4,padding:'1px 6px',border:`1px solid rgba(245,166,35,0.3)`}}>manual</span>}
+              {sourcePill}
               {det.prospectName&&!lead.isHistorical&&!lead.isManual&&<span style={{fontSize:11,color:C.text3}}>· {det.prospectName}</span>}
               {!lead.isHistorical&&(
                 <button onClick={e=>{e.stopPropagation();copyEmail(lead.email)}} style={{display:'inline-flex',alignItems:'center',gap:4,fontSize:11,fontWeight:600,padding:'3px 9px',borderRadius:999,border:`1px solid ${copied===lead.email?C.purpleL:C.border2}`,background:copied===lead.email?'rgba(123,110,246,0.18)':C.surface3,color:copied===lead.email?C.purpleL:C.text3,cursor:'pointer'}}>
@@ -2861,10 +2866,10 @@ export default function Dashboard() {
               <div style={{fontSize:12,color:C.text3,marginTop:4}}>{currentRep.name} · {pipelineDir==='all'?`${allLeads.length} total`:pipelineDir==='inbound'?'inbound':'outbound'} leads · click any row to expand{ecSaving&&<span style={{color:C.amber,marginLeft:8}}>↑ syncing…</span>}</div>
             </div>
             <div style={{display:'flex',flexDirection:'column',gap:8,alignItems:'flex-end'}}>
-              <div style={{display:'flex',gap:5}}>
-                {(['all','inbound','outbound'] as const).map(d=>(
-                  <button key={d} onClick={()=>setPipelineDir(d)} style={filterPill(pipelineDir===d,d==='inbound'?'#60d4f4':d==='outbound'?'#e879f9':C.purple)}>
-                    {{all:'All Leads',inbound:'⬇ Inbound',outbound:'⬆ Outbound'}[d]}
+              <div style={{display:'flex',gap:0,background:C.surface3,borderRadius:8,padding:2}}>
+                {([['inbound','Inbound','#60d4f4'],['outbound','Outbound','#e879f9'],['all','All Leads',C.purple]] as const).map(([d,label,color])=>(
+                  <button key={d} onClick={()=>setTab(d as 'all'|'inbound'|'outbound')} style={{fontSize:12,fontWeight:pipelineDir===d?700:500,padding:'7px 18px',borderRadius:6,border:'none',cursor:'pointer',transition:'all 0.15s',background:pipelineDir===d?color:'transparent',color:pipelineDir===d?'#000':C.text3}}>
+                    {label}
                   </button>
                 ))}
               </div>
@@ -3066,11 +3071,99 @@ export default function Dashboard() {
                   ? <tr><td/><td colSpan={6} style={{textAlign:'center',padding:'52px 20px',color:C.text3,fontSize:14}}>Loading live leads from Slack…</td></tr>
                   : pipelineLeads.length===0
                   ? <tr><td/><td colSpan={6} style={{textAlign:'center',padding:'52px 20px',color:C.text3,fontSize:14}}>No leads match this filter.</td></tr>
-                  : pipelineLeads.map(lead=>renderRow(lead))
+                  : pipelineLeads.map(lead=>{
+                    // Source pill for All Leads tab
+                    const sourcePill=pipelineDir==='all'?(
+                      <span style={{fontSize:8,fontWeight:700,padding:'1px 5px',borderRadius:3,marginLeft:5,verticalAlign:'middle',
+                        background:isOutbound(lead)?'rgba(232,121,249,0.15)':'rgba(96,212,244,0.15)',
+                        color:isOutbound(lead)?'#e879f9':'#60d4f4',
+                      }}>{isOutbound(lead)?'Outbound':'Inbound'}</span>
+                    ):null
+                    return <React.Fragment key={lead.email}>{renderRow(lead,sourcePill)}</React.Fragment>
+                  })
                 }
               </tbody>
             </table>
           </div>
+
+          {/* ── Lonescale Batches (Outbound tab only) ── */}
+          {pipelineDir==='outbound'&&(()=>{
+            const lsLeads=allLeads.filter(l=>isLonescale(l))
+            if(lsLeads.length===0) return null
+            // Sort by receivedAt ascending for batching
+            const sorted=[...lsLeads].sort((a,b)=>(a.receivedAt||'').localeCompare(b.receivedAt||''))
+            // Batch: new batch when gap > 30 min
+            type LsBatch={id:string;firstAt:string;lastAt:string;pings:AppLead[]}
+            const batches:LsBatch[]=[]
+            let cur:LsBatch|null=null
+            sorted.forEach(l=>{
+              const ts=l.receivedAt?new Date(l.receivedAt).getTime():0
+              if(!cur||ts-new Date(cur.lastAt).getTime()>30*60*1000){
+                cur={id:`ls-batch-${batches.length}`,firstAt:l.receivedAt||'',lastAt:l.receivedAt||'',pings:[l]}
+                batches.push(cur)
+              } else {
+                cur.pings.push(l)
+                cur.lastAt=l.receivedAt||cur.lastAt
+              }
+            })
+            // Sort batches newest first
+            batches.reverse()
+            return (
+              <div style={{marginTop:20}}>
+                <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:10}}>Lonescale Intent Signals · {lsLeads.length} pings</div>
+                {batches.map(batch=>{
+                  const reviewed=batch.pings.filter(p=>lsReviewed.has(p.email)).length
+                  const [batchOpen,setBatchOpen]=React.useState(false) // eslint-disable-line
+                  const fmtDate=(iso:string)=>{
+                    const d=new Date(iso);const now2=new Date()
+                    const isToday=d.toDateString()===now2.toDateString()
+                    const isYesterday=new Date(now2.getTime()-864e5).toDateString()===d.toDateString()
+                    const time=d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})
+                    if(isToday)return `Today, ${time}`
+                    if(isYesterday)return `Yesterday, ${time}`
+                    return `${d.toLocaleDateString('en-US',{month:'short',day:'numeric'})}, ${time}`
+                  }
+                  return (
+                    <div key={batch.id} style={{marginBottom:8,border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden'}}>
+                      <div onClick={()=>setBatchOpen(!batchOpen)} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 14px',background:C.surface2,cursor:'pointer'}}>
+                        <div style={{display:'flex',alignItems:'center',gap:10}}>
+                          <span style={{fontSize:12,color:batchOpen?C.amber:C.text3}}>{batchOpen?'▼':'▶'}</span>
+                          <span style={{fontSize:12,fontWeight:600,color:C.text}}>{fmtDate(batch.firstAt)}</span>
+                          <span style={{fontSize:11,color:C.text3}}>{batch.pings.length} pings</span>
+                          {reviewed>0&&<span style={{fontSize:10,color:C.green}}>{reviewed}/{batch.pings.length} reviewed</span>}
+                        </div>
+                        <button onClick={e=>{e.stopPropagation();markLsReviewed(batch.pings.map(p=>p.email))}} style={{fontSize:9,fontWeight:600,padding:'3px 8px',borderRadius:4,cursor:'pointer',border:`1px solid ${C.green}`,background:'rgba(0,229,160,0.1)',color:C.green}}>Mark all reviewed</button>
+                      </div>
+                      {batchOpen&&(
+                        <div style={{padding:'4px 0'}}>
+                          {[...batch.pings].sort((a,b)=>(a.account||a.email).localeCompare(b.account||b.email)).map(ping=>{
+                            const rev=lsReviewed.has(ping.email)
+                            const displayName=nameOverrides[ping.email]||ping.account||'Unnamed contact'
+                            return (
+                              <div key={ping.email} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 14px',borderBottom:`1px solid ${C.border}`,opacity:rev?0.4:1}}>
+                                <div>
+                                  <div style={{display:'flex',alignItems:'center',gap:6}}>
+                                    <span style={{fontSize:8,fontWeight:700,padding:'1px 5px',borderRadius:3,background:'rgba(96,165,250,0.15)',color:'#60a5fa'}}>Intent Signal</span>
+                                    <span style={{fontSize:12,fontWeight:600,color:C.text,textDecoration:rev?'line-through':'none'}}>{displayName}</span>
+                                  </div>
+                                  <div style={{fontSize:10,color:C.text3,marginTop:2}}>
+                                    Last inbound: <strong style={{color:C.text2}}>{ping.lastInboundDate||ping.date||'—'}</strong>
+                                    {ping.email&&!ping.email.includes('lonescale.placeholder')&&<span style={{marginLeft:8,color:C.text3}}>{ping.email}</span>}
+                                  </div>
+                                </div>
+                                {ping.sfUrl&&<a href={ping.sfUrl} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()} style={{fontSize:10,fontWeight:700,padding:'5px 12px',borderRadius:6,border:`1px solid #60a5fa`,background:'rgba(96,165,250,0.1)',color:'#60a5fa',textDecoration:'none',whiteSpace:'nowrap'}}>Open in Salesforce</a>}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )
+          })()}
+
           <div style={{marginTop:14,display:'flex',alignItems:'center',gap:8}}>
             <span style={{fontSize:12,color:C.text3}}>{pipelineLeads.length} leads shown</span>
             {(stFilter!=='all'||detailFilter!=='none')&&<button onClick={()=>{setStFilter('all');setDetailFilter('none')}} style={{fontSize:11,fontWeight:600,color:C.text3,background:'none',border:`1px solid ${C.border2}`,borderRadius:999,padding:'2px 10px',cursor:'pointer'}}>✕ Clear filter</button>}
