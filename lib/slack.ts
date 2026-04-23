@@ -202,12 +202,20 @@ function parseLastIbDate(text: string): string | null {
 
 // ── Lead construction ────────────────────────────────────────────────────────
 
+// Bot IDs for classification
+const RATTLE_BOT_ID = 'B078MTXEV51'
+const LONESCALE_BOT_ID = 'B02PC3F3GP8'
+
 export function parseMessage(msg: SlackMessage): Lead | null {
   // Extract text from all sources (text + blocks + attachments) then normalize
   const text = normalizeSlackText(extractFullText(msg))
 
-  // ── Inbound (Rattle / legacy Zapier) ──
-  if (isRattleInbound(text)) {
+  // ── Classify by bot_id first (most reliable), fall back to text patterns ──
+  const isRattle = msg.bot_id === RATTLE_BOT_ID || isRattleInbound(text)
+  const isLonescale = msg.bot_id === LONESCALE_BOT_ID || isLonescaleOutbound(text)
+
+  // ── Inbound (Rattle) ──
+  if (isRattle && !isLonescale) {
     const email = parseEmail(text)
     if (!email || shouldSkip(email)) return null
     return {
@@ -224,7 +232,7 @@ export function parseMessage(msg: SlackMessage): Lead | null {
   }
 
   // ── Outbound (Lonescale intent pings) ──
-  if (isLonescaleOutbound(text)) {
+  if (isLonescale) {
     const email = parseEmail(text)
     if (email && shouldSkip(email)) return null
     const sfdcContactId = parseSfdcContactId(text)
