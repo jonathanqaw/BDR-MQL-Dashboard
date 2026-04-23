@@ -1981,14 +1981,11 @@ export default function Dashboard() {
   const periodStart=periodRange.start
   const hasActivityInRange=(l:AppLead,start:Date,end:Date):boolean=>{
     const det=details[l.email]
-    const activityDates=[det?.connectedDate,det?.meetingDate,det?.sqlDate,det?.sqoDate,det?.closedWonDate].filter(Boolean)
-    if (activityDates.length>0) {
-      return activityDates.some(d=>{const dt=new Date(d);return dt>=start&&dt<=end})
-    }
-    const fallback=l.date||l.receivedAt
-    if (!fallback) return false
-    const dt=new Date(fallback)
-    return dt>=start&&dt<=end
+    // Check ALL dates: lead creation date + all activity dates
+    // A lead shows in a period if its creation date OR any activity date falls in the range
+    const allDates=[l.date,l.receivedAt,det?.connectedDate,det?.meetingDate,det?.sqlDate,det?.sqoDate,det?.closedWonDate].filter(Boolean)
+    if (allDates.length===0) return false
+    return allDates.some(d=>{const dt=new Date(d as string);return !isNaN(dt.getTime())&&dt>=start&&dt<=end})
   }
   const hasActivityInPeriod=(l:AppLead,start:Date):boolean=>hasActivityInRange(l,start,periodRange.end)
   // Inbound / Outbound direction filter — manual override takes priority, then parser leadType, then sourceChannel
