@@ -56,6 +56,7 @@ interface LeadDetail {
   mqlQuality: string  // '' | 'hq' | 'lq' | 'dq'
   accountTier: string // '' | 'A' | 'B' | 'C' | 'E'
   gongUrl: string
+  leadDirection: string // '' | 'inbound' | 'outbound' — manual override for tab routing
 }
 interface AppLead extends Lead {
   isHistorical?: boolean
@@ -71,7 +72,8 @@ const EMPTY_DETAIL: LeadDetail = {
   sqlDq:'', sqlDate:'', ae:'', multithreading:'', sqo:'', sqoDate:'', acv:'', closedWon:'', closedWonDate:'', notes:'', sfLink:'',
   mqlQuality:'',
   accountTier:'',
-  gongUrl:''
+  gongUrl:'',
+  leadDirection:''
 }
 
 // ─── Historical records from spreadsheet ─────────────────────────────────────
@@ -879,6 +881,17 @@ function DetailPanel({lead,detail,onSave,onClose}:{lead:AppLead;detail:LeadDetai
               <button onClick={handleSave} style={{fontSize:12,fontWeight:700,padding:'7px 16px',borderRadius:7,border:'none',background:C.green,color:C.bg,cursor:'pointer'}}>Save</button>
               <button onClick={handleClose} style={{fontSize:12,fontWeight:600,padding:'7px 12px',borderRadius:7,border:`1px solid ${C.border2}`,background:'transparent',color:C.text3,cursor:'pointer'}}>✕</button>
             </div>
+          </div>
+
+          {/* Lead Direction Override */}
+          <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:14,padding:'8px 12px',background:C.surface3,borderRadius:8,border:`1px solid ${C.border}`}} onClick={stopProp} onMouseDown={stopProp}>
+            <span style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em'}}>Route to:</span>
+            {([['','Auto'],['inbound','Inbound'],['outbound','Outbound']] as const).map(([val,label])=>{
+              const active=d.leadDirection===val
+              const color=val==='inbound'?'#60d4f4':val==='outbound'?'#e879f9':C.purple
+              return <button key={val} onClick={()=>setVal('leadDirection')(val)} style={{fontSize:11,fontWeight:active?700:500,padding:'4px 12px',borderRadius:5,border:`1px solid ${active?color:C.border2}`,background:active?`${color}20`:'transparent',color:active?color:C.text3,cursor:'pointer'}}>{label}</button>
+            })}
+            <span style={{fontSize:9,color:C.text3,marginLeft:4}}>{d.leadDirection?`Manually set to ${d.leadDirection}`:'Auto-detected from source'}</span>
           </div>
 
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:12,marginBottom:14}}>
@@ -1978,9 +1991,13 @@ export default function Dashboard() {
     return dt>=start&&dt<=end
   }
   const hasActivityInPeriod=(l:AppLead,start:Date):boolean=>hasActivityInRange(l,start,periodRange.end)
-  // Inbound / Outbound direction filter — uses leadType from parser OR sourceChannel fallback
-  // Defensive: missing leadType defaults to inbound (historical leads + legacy records)
-  const isOutbound=(l:AppLead):boolean=>l.leadType==='outbound'||OUTBOUND_SOURCES.has(details[l.email]?.sourceChannel||'')||l.email.includes('_lonescale')||l.domain==='lonescale.intent'
+  // Inbound / Outbound direction filter — manual override takes priority, then parser leadType, then sourceChannel
+  const isOutbound=(l:AppLead):boolean=>{
+    const dir=details[l.email]?.leadDirection
+    if(dir==='outbound')return true
+    if(dir==='inbound')return false
+    return l.leadType==='outbound'||OUTBOUND_SOURCES.has(details[l.email]?.sourceChannel||'')||l.email.includes('_lonescale')||l.domain==='lonescale.intent'
+  }
   const isLonescale=(l:AppLead):boolean=>l.domain==='lonescale.intent'||!!l.email?.includes('lonescale.placeholder')||l.sfdcContactId!=null
   const dirFilter=(l:AppLead):boolean=>pipelineDir==='all'?true:pipelineDir==='outbound'?isOutbound(l):!isOutbound(l)
   const setTab=(t:'all'|'inbound'|'outbound')=>{setPipelineDir(t);localStorage.setItem('dashboard.activeTab',t)}
