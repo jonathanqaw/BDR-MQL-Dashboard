@@ -2353,7 +2353,7 @@ export default function Dashboard() {
 
 
   const reportSourceRows = Object.entries(
-    reportBaseLeads.reduce((acc, lead) => {
+    reportBaseLeads.filter(l=>!isOutbound(l)).reduce((acc, lead) => {
       const source = (details[lead.email]?.sourceChannel || lead.source || 'unknown').toString()
       if (!acc[source]) acc[source] = { mqls:0, sqls:0, sqos:0, pipeline:0 }
       acc[source].mqls += 1
@@ -4440,7 +4440,7 @@ export default function Dashboard() {
                     ${statusDetail}
                     <h2>Key Ratios</h2>
                     <table><thead><tr><th>Metric</th><th style="text-align:right">Value</th><th>Detail</th></tr></thead><tbody>${ratioRows}</tbody></table>
-                    <h2>Source Quality Breakdown</h2>
+                    <h2>Inbound Source Quality</h2>
                     <table><thead><tr><th>Source</th><th style="text-align:right">MQLs</th><th style="text-align:right">SQL %</th><th style="text-align:right">SQO %</th><th style="text-align:right">Pipeline</th></tr></thead><tbody>${sourceRows}</tbody></table>
                     ${sourceDetail}
                     <h2>BDR Performance</h2>
@@ -4589,7 +4589,7 @@ export default function Dashboard() {
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
               <div style={card}>
                 <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:12}}>
-                  Source Quality Breakdown
+                  Inbound Source Quality
                 </div>
                 <div style={{display:'grid',gap:8}}>
                   <div style={{display:'grid',gridTemplateColumns:'1.5fr .7fr .7fr .7fr .9fr',gap:10,fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',padding:'0 4px'}}>
