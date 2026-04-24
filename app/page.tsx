@@ -4949,17 +4949,13 @@ export default function Dashboard() {
               const mMeetings = meetingEvents.filter(e => e.month === mk)
               const mSqls = sqlEvents.filter(e => e.month === mk)
 
-              // Calculate SQL bonuses with accelerator
-              const sqlItems = mSqls.map((s, i) => {
-                const accelerated = i >= SQL_ACCELERATOR_THRESHOLD
-                return { ...s, amount: accelerated ? SQL_ACCELERATOR : SQL_BONUS, accelerated }
-              })
-
+              // Sum itemized Spiff payouts — do NOT re-apply accelerator logic. Spiff is source of truth.
+              // For dynamic months, use flat SQL_BONUS per SQL (Spiff itemized data not available).
+              const sqlItems = mSqls.map(s => ({ ...s, amount: SQL_BONUS, accelerated: false }))
               const meetingItems = mMeetings.map(m => ({ ...m, amount: MEETING_BONUS }))
               const meetingTotal = meetingItems.reduce((s, m) => s + m.amount, 0)
-              const sqlBase = sqlItems.filter(s => !s.accelerated).reduce((s, x) => s + x.amount, 0)
-              const acceleratorTotal = sqlItems.filter(s => s.accelerated).reduce((s, x) => s + x.amount, 0)
-              const sqlTotal = sqlBase + acceleratorTotal
+              const sqlTotal = sqlItems.reduce((s, x) => s + x.amount, 0)
+              const acceleratorTotal = 0
 
               // Payout month: following month, 2nd half
               const [y, m] = mk.split('-').map(Number)
@@ -4983,8 +4979,9 @@ export default function Dashboard() {
             const currentYear = new Date().getFullYear()
             const ytdMonths = months.filter(m => m.key.startsWith(String(currentYear)))
             const ytdMeetingTotal = ytdMonths.reduce((s, m) => s + m.meetingTotal, 0)
-            const ytdSqlTotal = ytdMonths.reduce((s, m) => s + (m.sqlTotal - m.acceleratorTotal), 0)
-            const ytdAcceleratorTotal = ytdMonths.reduce((s, m) => s + m.acceleratorTotal, 0)
+            // Sum itemized Spiff payouts — do NOT split base/accelerator. Spiff is source of truth.
+            const ytdSqlTotal = ytdMonths.reduce((s, m) => s + m.sqlTotal, 0)
+            const ytdAcceleratorTotal = 0
             const ytdGrandTotal = ytdMonths.reduce((s, m) => s + m.total, 0)
 
             return { months, ytdMeetingTotal, ytdSqlTotal, ytdAcceleratorTotal, ytdGrandTotal }
@@ -5145,8 +5142,8 @@ export default function Dashboard() {
               return monthEnd>=filterStart&&monthStart<=filterEnd
             })
             const filteredMeetingTotal=filteredMonths.reduce((s,m)=>s+m.meetingTotal,0)
-            const filteredSqlBase=filteredMonths.reduce((s,m)=>s+(m.sqlTotal-m.acceleratorTotal),0)
-            const filteredAccelTotal=filteredMonths.reduce((s,m)=>s+m.acceleratorTotal,0)
+            const filteredSqlBase=filteredMonths.reduce((s,m)=>s+m.sqlTotal,0)
+            const filteredAccelTotal=0
             const filteredCommTotal=filteredMonths.reduce((s,m)=>s+m.total,0)
             // Adjustments within the filter period
             const filteredAdj=commAdjustments.filter(a=>{
@@ -5340,7 +5337,7 @@ export default function Dashboard() {
                   <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
                     <thead>
                       <tr style={{borderBottom:`2px solid ${C.border2}`}}>
-                        {['Month','Meetings','Meeting $','SQLs','SQL $ (base)','Accel $','Adjustments','Total Earned','Accel Hit'].map(h=>(
+                        {['Month','Meetings','Meeting $','SQLs','SQL $','Adjustments','Total Earned'].map(h=>(
                           <th key={h} style={{padding:'7px 8px',textAlign:h==='Month'?'left':'right',fontSize:9,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em'}}>{h}</th>
                         ))}
                       </tr>
@@ -5352,11 +5349,9 @@ export default function Dashboard() {
                           <td style={{padding:'8px',textAlign:'right',color:C.text}}>{m.meetings.length}</td>
                           <td style={{padding:'8px',textAlign:'right',color:C.green,fontWeight:600}}>${m.meetingTotal.toLocaleString()}</td>
                           <td style={{padding:'8px',textAlign:'right',color:C.text}}>{m.sqlCount}</td>
-                          <td style={{padding:'8px',textAlign:'right',color:'#c084fc',fontWeight:600}}>${(m.sqlTotal-m.acceleratorTotal).toLocaleString()}</td>
-                          <td style={{padding:'8px',textAlign:'right',color:m.acceleratorTotal>0?C.amber:C.text3}}>{m.acceleratorTotal>0?`$${m.acceleratorTotal.toLocaleString()}`:'—'}</td>
+                          <td style={{padding:'8px',textAlign:'right',color:'#c084fc',fontWeight:600}}>${m.sqlTotal.toLocaleString()}</td>
                           <td style={{padding:'8px',textAlign:'right',color:m.adj!==0?(m.adj<0?C.red:C.green):C.text3}}>{m.adj!==0?`${m.adj<0?'−':'+'} $${Math.abs(m.adj).toLocaleString()}`:'—'}</td>
                           <td style={{padding:'8px',textAlign:'right',fontWeight:700,color:C.text}}>${m.totalWithAdj.toLocaleString()}</td>
-                          <td style={{padding:'8px',textAlign:'right'}}>{m.accelHit?<span style={{fontSize:9,fontWeight:700,color:C.amber,background:'rgba(245,166,35,0.15)',padding:'1px 5px',borderRadius:3}}>YES ({m.sqlCount} SQLs)</span>:<span style={{fontSize:9,color:C.text3}}>No</span>}</td>
                         </tr>
                       ))}
                       {breakdownMonths.length>1&&(
@@ -5366,10 +5361,8 @@ export default function Dashboard() {
                           <td style={{padding:'8px',textAlign:'right',fontWeight:700,color:C.green}}>${filteredMeetingTotal.toLocaleString()}</td>
                           <td style={{padding:'8px',textAlign:'right',fontWeight:700,color:C.text}}>{breakdownMonths.reduce((s,m)=>s+m.sqlCount,0)}</td>
                           <td style={{padding:'8px',textAlign:'right',fontWeight:700,color:'#c084fc'}}>${filteredSqlBase.toLocaleString()}</td>
-                          <td style={{padding:'8px',textAlign:'right',fontWeight:700,color:C.amber}}>${filteredAccelTotal.toLocaleString()}</td>
                           <td style={{padding:'8px',textAlign:'right',fontWeight:700,color:filteredAdj<0?C.red:filteredAdj>0?C.green:C.text3}}>{filteredAdj!==0?`${filteredAdj<0?'−':'+'} $${Math.abs(filteredAdj).toLocaleString()}`:'—'}</td>
                           <td style={{padding:'8px',textAlign:'right',fontWeight:800,color:C.text}}>${Math.round(variableEarned).toLocaleString()}</td>
-                          <td/>
                         </tr>
                       )}
                     </tbody>
@@ -5390,14 +5383,8 @@ export default function Dashboard() {
             <div style={card}>
               <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:8}}>SQLs</div>
               <div style={{fontSize:24,fontWeight:800,color:'#c084fc'}}>{currentMonth?.sqls.length ?? 0}</div>
-              <div style={{fontSize:13,fontWeight:700,color:C.text2,marginTop:4}}>${((currentMonth?.sqlTotal ?? 0) - (currentMonth?.acceleratorTotal ?? 0)).toLocaleString()}</div>
-              <div style={{fontSize:10,color:C.text3,marginTop:2}}>@ $620/SQL</div>
-            </div>
-            <div style={card}>
-              <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:8}}>Accelerator</div>
-              <div style={{fontSize:24,fontWeight:800,color:C.amber}}>{currentMonth ? Math.max(0, currentMonth.sqls.length - SQL_ACCELERATOR_THRESHOLD) : 0}</div>
-              <div style={{fontSize:13,fontWeight:700,color:C.text2,marginTop:4}}>${(currentMonth?.acceleratorTotal ?? 0).toLocaleString()}</div>
-              <div style={{fontSize:10,color:C.text3,marginTop:2}}>{currentMonth && currentMonth.sqls.length > SQL_ACCELERATOR_THRESHOLD ? `${currentMonth.sqls.length - SQL_ACCELERATOR_THRESHOLD} SQL(s) @ $930` : '>3 SQLs triggers $930/SQL'}</div>
+              <div style={{fontSize:13,fontWeight:700,color:C.text2,marginTop:4}}>${(currentMonth?.sqlTotal ?? 0).toLocaleString()}</div>
+              <div style={{fontSize:10,color:C.text3,marginTop:2}}>({currentMonth?.sqls.length ?? 0} SQLs)</div>
             </div>
             <div style={card}>
               <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:8}}>Total Commission</div>
@@ -5420,7 +5407,7 @@ export default function Dashboard() {
             <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
               <thead>
                 <tr style={{borderBottom:`2px solid ${C.border2}`}}>
-                  {['Month','Meetings','Meeting $','SQLs','SQL $','Accel $','Total','Cap Status','Payout'].map(h=>(
+                  {['Month','Meetings','Meeting $','SQLs','SQL $','Total','Cap Status','Payout'].map(h=>(
                     <th key={h} style={{padding:'8px 10px',textAlign:h==='Month'?'left':'right',fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em'}}>{h}</th>
                   ))}
                 </tr>
@@ -5441,8 +5428,7 @@ export default function Dashboard() {
                         <td style={{padding:'10px',textAlign:'right',color:C.text}}>{m.meetings.length}</td>
                         <td style={{padding:'10px',textAlign:'right',color:C.green,fontWeight:600}}>${m.meetingTotal.toLocaleString()}</td>
                         <td style={{padding:'10px',textAlign:'right',color:C.text}}>{m.sqls.length}</td>
-                        <td style={{padding:'10px',textAlign:'right',color:'#c084fc',fontWeight:600}}>${(m.sqlTotal - m.acceleratorTotal).toLocaleString()}</td>
-                        <td style={{padding:'10px',textAlign:'right',color:m.acceleratorTotal>0?C.amber:C.text3,fontWeight:m.acceleratorTotal>0?600:400}}>{m.acceleratorTotal>0?`$${m.acceleratorTotal.toLocaleString()}`:'—'}</td>
+                        <td style={{padding:'10px',textAlign:'right',color:'#c084fc',fontWeight:600}}>${m.sqlTotal.toLocaleString()}</td>
                         {(()=>{
                           const adj=getMonthAdj(m.key,adjRepId)
                           const adjusted=m.total+adj
@@ -6243,23 +6229,10 @@ export default function Dashboard() {
                 })
                 const meetings=periodEvents.filter(e=>e.isMeeting).length
                 const sqls=periodEvents.filter(e=>e.isSql).length
-                const meetingAmt=meetings*MEETING_BONUS
-                let sqlAmt=0,accelAmt=0
-                // Recalculate with accelerator per month within period
-                const sqlByMonth=new Map<string,number>()
-                periodEvents.filter(e=>e.isSql&&e.sqlDate).forEach(e=>{
-                  const d=new Date(e.sqlDate!)
-                  const mk=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
-                  sqlByMonth.set(mk,(sqlByMonth.get(mk)||0)+1)
-                })
-                // Simple approach: count base vs accel from monthly totals
-                sqlByMonth.forEach(count=>{
-                  const base=Math.min(count,SQL_ACCELERATOR_THRESHOLD)
-                  const accel=Math.max(0,count-SQL_ACCELERATOR_THRESHOLD)
-                  sqlAmt+=base*SQL_BONUS
-                  accelAmt+=accel*SQL_ACCELERATOR
-                })
-                return {...r,periodEvents,periodMeetings:meetings,periodSqls:sqls,periodMeetingAmt:meetingAmt,periodSqlAmt:sqlAmt,periodAccelAmt:accelAmt,periodTotal:meetingAmt+sqlAmt+accelAmt}
+                // Sum itemized event amounts — do NOT re-apply accelerator logic. Spiff is source of truth.
+                const meetingAmt=periodEvents.filter(e=>e.isMeeting).reduce((s,e)=>s+e.amount,0)
+                const sqlAmt=periodEvents.filter(e=>e.isSql).reduce((s,e)=>s+e.amount,0)
+                return {...r,periodEvents,periodMeetings:meetings,periodSqls:sqls,periodMeetingAmt:meetingAmt,periodSqlAmt:sqlAmt,periodAccelAmt:0,periodTotal:meetingAmt+sqlAmt}
               })
 
               // Filter detail events by period
@@ -6283,7 +6256,7 @@ export default function Dashboard() {
                 <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
                   <thead>
                     <tr style={{borderBottom:`2px solid ${C.border2}`}}>
-                      {['Rep','Meetings','Meeting $','SQLs','SQL $','Accel $','Total','Mtg Cap %','SQL Cap %'].map(h=>(
+                      {['Rep','Meetings','Meeting $','SQLs','SQL $','Total','Mtg Cap %','SQL Cap %'].map(h=>(
                         <th key={h} style={{padding:'8px 10px',textAlign:h==='Rep'?'left':'right',fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em'}}>{h}</th>
                       ))}
                     </tr>
@@ -6296,10 +6269,9 @@ export default function Dashboard() {
                         <td style={{padding:'10px',textAlign:'right',color:C.green,fontWeight:600}}>${r.periodMeetingAmt.toLocaleString()}</td>
                         <td style={{padding:'10px',textAlign:'right',color:C.text}}>{r.periodSqls}</td>
                         <td style={{padding:'10px',textAlign:'right',color:'#c084fc',fontWeight:600}}>${r.periodSqlAmt.toLocaleString()}</td>
-                        <td style={{padding:'10px',textAlign:'right',color:r.periodAccelAmt>0?C.amber:C.text3,fontWeight:r.periodAccelAmt>0?600:400}}>{r.periodAccelAmt>0?`$${r.periodAccelAmt.toLocaleString()}`:'—'}</td>
                         <td style={{padding:'10px',textAlign:'right',fontWeight:800,color:C.text}}>${r.periodTotal.toLocaleString()}</td>
                         <td style={{padding:'10px',textAlign:'right',fontSize:11,color:r.ytdMeetingAmt>=ANNUAL_MEETING_CAP?C.red:C.text3}}>{Math.round(r.ytdMeetingAmt/ANNUAL_MEETING_CAP*100)}%</td>
-                        <td style={{padding:'10px',textAlign:'right',fontSize:11,color:(r.ytdSqlAmt+r.ytdAccelAmt)>=ANNUAL_SQL_CAP?C.red:C.text3}}>{Math.round((r.ytdSqlAmt+r.ytdAccelAmt)/ANNUAL_SQL_CAP*100)}%</td>
+                        <td style={{padding:'10px',textAlign:'right',fontSize:11,color:r.ytdSqlAmt>=ANNUAL_SQL_CAP?C.red:C.text3}}>{Math.round(r.ytdSqlAmt/ANNUAL_SQL_CAP*100)}%</td>
                       </tr>
                     ))}
                     {isBdmViewer&&summaryRepData.length>1&&(
@@ -6309,7 +6281,6 @@ export default function Dashboard() {
                         <td style={{padding:'10px',textAlign:'right',fontWeight:700,color:C.green}}>${summaryRepData.reduce((s,r)=>s+r.periodMeetingAmt,0).toLocaleString()}</td>
                         <td style={{padding:'10px',textAlign:'right',fontWeight:700,color:C.text}}>{summaryRepData.reduce((s,r)=>s+r.periodSqls,0)}</td>
                         <td style={{padding:'10px',textAlign:'right',fontWeight:700,color:'#c084fc'}}>${summaryRepData.reduce((s,r)=>s+r.periodSqlAmt,0).toLocaleString()}</td>
-                        <td style={{padding:'10px',textAlign:'right',fontWeight:700,color:C.amber}}>${summaryRepData.reduce((s,r)=>s+r.periodAccelAmt,0).toLocaleString()}</td>
                         <td style={{padding:'10px',textAlign:'right',fontWeight:800,color:C.text}}>${summaryRepData.reduce((s,r)=>s+r.periodTotal,0).toLocaleString()}</td>
                         <td/><td/>
                       </tr>
