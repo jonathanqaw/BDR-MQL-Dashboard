@@ -1667,6 +1667,7 @@ export default function Dashboard() {
   const [pipelineDir,setPipelineDir]=useState<'all'|'inbound'|'outbound'>('all')
   const [lsReviewed,setLsReviewed]=useState<Set<string>>(new Set())
   const [lsExpandedBatches,setLsExpandedBatches]=useState<Set<string>>(new Set())
+  const [pipelineSearch,setPipelineSearch]=useState('')
   const [loading,    setLoading]    = useState(true)
   const [error,      setError]      = useState<string|null>(null)
   const [fetchedAt,  setFetchedAt]  = useState<string|null>(null)
@@ -2000,19 +2001,32 @@ export default function Dashboard() {
   const setTab=(t:'all'|'inbound'|'outbound')=>{setPipelineDir(t);localStorage.setItem('dashboard.activeTab',t)}
   const markLsReviewed=(keys:string[])=>{const next=new Set([...lsReviewed,...keys]);setLsReviewed(next);localStorage.setItem('ls-reviewed',JSON.stringify([...next]))}
 
-  const pipelineLeads=allLeads.filter(l=>{
-    if (!l.date&&!l.receivedAt) return false
-    if (period!=='all'&&!hasActivityInPeriod(l,periodStart)) return false
-    if (!dirFilter(l)) return false
-    const s=statuses[l.email]||'new'
-    if (worked==='worked'&&s==='new') return false
-    if (worked==='untouched'&&s!=='new') return false
-    if (stFilter!=='all'&&s!==stFilter) return false
+  // Search: match against account name, email, domain, prospect name
+  const searchQ=pipelineSearch.trim().toLowerCase()
+  const matchesSearch=(l:AppLead):boolean=>{
+    if(!searchQ) return false
     const det=details[l.email]
-    if (detailFilter==='sql'&&(det?.sqlDq||'')!=='Yes') return false
-    if (detailFilter==='sqo'&&(det?.sqo||'')!=='Yes') return false
-    return true
-  })
+    const displayName=(nameOverrides[l.email]||l.account||'').toLowerCase()
+    const prospectName=(det?.prospectName||'').toLowerCase()
+    return displayName.includes(searchQ)||l.email.toLowerCase().includes(searchQ)||l.domain.toLowerCase().includes(searchQ)||prospectName.includes(searchQ)
+  }
+
+  const pipelineLeads=searchQ
+    // When searching, bypass period/status/direction filters — search across everything
+    ? allLeads.filter(matchesSearch)
+    : allLeads.filter(l=>{
+      if (!l.date&&!l.receivedAt) return false
+      if (period!=='all'&&!hasActivityInPeriod(l,periodStart)) return false
+      if (!dirFilter(l)) return false
+      const s=statuses[l.email]||'new'
+      if (worked==='worked'&&s==='new') return false
+      if (worked==='untouched'&&s!=='new') return false
+      if (stFilter!=='all'&&s!==stFilter) return false
+      const det=details[l.email]
+      if (detailFilter==='sql'&&(det?.sqlDq||'')!=='Yes') return false
+      if (detailFilter==='sqo'&&(det?.sqo||'')!=='Yes') return false
+      return true
+    })
 
   const pCounts=(Object.keys(STATUS_CONFIG) as Status[]).reduce((acc,s)=>{
     acc[s]=allLeads.filter(l=>{
@@ -2881,7 +2895,7 @@ export default function Dashboard() {
           <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:16,marginBottom:24}}>
             <div>
               <div style={{fontSize:26,fontWeight:800,letterSpacing:'-0.02em',lineHeight:1.15}}>Pipeline<br/><span style={{color:C.green}}>Overview.</span></div>
-              <div style={{fontSize:12,color:C.text3,marginTop:4}}>{currentRep.name} · {pipelineLeads.length} {pipelineDir==='all'?'total':pipelineDir} leads · {allLeads.length} total across all tabs · click any row to expand{ecSaving&&<span style={{color:C.amber,marginLeft:8}}>↑ syncing…</span>}</div>
+              <div style={{fontSize:12,color:C.text3,marginTop:4}}>{currentRep.name} · {searchQ?`${pipelineLeads.length} results for "${pipelineSearch.trim()}"`:` ${pipelineLeads.length} ${pipelineDir==='all'?'total':pipelineDir} leads · ${allLeads.length} total across all tabs`} · click any row to expand{ecSaving&&<span style={{color:C.amber,marginLeft:8}}>↑ syncing…</span>}</div>
             </div>
             <div style={{display:'flex',flexDirection:'column',gap:8,alignItems:'flex-end'}}>
               <div style={{display:'flex',gap:0,background:C.surface3,borderRadius:8,padding:2}}>
@@ -2890,6 +2904,11 @@ export default function Dashboard() {
                     {label}
                   </button>
                 ))}
+              </div>
+              <div style={{position:'relative',width:'100%'}}>
+                <input value={pipelineSearch} onChange={e=>setPipelineSearch(e.target.value)} placeholder="Search accounts, emails, or names…" style={{width:'100%',fontSize:12,padding:'7px 12px 7px 30px',border:`1px solid ${pipelineSearch?C.green:C.border2}`,borderRadius:7,background:C.surface3,color:C.text,outline:'none'}}/>
+                <span style={{position:'absolute',left:10,top:'50%',transform:'translateY(-50%)',fontSize:13,color:C.text3,pointerEvents:'none'}}>⌕</span>
+                {pipelineSearch&&<button onClick={()=>setPipelineSearch('')} style={{position:'absolute',right:8,top:'50%',transform:'translateY(-50%)',fontSize:11,color:C.text3,background:'none',border:'none',cursor:'pointer'}}>✕</button>}
               </div>
               <div style={{display:'flex',gap:5,flexWrap:'wrap'}}>
                 {([['all','All Time'],['week','This Week'],['month','This Month'],['quarter','This Qtr'],['q1','Q1'],['q2','Q2'],['q3','Q3'],['q4','Q4'],['year','YTD'],['custom','Custom']] as [PeriodFilter,string][]).map(([p,label])=>(
@@ -3079,8 +3098,8 @@ export default function Dashboard() {
             if(loading&&liveLeads.length===0) return (
               <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:'52px 20px',textAlign:'center',color:C.text3,fontSize:14}}>Loading live leads from Slack…</div>
             )
-            // All Leads tab: flat, no grouping
-            if(pipelineDir==='all') return (
+            // Search results or All Leads tab: flat, no grouping
+            if(searchQ||pipelineDir==='all') return (
               <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden'}}>
                 <table style={{width:'100%',borderCollapse:'collapse'}}>
                   <thead><tr style={{background:C.surface2,borderBottom:`1px solid ${C.border}`}}><th style={{width:4,padding:0}}/>{['Account / Email','Domain / Source','SF','Date','Status','Quality'].map(h=>(<th key={h} style={{textAlign:'left',padding:'10px 14px',fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',whiteSpace:'nowrap'}}>{h}</th>))}</tr></thead>
@@ -3132,7 +3151,7 @@ export default function Dashboard() {
 
 
           {/* ── Lonescale Section (Outbound tab only) — includes ALL outbound leads ── */}
-          {pipelineDir==='outbound'&&(()=>{
+          {pipelineDir==='outbound'&&!searchQ&&(()=>{
             const lsLeads=pipelineLeads.filter(l=>isOutbound(l))
             if(lsLeads.length===0) return null
             const intentPill=<span style={{fontSize:8,fontWeight:700,padding:'1px 5px',borderRadius:3,marginLeft:5,verticalAlign:'middle',background:'rgba(96,165,250,0.15)',color:'#60a5fa'}}>Intent Signal</span>
