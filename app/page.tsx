@@ -143,9 +143,9 @@ const HISTORICAL_STATUSES: Record<string,Status> = {
   'nuqleous@historical':          'booked',
   'playtech@historical':          'booked',
   'azets@historical':             'nurture',
-  'jpmorganchase@historical':     'closedwon',
-  'pex@historical':               'closedwon',
-  'productleague@historical':     'closedwon',
+  'jpmorganchase@historical':     'booked',
+  'pex@historical':               'booked',
+  'productleague@historical':     'booked',
 }
 
 const HISTORICAL_DETAILS: Record<string,Partial<LeadDetail>> = {
@@ -1845,7 +1845,7 @@ export default function Dashboard() {
   }
 
   // Seed historical statuses & details — NEVER overwrite existing user data
-  const DATA_VERSION='v5'
+  const DATA_VERSION='v6'
   useEffect(()=>{
     const st=getSt(); const dt=getDetails()
     // Only fill in MISSING entries — never overwrite what the user has set
@@ -1853,6 +1853,14 @@ export default function Dashboard() {
       if (!st[l.email]) st[l.email]=HISTORICAL_STATUSES[l.email]||'new'
       if (!dt[l.email]) dt[l.email]={...EMPTY_DETAIL,...(HISTORICAL_DETAILS[l.email]||{})}
     })
+    // v6: fix incorrect closedwon statuses that were seeded by prior versions
+    const prevVersion=localStorage.getItem('mql-seeded-version')
+    if(prevVersion&&prevVersion<'v6'){
+      const fixStatuses:Record<string,Status>={'jpmorganchase@historical':'booked','pex@historical':'booked','productleague@historical':'booked'}
+      Object.entries(fixStatuses).forEach(([email,correctStatus])=>{
+        if(st[email]==='closedwon') st[email]=correctStatus
+      })
+    }
     localStorage.setItem('mql-st',JSON.stringify(st))
     localStorage.setItem('mql-dt',JSON.stringify(dt))
     localStorage.setItem('mql-seeded-version',DATA_VERSION)
