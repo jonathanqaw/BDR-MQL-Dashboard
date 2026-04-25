@@ -311,7 +311,6 @@ const FROZEN_COMMISSION_EVENTS: Record<string,{meetings:{email:string;account:st
     {email:'prophetx@historical',account:'Nathan Busscher — ProphetX',date:'2026-02-18',amount:620},
   ]},
   '2026-03':{meetings:[
-    {email:'onephase@historical',account:'Louis Velez — onPhase',date:'2026-03-06',amount:150},
     {email:'enablecomp@historical',account:'Keith Clayton — EnableComp',date:'2026-03-12',amount:150},
     {email:'nuqleous@historical',account:'Steven Williams — Nuqleous',date:'2026-03-13',amount:150},
     {email:'playtech@historical',account:'Borislav Zhezhev — Playtech',date:'2026-03-13',amount:150},
@@ -320,8 +319,6 @@ const FROZEN_COMMISSION_EVENTS: Record<string,{meetings:{email:string;account:st
     {email:'novemberfive@historical',account:'Antonio Marquez — November Five',date:'2026-03-18',amount:150},
     {email:'azets@historical',account:'Kristijonas Bulzgis — Azets',date:'2026-03-25',amount:150},
   ],sqls:[
-    {email:'brandon.hall@everyonesocial.com',account:'Brandon Hall — EveryoneSocial',date:'2026-03-03',amount:620},
-    {email:'bhargav.mehta@octaura.com',account:'Bhargav Mehta — Octaura',date:'2026-03-04',amount:620},
     {email:'onephase@historical',account:'Louis Velez — onPhase',date:'2026-03-06',amount:620},
     {email:'nuqleous@historical',account:'Steven Williams — Nuqleous',date:'2026-03-13',amount:930},
     {email:'north@historical',account:'Forum Vyas — North American Bancard',date:'2026-03-17',amount:930},
@@ -4887,10 +4884,9 @@ export default function Dashboard() {
               ],
               sqlTotal:1240, acceleratorTotal:0, total:2140,
             },
-            // ── Mar 2026 — 8 meetings, 6 SQLs (5 contact + 1 lead) ──
+            // ── Mar 2026 — 7 meetings, 4 SQLs (DQ'd: Octaura, EveryoneSocial removed; onPhase SQL-only) ──
             '2026-03': (() => {
               const meetings: CommissionMonth['meetings'] = [
-                {email:'onephase@historical',        account:'Louis Velez — onPhase',           date:'2026-03-06',amount:150},
                 {email:'enablecomp@historical',      account:'Keith Clayton — EnableComp',      date:'2026-03-12',amount:150},
                 {email:'nuqleous@historical',        account:'Steven Williams — Nuqleous',      date:'2026-03-13',amount:150},
                 {email:'playtech@historical',        account:'Borislav Zhezhev — Playtech',     date:'2026-03-13',amount:150},
@@ -4900,8 +4896,6 @@ export default function Dashboard() {
                 {email:'azets@historical',           account:'Kristijonas Bulzgis — Azets',     date:'2026-03-25',amount:150},
               ]
               const sqls: CommissionMonth['sqls'] = [
-                {email:'brandon.hall@everyonesocial.com', account:'Brandon Hall — EveryoneSocial',    date:'2026-03-03',amount:620,accelerated:false},
-                {email:'bhargav.mehta@octaura.com',       account:'Bhargav Mehta — Octaura',          date:'2026-03-04',amount:620,accelerated:false},
                 {email:'onephase@historical',             account:'Louis Velez — onPhase',            date:'2026-03-06',amount:620,accelerated:false},
                 {email:'nuqleous@historical',             account:'Steven Williams — Nuqleous',       date:'2026-03-13',amount:930,accelerated:true},
                 {email:'north@historical',                account:'Forum Vyas — North American Bancard', date:'2026-03-17',amount:930,accelerated:true},
@@ -4909,8 +4903,8 @@ export default function Dashboard() {
               ]
               return {
                 key:'2026-03', label:mkLabel('2026-03'), payoutMonth:mkPayoutLabel('2026-03'),
-                meetings, meetingTotal:1200,
-                sqls, sqlTotal:4650, acceleratorTotal:2790, total:5850,
+                meetings, meetingTotal:1050,
+                sqls, sqlTotal:3410, acceleratorTotal:0, total:4460,
               }
             })(),
           }
