@@ -4917,10 +4917,12 @@ export default function Dashboard() {
 
           const buildRepCommissions = (repLeads: AppLead[], useOverrides = true) => {
             // Gather all meeting events and SQL events with their months
+            // Filter out DQ'd accounts first — DQ is a retroactive kill switch per Spiff
             const meetingEvents: { email: string; account: string; month: string; date: string }[] = []
             const sqlEvents: { email: string; account: string; month: string; date: string }[] = []
 
             repLeads.forEach(l => {
+              if ((statuses[l.email] || 'new') === 'dq') return // DQ'd — excluded from all commissions
               const det = details[l.email]
               if (!det) return
               const displayName = nameOverrides[l.email] || l.account || formatDomain(l.domain) || l.email
@@ -6090,6 +6092,8 @@ export default function Dashboard() {
             const events: RevOpsEvent[] = []
             const nowTs = new Date()
             repLeads.forEach(l => {
+              // DQ'd accounts are excluded from all commissions — retroactive kill switch per Spiff
+              if ((statuses[l.email] || 'new') === 'dq') return
               const det = details[l.email] || (HISTORICAL_DETAILS[l.email] ? {...EMPTY_DETAIL,...HISTORICAL_DETAILS[l.email]} : null)
               if (!det) return
               // Must have AE assigned
