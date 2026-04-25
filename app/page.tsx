@@ -6139,7 +6139,7 @@ export default function Dashboard() {
             })
 
             const currentYear = new Date().getFullYear()
-            const ytdEvents = events.filter(e=>{const d=e.meetingDate||e.sqlDate;return d&&new Date(d).getFullYear()===currentYear})
+            const ytdEvents = events.filter(e=>{const d=e.isSql?e.sqlDate:e.meetingDate;return d&&new Date(d).getFullYear()===currentYear})
             const ytdMeetings = ytdEvents.filter(e=>e.isMeeting).length
             const ytdSqls = ytdEvents.filter(e=>e.isSql).length
             const ytdMeetingAmt = ytdEvents.filter(e=>e.isMeeting).reduce((s,e)=>s+e.amount,0)
@@ -6152,11 +6152,11 @@ export default function Dashboard() {
 
           const filteredRepData = revopsSelectedRep === 'all' ? repData : repData.filter(r => r.rep.id === revopsSelectedRep)
 
-          // All events for the detail table
+          // All events for the detail table — sort by commissionable event date
           const allEvents = filteredRepData.flatMap(r => r.events.map(e => ({ ...e, repName: r.rep.name, repId: r.rep.id })))
             .sort((a, b) => {
-              const da = a.meetingDate || a.sqlDate || ''
-              const db = b.meetingDate || b.sqlDate || ''
+              const da = a.isSql ? (a.sqlDate||'') : (a.meetingDate||'')
+              const db = b.isSql ? (b.sqlDate||'') : (b.meetingDate||'')
               return db.localeCompare(da)
             })
 
@@ -6209,10 +6209,12 @@ export default function Dashboard() {
               const inRange=(d:string|null)=>{if(!d)return false;const dt=new Date(d);return dt>=pStart&&dt<=pEnd}
               const periodLabel=revopsPeriod==='week'?'This Week':revopsPeriod==='month'?'This Month':revopsPeriod==='quarter'?'This Quarter':revopsPeriod==='year'?`YTD · ${now.getFullYear()}`:revopsPeriod==='custom'?'Custom Range':'All Time'
 
-              // Filter events by period
+              // Filter events by period — use the commissionable event date:
+              // SQL events: date by sqlDate (when the SQL was logged)
+              // Meeting events: date by meetingDate (when the meeting was held)
               const periodRepData=filteredRepData.map(r=>{
                 const periodEvents=r.events.filter(e=>{
-                  const d=e.meetingDate||e.sqlDate
+                  const d=e.isSql?e.sqlDate:e.meetingDate
                   return inRange(d)
                 })
                 const meetings=periodEvents.filter(e=>e.isMeeting).length
@@ -6225,7 +6227,7 @@ export default function Dashboard() {
 
               // Filter detail events by period
               const periodAllEvents=periodRepData.flatMap(r=>r.periodEvents.map(e=>({...e,repName:r.rep.name,repId:r.rep.id})))
-                .sort((a,b)=>{const da=a.meetingDate||a.sqlDate||'';const db=b.meetingDate||b.sqlDate||'';return db.localeCompare(da)})
+                .sort((a,b)=>{const da=a.isSql?(a.sqlDate||''):(a.meetingDate||'');const db=b.isSql?(b.sqlDate||''):(b.meetingDate||'');return db.localeCompare(da)})
 
               // Commission Summary visibility:
               // - BDM (Jonathan): sees all reps
