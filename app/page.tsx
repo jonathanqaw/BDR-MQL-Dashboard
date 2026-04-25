@@ -6075,24 +6075,23 @@ export default function Dashboard() {
 
           type RevOpsEvent = { email:string; account:string; meetingDate:string|null; sqlDate:string|null; sqoDate:string|null; mqlQuality:string; accountTier:string; sourceChannel:string; ae:string; acv:string; isMeeting:boolean; isSql:boolean; amount:number; sfUrl:string; gongUrl:string }
 
-          // Build per-rep data — use frozen overrides for override months, dynamic for others
+          // Build per-rep data — derived directly from pipeline data (statuses + details)
+          // No frozen overrides — pipeline is the single source of truth for commission events
           const repData = reps.filter(r=>r.slackId).map(rep => {
             const repLeads = rep.id === 'jonathan'
               ? allLeadsUnfiltered.filter(l => !l.repSlackId || l.repSlackId === rep.slackId)
               : allLeadsUnfiltered.filter(l => l.repSlackId === rep.slackId)
 
-            // Dynamic events — only for non-override months
-            // Requirement: discovery must be held (meetingDate in the past) AND AE assigned
             const events: RevOpsEvent[] = []
             const nowTs = new Date()
+            const seenEmails = new Set<string>() // dedup by email
             repLeads.forEach(l => {
-              // DQ'd accounts are excluded from all commissions — retroactive kill switch per Spiff
               if ((statuses[l.email] || 'new') === 'dq') return
+              if (seenEmails.has(l.email)) return
+              seenEmails.add(l.email)
               const det = details[l.email] || (HISTORICAL_DETAILS[l.email] ? {...EMPTY_DETAIL,...HISTORICAL_DETAILS[l.email]} : null)
               if (!det) return
-              // Must have AE assigned
               if (!det.ae) return
-              // Must have discovery held: meetingDate exists AND is in the past
               if (!det.meetingDate) return
               const meetDt = new Date(det.meetingDate)
               if (meetDt > nowTs) return
@@ -6100,43 +6099,27 @@ export default function Dashboard() {
               const hasMeeting = isIcp(l.email)
               const hasSql = (det.sqlDq||'').toLowerCase()==='yes' && !!det.sqlDate && isIcp(l.email)
               if (!hasMeeting && !hasSql) return
-              // Check if this event falls in an override month — skip if so
-              const meetMonth = `${meetDt.getFullYear()}-${String(meetDt.getMonth()+1).padStart(2,'0')}`
-              const sqlMonth = det.sqlDate ? `${new Date(det.sqlDate).getFullYear()}-${String(new Date(det.sqlDate).getMonth()+1).padStart(2,'0')}` : ''
-              const meetingInOverride = OVERRIDE_MONTHS.has(meetMonth)
-              const sqlInOverride = sqlMonth && OVERRIDE_MONTHS.has(sqlMonth)
-              const effectiveMeeting = hasMeeting && !meetingInOverride
-              const effectiveSql = hasSql && !sqlInOverride
-              if (!effectiveMeeting && !effectiveSql) return
-              let amount = 0
-              if (effectiveMeeting) amount += MEETING_BONUS
-              if (effectiveSql) amount += SQL_BONUS
-              events.push({
-                email: l.email, account: displayName,
-                meetingDate: effectiveMeeting ? det.meetingDate : null,
-                sqlDate: effectiveSql ? det.sqlDate : null,
-                sqoDate: det.sqoDate||null,
-                mqlQuality: det.mqlQuality||'', accountTier: det.accountTier||'', sourceChannel: det.sourceChannel||'', ae: det.ae||'', acv: det.acv||'',
-                isMeeting: effectiveMeeting, isSql: effectiveSql, amount,
-                sfUrl: det.sfLink || l.sfUrl || '', gongUrl: det.gongUrl || '',
-              })
+              // Create one event per lead — SQL takes priority if both exist
+              if (hasSql) {
+                events.push({
+                  email: l.email, account: displayName,
+                  meetingDate: det.meetingDate, sqlDate: det.sqlDate,
+                  sqoDate: det.sqoDate||null,
+                  mqlQuality: det.mqlQuality||'', accountTier: det.accountTier||'', sourceChannel: det.sourceChannel||'', ae: det.ae||'', acv: det.acv||'',
+                  isMeeting: false, isSql: true, amount: SQL_BONUS,
+                  sfUrl: det.sfLink || l.sfUrl || '', gongUrl: det.gongUrl || '',
+                })
+              } else if (hasMeeting) {
+                events.push({
+                  email: l.email, account: displayName,
+                  meetingDate: det.meetingDate, sqlDate: null,
+                  sqoDate: det.sqoDate||null,
+                  mqlQuality: det.mqlQuality||'', accountTier: det.accountTier||'', sourceChannel: det.sourceChannel||'', ae: det.ae||'', acv: det.acv||'',
+                  isMeeting: true, isSql: false, amount: MEETING_BONUS,
+                  sfUrl: det.sfLink || l.sfUrl || '', gongUrl: det.gongUrl || '',
+                })
+              }
             })
-
-            // Inject frozen override events (only for Jonathan since overrides are his data)
-            if (rep.id === 'jonathan') {
-              OVERRIDE_MONTHS.forEach(mk => {
-                // Use the same override data as the Commissions Tracker
-                // We inline the frozen data reference here
-                const overrideData = getCommissionOverride(mk)
-                if (!overrideData) return
-                overrideData.meetings.forEach(m => {
-                  events.push({ email:m.email, account:m.account, meetingDate:m.date, sqlDate:null, sqoDate:null, mqlQuality:'hq', accountTier:'', sourceChannel:'', ae:'', acv:'', isMeeting:true, isSql:false, amount:m.amount, sfUrl:'', gongUrl:'' })
-                })
-                overrideData.sqls.forEach(s => {
-                  events.push({ email:s.email, account:s.account, meetingDate:null, sqlDate:s.date, sqoDate:null, mqlQuality:'hq', accountTier:'', sourceChannel:'', ae:'', acv:'', isMeeting:false, isSql:true, amount:s.amount, sfUrl:'', gongUrl:'' })
-                })
-              })
-            }
 
             // Monthly totals
             const monthMap = new Map<string,{meetings:number;sqls:number;meetingAmt:number;sqlAmt:number;accelAmt:number}>()
