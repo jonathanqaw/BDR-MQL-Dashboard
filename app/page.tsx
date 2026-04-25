@@ -1665,6 +1665,10 @@ export default function Dashboard() {
   const [lsReviewed,setLsReviewed]=useState<Set<string>>(new Set())
   const [lsExpandedBatches,setLsExpandedBatches]=useState<Set<string>>(new Set())
   const [pipelineSearch,setPipelineSearch]=useState('')
+  const [mtgSeg,setMtgSeg]=useState<'week'|'month'|'quarter'|'year'|'custom'>('month')
+  const [mtgCompare,setMtgCompare]=useState(false)
+  const [mtgCustomFrom,setMtgCustomFrom]=useState('')
+  const [mtgCustomTo,setMtgCustomTo]=useState('')
   const [loading,    setLoading]    = useState(true)
   const [error,      setError]      = useState<string|null>(null)
   const [fetchedAt,  setFetchedAt]  = useState<string|null>(null)
@@ -4267,6 +4271,117 @@ export default function Dashboard() {
               })}
             </div>
           </div>
+
+          {/* ── Meeting Outcomes ── */}
+          {(()=>{
+            // Compute time range for the selected segment
+            const now2=new Date();const yr2=now2.getFullYear()
+            const getMtgRange=(seg:typeof mtgSeg,cfrom?:string,cto?:string):{start:Date;end:Date}=>{
+              if(seg==='week'){const d=new Date(now2);d.setDate(now2.getDate()-now2.getDay());d.setHours(0,0,0,0);return {start:d,end:new Date(d.getTime()+6*864e5+86399999)}}
+              if(seg==='month')return {start:new Date(yr2,now2.getMonth(),1),end:new Date(yr2,now2.getMonth()+1,0,23,59,59)}
+              if(seg==='quarter'){const qm=Math.floor(now2.getMonth()/3)*3;return {start:new Date(yr2,qm,1),end:new Date(yr2,qm+3,0,23,59,59)}}
+              if(seg==='year')return {start:new Date(yr2,0,1),end:new Date(yr2,11,31,23,59,59)}
+              if(seg==='custom'&&cfrom)return {start:new Date(cfrom),end:cto?new Date(cto+'T23:59:59'):new Date('2099-12-31')}
+              return {start:new Date(yr2,now2.getMonth(),1),end:new Date(yr2,now2.getMonth()+1,0,23,59,59)}
+            }
+            const range=getMtgRange(mtgSeg,mtgCustomFrom,mtgCustomTo)
+            const BOOKED_SET=new Set<Status>(['booked','inprogress','closedwon'])
+            const mtgInRange=(l:AppLead):boolean=>{
+              const det2=details[l.email];if(!det2?.meetingDate)return false
+              const md=new Date(det2.meetingDate);return md>=range.start&&md<=range.end
+            }
+            // All leads with a meetingDate in the range
+            const mtgLeads=allLeads.filter(mtgInRange)
+            const booked=mtgLeads.length
+            const held=mtgLeads.filter(l=>{const det2=details[l.email];const md=new Date(det2?.meetingDate||'');return md<=now2&&(BOOKED_SET.has((statuses[l.email]||'new') as Status)||(det2?.sqlDq||'').toLowerCase()==='yes')}).length
+            const sql=mtgLeads.filter(l=>(details[l.email]?.sqlDq||'').toLowerCase()==='yes').length
+            const sqo=mtgLeads.filter(l=>(details[l.email]?.sqo||'').toLowerCase()==='yes').length
+            const dq=mtgLeads.filter(l=>(statuses[l.email]||'new')==='dq').length
+            const nurture=mtgLeads.filter(l=>(statuses[l.email]||'new')==='nurture').length
+            const lost=mtgLeads.filter(l=>(statuses[l.email]||'new')==='lost').length
+            // Comparison: previous period of same length
+            const rangeMs2=Math.max(1,range.end.getTime()-range.start.getTime())
+            const prevRange={start:new Date(range.start.getTime()-rangeMs2),end:new Date(range.end.getTime()-rangeMs2)}
+            const prevInRange=(l:AppLead):boolean=>{
+              const det2=details[l.email];if(!det2?.meetingDate)return false
+              const md=new Date(det2.meetingDate);return md>=prevRange.start&&md<=prevRange.end
+            }
+            const prevLeads=allLeads.filter(prevInRange)
+            const pBooked=prevLeads.length
+            const pHeld=prevLeads.filter(l=>{const det2=details[l.email];const md=new Date(det2?.meetingDate||'');return md<=now2&&(BOOKED_SET.has((statuses[l.email]||'new') as Status)||(det2?.sqlDq||'').toLowerCase()==='yes')}).length
+            const pSql=prevLeads.filter(l=>(details[l.email]?.sqlDq||'').toLowerCase()==='yes').length
+            const pSqo=prevLeads.filter(l=>(details[l.email]?.sqo||'').toLowerCase()==='yes').length
+            const pDq=prevLeads.filter(l=>(statuses[l.email]||'new')==='dq').length
+            const pNurture=prevLeads.filter(l=>(statuses[l.email]||'new')==='nurture').length
+            const pLost=prevLeads.filter(l=>(statuses[l.email]||'new')==='lost').length
+            const delta2=(a:number,b:number)=>{if(b===0)return a>0?'+∞':'—';const pct2=Math.round((a-b)/b*100);return pct2>0?`+${pct2}%`:pct2===0?'0%':`${pct2}%`}
+            const dColor=(a:number,b:number)=>a>b?C.green:a<b?C.red:C.text3
+            const segLabels:{[k:string]:string}={week:'This Week',month:'This Month',quarter:'This Quarter',year:'YTD',custom:'Custom'}
+            const compLabels:{[k:string]:string}={week:'prev week',month:'prev month',quarter:'prev quarter',year:'prev year',custom:'prev range'}
+            const metrics=[
+              {label:'Meetings Booked',cur:booked,prev:pBooked,color:C.green},
+              {label:'Meetings Held',cur:held,prev:pHeld,color:'#60d4f4'},
+              {label:'SQL',cur:sql,prev:pSql,color:'#c084fc'},
+              {label:'SQO',cur:sqo,prev:pSqo,color:C.amber},
+              {label:"DQ'd",cur:dq,prev:pDq,color:C.red},
+              {label:'Nurture',cur:nurture,prev:pNurture,color:'#fb923c'},
+              {label:'Lost',cur:lost,prev:pLost,color:C.text3},
+            ]
+            return (
+              <div style={{...card,marginTop:24}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16,flexWrap:'wrap',gap:8}}>
+                  <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em'}}>Meeting Outcomes</div>
+                  <div style={{display:'flex',gap:5,alignItems:'center'}}>
+                    {(['week','month','quarter','year','custom'] as const).map(s=>(
+                      <button key={s} onClick={()=>setMtgSeg(s)} style={filterPill(mtgSeg===s)}>{segLabels[s]}</button>
+                    ))}
+                    <button onClick={()=>setMtgCompare(c=>!c)} style={{...filterPill(mtgCompare,C.amber),fontSize:10,marginLeft:4}}>
+                      {mtgCompare?`✕ vs ${compLabels[mtgSeg]}`:`⇄ Compare`}
+                    </button>
+                  </div>
+                </div>
+                {mtgSeg==='custom'&&(
+                  <div style={{display:'flex',gap:6,alignItems:'center',marginBottom:12}}>
+                    <span style={{fontSize:10,fontWeight:700,color:C.text3}}>FROM</span>
+                    <input type="date" value={mtgCustomFrom} onChange={e=>setMtgCustomFrom(e.target.value)} style={{fontSize:11,padding:'3px 7px',border:`1px solid ${C.border2}`,borderRadius:5,background:C.surface3,color:C.text,colorScheme:'dark'}}/>
+                    <span style={{fontSize:10,color:C.text3}}>→</span>
+                    <input type="date" value={mtgCustomTo} onChange={e=>setMtgCustomTo(e.target.value)} style={{fontSize:11,padding:'3px 7px',border:`1px solid ${C.border2}`,borderRadius:5,background:C.surface3,color:C.text,colorScheme:'dark'}}/>
+                  </div>
+                )}
+                <div style={{display:'grid',gridTemplateColumns:`repeat(${metrics.length},1fr)`,gap:10,marginBottom:mtgCompare?16:0}}>
+                  {metrics.map(m=>(
+                    <div key={m.label} style={{background:C.surface3,border:`1px solid ${C.border}`,borderRadius:8,padding:'10px 12px'}}>
+                      <div style={{fontSize:9,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:6}}>{m.label}</div>
+                      <div style={{fontSize:22,fontWeight:800,color:m.color}}>{m.cur}</div>
+                      {mtgCompare&&<div style={{fontSize:10,color:dColor(m.cur,m.prev),marginTop:4,fontWeight:600}}>{delta2(m.cur,m.prev)} <span style={{color:C.text3,fontWeight:400}}>vs {m.prev}</span></div>}
+                    </div>
+                  ))}
+                </div>
+                {mtgCompare&&(
+                  <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+                    <thead>
+                      <tr style={{borderBottom:`2px solid ${C.border2}`}}>
+                        <th style={{padding:'8px 10px',textAlign:'left',fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em'}}>Metric</th>
+                        <th style={{padding:'8px 10px',textAlign:'right',fontSize:10,fontWeight:700,color:C.purpleL,textTransform:'uppercase',letterSpacing:'.06em'}}>{segLabels[mtgSeg]}</th>
+                        <th style={{padding:'8px 10px',textAlign:'right',fontSize:10,fontWeight:700,color:C.amber,textTransform:'uppercase',letterSpacing:'.06em'}}>{compLabels[mtgSeg]}</th>
+                        <th style={{padding:'8px 10px',textAlign:'right',fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em'}}>Delta</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {metrics.map(m=>(
+                        <tr key={m.label} style={{borderBottom:`1px solid ${C.border}`}}>
+                          <td style={{padding:'8px 10px',fontWeight:600,color:C.text}}>{m.label}</td>
+                          <td style={{padding:'8px 10px',textAlign:'right',fontWeight:700,color:C.purpleL}}>{m.cur}</td>
+                          <td style={{padding:'8px 10px',textAlign:'right',fontWeight:700,color:C.amber}}>{m.prev}</td>
+                          <td style={{padding:'8px 10px',textAlign:'right',fontWeight:700,color:dColor(m.cur,m.prev)}}>{delta2(m.cur,m.prev)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            )
+          })()}
 
         </>)}
 
