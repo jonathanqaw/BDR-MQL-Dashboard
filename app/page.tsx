@@ -6320,34 +6320,40 @@ export default function Dashboard() {
             const events: RevOpsEvent[] = []
             const nowTs = new Date()
             const seenEmails = new Set<string>() // dedup by email
+            const BOOKED_STATUSES_C=new Set(['booked','inprogress','closedwon'])
             repLeads.forEach(l => {
               if ((statuses[l.email] || 'new') === 'dq') return
               if (seenEmails.has(l.email)) return
               seenEmails.add(l.email)
               const det = details[l.email] || (HISTORICAL_DETAILS[l.email] ? {...EMPTY_DETAIL,...HISTORICAL_DETAILS[l.email]} : null)
               if (!det) return
-              if (!det.ae) return
-              if (!det.meetingDate) return
-              const meetDt = new Date(det.meetingDate)
-              if (meetDt > nowTs) return
+              const s = statuses[l.email] || 'new'
+              // Commission-eligible: has meetingDate, OR is in a booked+ status, OR has SQL
+              const hasMeetingDate = !!det.meetingDate
+              const isBookedStatus = BOOKED_STATUSES_C.has(s as Status)
+              const hasSql = (det.sqlDq||'').toLowerCase()==='yes'
+              if (!hasMeetingDate && !isBookedStatus && !hasSql) return
+              // If meetingDate is in the future, skip (not yet held)
+              if (hasMeetingDate) {
+                const meetDt = new Date(det.meetingDate)
+                if (meetDt > nowTs) return
+              }
+              if (!isIcp(l.email)) return
               const displayName = nameOverrides[l.email] || l.account || formatDomain(l.domain) || l.email
-              const hasMeeting = isIcp(l.email)
-              const hasSql = (det.sqlDq||'').toLowerCase()==='yes' && !!det.sqlDate && isIcp(l.email)
-              if (!hasMeeting && !hasSql) return
-              // Create one event per lead — SQL takes priority if both exist
-              if (hasSql) {
+              // SQL takes priority if both exist
+              if (hasSql && det.sqlDate) {
                 events.push({
                   email: l.email, account: displayName,
-                  meetingDate: det.meetingDate, sqlDate: det.sqlDate,
+                  meetingDate: det.meetingDate||null, sqlDate: det.sqlDate,
                   sqoDate: det.sqoDate||null,
                   mqlQuality: det.mqlQuality||'', accountTier: det.accountTier||'', sourceChannel: det.sourceChannel||'', ae: det.ae||'', acv: det.acv||'',
                   isMeeting: false, isSql: true, amount: SQL_BONUS,
                   sfUrl: det.sfLink || l.sfUrl || '', gongUrl: det.gongUrl || '',
                 })
-              } else if (hasMeeting) {
+              } else {
                 events.push({
                   email: l.email, account: displayName,
-                  meetingDate: det.meetingDate, sqlDate: null,
+                  meetingDate: det.meetingDate||null, sqlDate: null,
                   sqoDate: det.sqoDate||null,
                   mqlQuality: det.mqlQuality||'', accountTier: det.accountTier||'', sourceChannel: det.sourceChannel||'', ae: det.ae||'', acv: det.acv||'',
                   isMeeting: true, isSql: false, amount: MEETING_BONUS,
