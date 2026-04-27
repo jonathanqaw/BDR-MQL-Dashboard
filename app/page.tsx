@@ -4984,12 +4984,13 @@ export default function Dashboard() {
 
           // ── Helper: is lead ICP — tier A/B/E qualifies, C does not ──
           // Falls back to mqlQuality === 'hq' for leads without a tier set
-          // ICP check: tier C is explicitly non-ICP. Everything else (A/B/E or untagged) is commissionable.
+          // ICP check: tier A, B, or approved E. C and untagged excluded unless mqlQuality=hq.
           const isIcp = (email: string): boolean => {
-            const det = details[email]
+            const det = details[email] || (HISTORICAL_DETAILS[email] ? {...EMPTY_DETAIL,...HISTORICAL_DETAILS[email]} : null)
             const tier = det?.accountTier || ''
-            if (tier === 'C') return false
-            return true
+            if (tier === 'A' || tier === 'B' || tier === 'E') return true
+            if (!tier && (det?.mqlQuality || '') === 'hq') return true
+            return false
           }
 
           // ── Build per-rep commission data ────────────────────
@@ -6288,12 +6289,13 @@ export default function Dashboard() {
           const SQL_ACCELERATOR_THRESHOLD = 3
           const ANNUAL_SQL_CAP = 22320
           const ANNUAL_MEETING_CAP = 18000
-          // ICP check: tier C is explicitly non-ICP. Everything else (A/B/E or untagged) is commissionable.
+          // ICP check: tier A, B, or approved E. C and untagged excluded unless mqlQuality=hq.
           const isIcp = (email: string): boolean => {
-            const det = details[email]
+            const det = details[email] || (HISTORICAL_DETAILS[email] ? {...EMPTY_DETAIL,...HISTORICAL_DETAILS[email]} : null)
             const tier = det?.accountTier || ''
-            if (tier === 'C') return false
-            return true
+            if (tier === 'A' || tier === 'B' || tier === 'E') return true
+            if (!tier && (det?.mqlQuality || '') === 'hq') return true
+            return false
           }
 
           // Use ALL leads unfiltered (revops needs full picture)
@@ -6308,55 +6310,40 @@ export default function Dashboard() {
           const mkPayoutLabelRO=(mk:string)=>{const [y,m]=mk.split('-').map(Number);return `${new Date(y,m,1).toLocaleString('en-US',{month:'short',year:'numeric'})} (2nd half)`}
           const OVERRIDE_MONTHS = new Set(['2025-09','2025-10','2025-11','2025-12','2026-01','2026-02','2026-03'])
 
-          type RevOpsEvent = { email:string; account:string; meetingDate:string|null; sqlDate:string|null; sqoDate:string|null; mqlQuality:string; accountTier:string; sourceChannel:string; ae:string; acv:string; isMeeting:boolean; isSql:boolean; amount:number; meetingPayout:number; sqlPayout:number; sfUrl:string; gongUrl:string }
+          // ── Normalized Commission Event Engine ──
+          // One row per account. meetingPayout and sqlPayout calculated separately, stacked.
+          // SQL accelerator per calendar month per rep. ICP = tier A/B/E or mqlQuality=hq.
+          type RevOpsEvent = { email:string; account:string; meetingDate:string|null; sqlDate:string|null; sqoDate:string|null; mqlQuality:string; accountTier:string; sourceChannel:string; ae:string; acv:string; isMeeting:boolean; isSql:boolean; amount:number; meetingPayout:number; sqlPayout:number; sfUrl:string; gongUrl:string; dedupeKey:string; exclusionReason:string }
 
-          // Build per-rep data — derived directly from pipeline data (statuses + details)
-          // No frozen overrides — pipeline is the single source of truth for commission events
           const repData = reps.filter(r=>r.slackId).map(rep => {
             const repLeads = rep.id === 'jonathan'
               ? allLeadsUnfiltered.filter(l => !l.repSlackId || l.repSlackId === rep.slackId)
               : allLeadsUnfiltered.filter(l => l.repSlackId === rep.slackId)
 
             const events: RevOpsEvent[] = []
+            const excluded: {email:string;account:string;reason:string}[] = []
             const nowTs = new Date()
-            const seenEmails = new Set<string>() // dedup by email
-            const seenDomains = new Set<string>() // dedup by domain to prevent historical+live duplicates
-            const BOOKED_STATUSES_C=new Set(['booked','inprogress','closedwon'])
-            const NON_COMMISSION_STATUSES=new Set(['new','contacted','lost','dq','na'])
+            const seenKeys = new Set<string>()
             repLeads.forEach(l => {
-              if (seenEmails.has(l.email)) return
-              if (l.domain && seenDomains.has(l.domain)) return
-              seenEmails.add(l.email)
-              if (l.domain) seenDomains.add(l.domain)
-              // Merge localStorage details with HISTORICAL_DETAILS fallback for empty fields
               const lsDet = details[l.email]
               const histDet = HISTORICAL_DETAILS[l.email]
               const det = lsDet ? (histDet ? {...EMPTY_DETAIL,...histDet,...Object.fromEntries(Object.entries(lsDet).filter(([,v])=>v!==''))} : lsDet) : (histDet ? {...EMPTY_DETAIL,...histDet} : null)
               if (!det) return
-              const s = statuses[l.email] || 'new'
-              if (s === 'dq') return // DQ is the only status that kills commission eligibility
-              const hasSql = (det.sqlDq||'').toLowerCase()==='yes'
-              // Commission-eligible: has meetingDate OR has SQL — status doesn't gate it beyond DQ
-              const hasMeetingDate = !!det.meetingDate
-              if (!hasMeetingDate && !hasSql) return
-              // If meetingDate is in the future, skip (not yet held)
-              if (hasMeetingDate) {
-                const meetDt = new Date(det.meetingDate)
-                if (meetDt > nowTs) return
-              }
-              if (!isIcp(l.email)) return
               const displayName = nameOverrides[l.email] || l.account || formatDomain(l.domain) || l.email
-              // One row per account. Meeting ($150) and SQL (accelerator) stack.
-              const mtgPay = hasMeetingDate ? MEETING_BONUS : 0
+              const domKey = l.domain ? `dom:${l.domain}` : null
+              if (seenKeys.has(l.email)||(domKey&&seenKeys.has(domKey))) { excluded.push({email:l.email,account:displayName,reason:'duplicate'}); return }
+              seenKeys.add(l.email); if(domKey)seenKeys.add(domKey)
+              if ((statuses[l.email]||'new')==='dq') { excluded.push({email:l.email,account:displayName,reason:'DQ'}); return }
+              if (!isIcp(l.email)) { excluded.push({email:l.email,account:displayName,reason:`non-ICP (tier:${det.accountTier||'-'},quality:${det.mqlQuality||'-'})`}); return }
+              const hasMtg = !!det.meetingDate
+              const hasSql = (det.sqlDq||'').toLowerCase()==='yes' && !!det.sqlDate
+              if (!hasMtg && !hasSql) { excluded.push({email:l.email,account:displayName,reason:'no meetingDate/SQL'}); return }
+              if (hasMtg && new Date(det.meetingDate) > nowTs) { excluded.push({email:l.email,account:displayName,reason:'future meeting'}); return }
               events.push({
-                email:l.email,account:displayName,
-                meetingDate:det.meetingDate||null,sqlDate:hasSql?det.sqlDate:null,
-                sqoDate:det.sqoDate||null,
+                email:l.email,account:displayName,meetingDate:det.meetingDate||null,sqlDate:hasSql?det.sqlDate:null,sqoDate:det.sqoDate||null,
                 mqlQuality:det.mqlQuality||'',accountTier:det.accountTier||'',sourceChannel:det.sourceChannel||'',ae:det.ae||'',acv:det.acv||'',
-                isMeeting:hasMeetingDate,isSql:!!(hasSql&&det.sqlDate),
-                meetingPayout:mtgPay,sqlPayout:0, // SQL payout set by accelerator pass below
-                amount:mtgPay, // will be updated after accelerator
-                sfUrl:det.sfLink||l.sfUrl||'',gongUrl:det.gongUrl||'',
+                isMeeting:hasMtg,isSql:hasSql,meetingPayout:hasMtg?MEETING_BONUS:0,sqlPayout:0,amount:hasMtg?MEETING_BONUS:0,
+                sfUrl:det.sfLink||l.sfUrl||'',gongUrl:det.gongUrl||'',dedupeKey:l.email,exclusionReason:'',
               })
             })
 
@@ -6402,7 +6389,7 @@ export default function Dashboard() {
             const ytdAccelAmt = 0
             const ytdTotal = ytdMeetingAmt + ytdSqlAmt
 
-            return { rep, events, monthMap, ytdMeetings, ytdSqls, ytdMeetingAmt, ytdSqlAmt, ytdAccelAmt, ytdTotal }
+            return { rep, events, excluded, monthMap, ytdMeetings, ytdSqls, ytdMeetingAmt, ytdSqlAmt, ytdAccelAmt:0, ytdTotal }
           })
 
           const filteredRepData = revopsSelectedRep === 'all' ? repData : repData.filter(r => r.rep.id === revopsSelectedRep)
@@ -6619,6 +6606,34 @@ export default function Dashboard() {
                   </table>
                 </div>
               </div>
+
+              {/* Reconciliation Panel — BDM only */}
+              {isBdmViewer&&(()=>{
+                const allExcluded=filteredRepData.flatMap(r=>(r.excluded||[]).map(e=>({...e,rep:r.rep.name})))
+                const sqlAccelBk=new Map<string,{base:number;accel:number;total:number}>()
+                periodAllEvents.filter(e=>e.isSql&&e.sqlDate&&inRange(e.sqlDate)).forEach(e=>{
+                  const mk=e.sqlDate!.slice(0,7);if(!sqlAccelBk.has(mk))sqlAccelBk.set(mk,{base:0,accel:0,total:0})
+                  const b=sqlAccelBk.get(mk)!;if(e.sqlPayout===SQL_BONUS)b.base++;else b.accel++;b.total+=e.sqlPayout
+                })
+                return (
+                <div style={{...card,marginTop:20,border:`1px solid rgba(96,212,244,0.3)`,background:'rgba(96,212,244,0.03)'}}>
+                  <div style={{fontSize:11,fontWeight:700,color:'#60d4f4',textTransform:'uppercase',letterSpacing:'.08em',marginBottom:12}}>Reconciliation · {periodLabel}</div>
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12,marginBottom:14}}>
+                    <div><div style={{fontSize:9,color:C.text3,textTransform:'uppercase'}}>Eligible Meetings</div><div style={{fontSize:13,fontWeight:700,color:C.green}}>{periodRepData.reduce((s,r)=>s+r.periodMeetings,0)}</div></div>
+                    <div><div style={{fontSize:9,color:C.text3,textTransform:'uppercase'}}>Eligible SQLs</div><div style={{fontSize:13,fontWeight:700,color:'#c084fc'}}>{periodRepData.reduce((s,r)=>s+r.periodSqls,0)}</div></div>
+                    <div><div style={{fontSize:9,color:C.text3,textTransform:'uppercase'}}>Commission Total</div><div style={{fontSize:13,fontWeight:800,color:C.text}}>${periodRepData.reduce((s,r)=>s+r.periodTotal,0).toLocaleString()}</div></div>
+                    <div><div style={{fontSize:9,color:C.text3,textTransform:'uppercase'}}>Meeting $</div><div style={{fontSize:13,fontWeight:700,color:C.green}}>${periodRepData.reduce((s,r)=>s+r.periodMeetingAmt,0).toLocaleString()}</div></div>
+                    <div><div style={{fontSize:9,color:C.text3,textTransform:'uppercase'}}>SQL $</div><div style={{fontSize:13,fontWeight:700,color:'#c084fc'}}>${periodRepData.reduce((s,r)=>s+r.periodSqlAmt,0).toLocaleString()}</div></div>
+                    <div><div style={{fontSize:9,color:C.text3,textTransform:'uppercase'}}>Duplicates Removed</div><div style={{fontSize:13,fontWeight:700,color:C.text3}}>{allExcluded.filter(e=>e.reason==='duplicate').length}</div></div>
+                  </div>
+                  {sqlAccelBk.size>0&&(<><div style={{fontSize:10,fontWeight:700,color:C.text3,marginBottom:6}}>SQL Accelerator by Month</div>
+                    <div style={{display:'grid',gap:3,marginBottom:12}}>{Array.from(sqlAccelBk.entries()).sort((a,b)=>a[0].localeCompare(b[0])).map(([mk,v])=>(
+                      <div key={mk} style={{fontSize:10,color:C.text2}}>{mk}: {v.base} base @$620 + {v.accel} accel @$930 = ${v.total.toLocaleString()}</div>
+                    ))}</div></>)}
+                  {allExcluded.length>0&&(<><div style={{fontSize:10,fontWeight:700,color:C.text3,marginBottom:6}}>Excluded ({allExcluded.length})</div>
+                    <div style={{maxHeight:120,overflowY:'auto'}}>{allExcluded.map((e,i)=><div key={i} style={{fontSize:9,color:C.text3,padding:'2px 0',borderBottom:`1px solid ${C.border}`}}>{e.account} — {e.reason}</div>)}</div></>)}
+                </div>)
+              })()}
               </>)
             })()}
 
