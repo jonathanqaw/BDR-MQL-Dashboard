@@ -6321,17 +6321,19 @@ export default function Dashboard() {
             const nowTs = new Date()
             const seenEmails = new Set<string>() // dedup by email
             const BOOKED_STATUSES_C=new Set(['booked','inprogress','closedwon'])
+            const NON_COMMISSION_STATUSES=new Set(['new','contacted','lost','dq','na'])
             repLeads.forEach(l => {
-              if ((statuses[l.email] || 'new') === 'dq') return
               if (seenEmails.has(l.email)) return
               seenEmails.add(l.email)
               const det = details[l.email] || (HISTORICAL_DETAILS[l.email] ? {...EMPTY_DETAIL,...HISTORICAL_DETAILS[l.email]} : null)
               if (!det) return
               const s = statuses[l.email] || 'new'
+              const hasSql = (det.sqlDq||'').toLowerCase()==='yes'
+              // Exclude non-commission statuses (lost, dq, na, new, contacted) unless they have an SQL
+              if (NON_COMMISSION_STATUSES.has(s) && !hasSql) return
               // Commission-eligible: has meetingDate, OR is in a booked+ status, OR has SQL
               const hasMeetingDate = !!det.meetingDate
               const isBookedStatus = BOOKED_STATUSES_C.has(s as Status)
-              const hasSql = (det.sqlDq||'').toLowerCase()==='yes'
               if (!hasMeetingDate && !isBookedStatus && !hasSql) return
               // If meetingDate is in the future, skip (not yet held)
               if (hasMeetingDate) {
