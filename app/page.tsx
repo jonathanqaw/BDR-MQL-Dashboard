@@ -6346,12 +6346,15 @@ export default function Dashboard() {
               if (!isIcp(l.email)) return
               const displayName = nameOverrides[l.email] || l.account || formatDomain(l.domain) || l.email
               const baseFields = {email:l.email,account:displayName,sqoDate:det.sqoDate||null,mqlQuality:det.mqlQuality||'',accountTier:det.accountTier||'',sourceChannel:det.sourceChannel||'',ae:det.ae||'',acv:det.acv||'',sfUrl:det.sfLink||l.sfUrl||'',gongUrl:det.gongUrl||''}
-              // One event per lead. If both meeting and SQL exist, show as SQL (higher credit).
-              // Both dates are carried so the period filter can show the event in the right month.
-              if (hasSql && det.sqlDate) {
-                events.push({...baseFields,meetingDate:det.meetingDate||null,sqlDate:det.sqlDate,isMeeting:false,isSql:true,amount:SQL_BONUS})
-              } else if (hasMeetingDate) {
+              // Two separate commission events when both meeting and SQL exist:
+              // Meeting credit ($150) dated by meetingDate — shows in the month meeting was booked
+              // SQL credit ($620) dated by sqlDate — shows in the month SQL was registered
+              // Period filter uses isSql to pick the right date for each event
+              if (hasMeetingDate) {
                 events.push({...baseFields,meetingDate:det.meetingDate,sqlDate:null,isMeeting:true,isSql:false,amount:MEETING_BONUS})
+              }
+              if (hasSql && det.sqlDate) {
+                events.push({...baseFields,meetingDate:null,sqlDate:det.sqlDate,isMeeting:false,isSql:true,amount:SQL_BONUS})
               }
             })
 
