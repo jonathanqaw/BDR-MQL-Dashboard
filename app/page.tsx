@@ -1528,6 +1528,10 @@ export default function Dashboard() {
     try { const r=JSON.parse(localStorage.getItem('roundRobinAERoster')||'null'); if(Array.isArray(r)&&r.length>0) setRrRoster(r); else { const m=migrateAERoster(); setRrRoster(m); localStorage.setItem('roundRobinAERoster',JSON.stringify(m)) } } catch { const m=migrateAERoster(); setRrRoster(m); localStorage.setItem('roundRobinAERoster',JSON.stringify(m)) }
     try { const w=localStorage.getItem('rr-equity-window'); if(w==='week'||w==='month'||w==='quarter'||w==='year') setRrEquityWindow(w) } catch {}
     try { const t=localStorage.getItem('dashboard.activeTab'); if(t==='inbound'||t==='outbound'||t==='all'||t==='meetings') setPipelineDir(t as any) } catch {}
+    try { const v=localStorage.getItem('commission-view-mode'); if(v==='verified') setCommViewMode('verified') } catch {}
+    try { const v=JSON.parse(localStorage.getItem('commission-spiff-verified')||'{}'); setCommVerified(v) } catch {}
+    try { const v=JSON.parse(localStorage.getItem('commission-manual-entries')||'[]'); if(Array.isArray(v)) setCommManualEntries(v) } catch {}
+    try { setCommLastReconciled(localStorage.getItem('commission-last-reconciled')) } catch {}
     try { const r=JSON.parse(localStorage.getItem('ls-reviewed')||'[]'); if(Array.isArray(r)) setLsReviewed(new Set(r)) } catch {}
   },[])
 
@@ -1698,6 +1702,12 @@ export default function Dashboard() {
   const [revopsFrom,setRevopsFrom]=useState('')
   const [revopsExpandedEvent,setRevopsExpandedEvent]=useState<string|null>(null)
   const [revopsTo,setRevopsTo]=useState('')
+  const [commViewMode,setCommViewMode]=useState<'all'|'verified'>('all')
+  const [commVerified,setCommVerified]=useState<Record<string,boolean>>({})
+  const [commManualEntries,setCommManualEntries]=useState<{id:string;account:string;prospectName:string;ae:string;tier:string;meetingDate:string;sqlDate:string;source:string}[]>([])
+  const [commShowAddManual,setCommShowAddManual]=useState(false)
+  const [commShowReconcile,setCommShowReconcile]=useState(false)
+  const [commLastReconciled,setCommLastReconciled]=useState<string|null>(null)
   const [commAdjustments,setCommAdjustments]=useState<{id:string;repId:string;month:string;amount:number;reason:string;createdAt:string}[]>([])
   const [showAdjModal,setShowAdjModal]=useState(false)
   const [editingAdj,setEditingAdj]=useState<{id:string;repId:string;month:string;amount:number;reason:string;createdAt:string}|null>(null)
@@ -6286,8 +6296,14 @@ export default function Dashboard() {
           const SQL_BONUS = 620
           const SQL_ACCELERATOR = 930
           const SQL_ACCELERATOR_THRESHOLD = 3
-          const ANNUAL_SQL_CAP = 22320
-          const ANNUAL_MEETING_CAP = 18000
+          const MTG_Q_CAP = 18000  // quarterly cap — TODO: confirm Q2 numbers with Arnav
+          const SQL_Q_CAP = 22320  // quarterly cap
+          const ICP_SCORES_FOR_BONUS = new Set(['A','B','E'])
+          const toggleVerified=(rowId:string)=>{const next={...commVerified,[rowId]:!commVerified[rowId]};setCommVerified(next);localStorage.setItem('commission-spiff-verified',JSON.stringify(next))}
+          const setViewMode=(m:'all'|'verified')=>{setCommViewMode(m);localStorage.setItem('commission-view-mode',m)}
+          const addManualEntry=(entry:typeof commManualEntries[0])=>{const next=[...commManualEntries,entry];setCommManualEntries(next);localStorage.setItem('commission-manual-entries',JSON.stringify(next));const vNext={...commVerified,[entry.id]:true};setCommVerified(vNext);localStorage.setItem('commission-spiff-verified',JSON.stringify(vNext))}
+          const removeManualEntry=(id:string)=>{const next=commManualEntries.filter(e=>e.id!==id);setCommManualEntries(next);localStorage.setItem('commission-manual-entries',JSON.stringify(next))}
+          const getRowId=(e:{account:string;meetingDate:string|null;sqlDate:string|null})=>`${e.account}-${e.meetingDate||'nomtg'}-${e.sqlDate||'nosql'}`
           // ICP check: only tier C is explicitly excluded. Blank tier = eligible (matches Spiff behavior).
           const isIcp = (email: string): boolean => {
             const det = details[email] || (HISTORICAL_DETAILS[email] ? {...EMPTY_DETAIL,...HISTORICAL_DETAILS[email]} : null)
@@ -6332,16 +6348,31 @@ export default function Dashboard() {
               if (seenKeys.has(l.email)||(domKey&&seenKeys.has(domKey))) { excluded.push({email:l.email,account:displayName,reason:'duplicate'}); return }
               seenKeys.add(l.email); if(domKey)seenKeys.add(domKey)
               if ((statuses[l.email]||'new')==='dq') { excluded.push({email:l.email,account:displayName,reason:'DQ'}); return }
-              if (!isIcp(l.email)) { excluded.push({email:l.email,account:displayName,reason:`non-ICP (tier:${det.accountTier||'-'},quality:${det.mqlQuality||'-'})`}); return }
               const hasMtg = !!det.meetingDate
               const hasSql = (det.sqlDq||'').toLowerCase()==='yes' && !!det.sqlDate
               if (!hasMtg && !hasSql) { excluded.push({email:l.email,account:displayName,reason:'no meetingDate/SQL'}); return }
               if (hasMtg && new Date(det.meetingDate) > nowTs) { excluded.push({email:l.email,account:displayName,reason:'future meeting'}); return }
+              // ICP gating: C-tier gets $0, A/B/E get full bonus, blank tier = eligible per Spiff
+              const tier = det.accountTier || ''
+              const icpEligible = tier !== 'C'
+              const mtgPay = hasMtg && icpEligible ? MEETING_BONUS : 0
               events.push({
                 email:l.email,account:displayName,meetingDate:det.meetingDate||null,sqlDate:hasSql?det.sqlDate:null,sqoDate:det.sqoDate||null,
-                mqlQuality:det.mqlQuality||'',accountTier:det.accountTier||'',sourceChannel:det.sourceChannel||'',ae:det.ae||'',acv:det.acv||'',
-                isMeeting:hasMtg,isSql:hasSql,meetingPayout:hasMtg?MEETING_BONUS:0,sqlPayout:0,amount:hasMtg?MEETING_BONUS:0,
-                sfUrl:det.sfLink||l.sfUrl||'',gongUrl:det.gongUrl||'',dedupeKey:l.email,exclusionReason:'',
+                mqlQuality:det.mqlQuality||'',accountTier:tier,sourceChannel:det.sourceChannel||'',ae:det.ae||'',acv:det.acv||'',
+                isMeeting:hasMtg,isSql:hasSql&&icpEligible,meetingPayout:mtgPay,sqlPayout:0,amount:mtgPay,
+                sfUrl:det.sfLink||l.sfUrl||'',gongUrl:det.gongUrl||'',dedupeKey:l.email,exclusionReason:icpEligible?'':'C-tier ($0)',
+              })
+            })
+
+            // Inject manual Spiff entries (only for this rep)
+            commManualEntries.forEach(me=>{
+              const hasMtg=!!me.meetingDate;const hasSql=!!me.sqlDate;const icpOk=me.tier!=='C'
+              if(!hasMtg&&!hasSql)return
+              events.push({
+                email:`manual-${me.id}`,account:me.account,meetingDate:me.meetingDate||null,sqlDate:me.sqlDate||null,sqoDate:null,
+                mqlQuality:'',accountTier:me.tier,sourceChannel:me.source||'manual: spiff',ae:me.ae,acv:'',
+                isMeeting:hasMtg&&icpOk,isSql:hasSql&&icpOk,meetingPayout:hasMtg&&icpOk?MEETING_BONUS:0,sqlPayout:0,amount:hasMtg&&icpOk?MEETING_BONUS:0,
+                sfUrl:'',gongUrl:'',dedupeKey:`manual-${me.id}`,exclusionReason:'',
               })
             })
 
@@ -6459,13 +6490,25 @@ export default function Dashboard() {
 
               const inRange=(d:string|null)=>{if(!d)return false;const dt=new Date(d);return dt>=pStart&&dt<=pEnd}
               const periodLabel=revopsPeriod==='week'?'This Week':revopsPeriod==='month'?'This Month':revopsPeriod==='quarter'?'This Quarter':revopsPeriod==='year'?`YTD · ${now.getFullYear()}`:revopsPeriod==='custom'?'Custom Range':'All Time'
+              // Check if range spans multiple quarters (for cap display)
+              const qStart=Math.floor(pStart.getMonth()/3);const qEnd=Math.floor(pEnd.getMonth()/3)
+              const spansMultipleQuarters=pStart.getFullYear()!==pEnd.getFullYear()||qStart!==qEnd
 
               // Filter events by period — include if meetingDate OR sqlDate falls in range
               // For amounts, only count the payout components whose dates fall in range
+              // When Verified Only mode, filter to verified events and recompute accelerator
               const periodRepData=filteredRepData.map(r=>{
-                const periodEvents=r.events.filter(e=>{
+                let periodEvents=r.events.filter(e=>{
                   return inRange(e.meetingDate)||inRange(e.sqlDate)
                 })
+                // Apply verified filter
+                if(commViewMode==='verified'){
+                  periodEvents=periodEvents.filter(e=>commVerified[getRowId(e)])
+                  // Recompute accelerator for verified-only SQL subset
+                  const vSqlByMo=new Map<string,typeof periodEvents>()
+                  periodEvents.filter(e2=>e2.isSql&&e2.sqlDate&&inRange(e2.sqlDate)).forEach(e2=>{const mk=e2.sqlDate!.slice(0,7);if(!vSqlByMo.has(mk))vSqlByMo.set(mk,[]);vSqlByMo.get(mk)!.push(e2)})
+                  vSqlByMo.forEach(ms=>{ms.sort((a,b)=>(a.sqlDate||'').localeCompare(b.sqlDate||''));ms.forEach((e2,i)=>{e2.sqlPayout=i<SQL_ACCELERATOR_THRESHOLD?SQL_BONUS:SQL_ACCELERATOR;e2.amount=e2.meetingPayout+e2.sqlPayout})})
+                }
                 // Count meetings/SQLs whose specific dates are in range
                 const meetings=periodEvents.filter(e=>e.isMeeting&&inRange(e.meetingDate)).length
                 const sqls=periodEvents.filter(e=>e.isSql&&inRange(e.sqlDate)).length
@@ -6483,6 +6526,15 @@ export default function Dashboard() {
               }))
                 .sort((a,b)=>{const da=a.isSql?(a.sqlDate||''):(a.meetingDate||'');const db=b.isSql?(b.sqlDate||''):(b.meetingDate||'');return db.localeCompare(da)})
 
+              // View toggle: All (Projected) / Verified Only
+              const viewToggle=(
+                <div style={{display:'flex',gap:0,background:C.surface3,borderRadius:6,padding:2,marginBottom:14}}>
+                  {([['all','All (Projected)'],['verified','Verified Only']] as const).map(([m,label])=>(
+                    <button key={m} onClick={()=>setViewMode(m)} style={{fontSize:11,fontWeight:commViewMode===m?700:500,padding:'5px 14px',borderRadius:5,border:'none',cursor:'pointer',background:commViewMode===m?C.green:'transparent',color:commViewMode===m?'#000':C.text3}}>{label}</button>
+                  ))}
+                </div>
+              )
+
               // Commission Summary visibility:
               // - BDM (Jonathan): sees all reps
               // - Reps: see only their own row
@@ -6496,11 +6548,12 @@ export default function Dashboard() {
               return (<>
               {showCommSummary&&summaryRepData.length>0&&(
               <div style={{...card,marginBottom:20}}>
-                <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:14}}>Commission Summary · {periodLabel}</div>
+                <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:14}}>Commission Summary · {periodLabel}{commViewMode==='verified'?' · Verified Only':''}</div>
+                {viewToggle}
                 <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
                   <thead>
                     <tr style={{borderBottom:`2px solid ${C.border2}`}}>
-                      {['Rep','Meetings','Meeting $','SQLs','SQL $','Total','Mtg Cap %','SQL Cap %'].map(h=>(
+                      {['Rep','Meetings','Meeting $','SQLs','SQL $','Total','Mtg Q-Cap %','SQL Q-Cap %'].map(h=>(
                         <th key={h} style={{padding:'8px 10px',textAlign:h==='Rep'?'left':'right',fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em'}}>{h}</th>
                       ))}
                     </tr>
@@ -6514,8 +6567,8 @@ export default function Dashboard() {
                         <td style={{padding:'10px',textAlign:'right',color:C.text}}>{r.periodSqls}</td>
                         <td style={{padding:'10px',textAlign:'right',color:'#c084fc',fontWeight:600}}>${r.periodSqlAmt.toLocaleString()}</td>
                         <td style={{padding:'10px',textAlign:'right',fontWeight:800,color:C.text}}>${r.periodTotal.toLocaleString()}</td>
-                        <td style={{padding:'10px',textAlign:'right',fontSize:11,color:r.ytdMeetingAmt>=ANNUAL_MEETING_CAP?C.red:C.text3}}>{Math.round(r.ytdMeetingAmt/ANNUAL_MEETING_CAP*100)}%</td>
-                        <td style={{padding:'10px',textAlign:'right',fontSize:11,color:r.ytdSqlAmt>=ANNUAL_SQL_CAP?C.red:C.text3}}>{Math.round(r.ytdSqlAmt/ANNUAL_SQL_CAP*100)}%</td>
+                        <td style={{padding:'10px',textAlign:'right',fontSize:11,color:spansMultipleQuarters?C.text3:r.ytdMeetingAmt>=MTG_Q_CAP?C.red:C.text3}}>{spansMultipleQuarters?'—':`${Math.round(r.ytdMeetingAmt/MTG_Q_CAP*100)}%`}</td>
+                        <td style={{padding:'10px',textAlign:'right',fontSize:11,color:spansMultipleQuarters?C.text3:r.ytdSqlAmt>=SQL_Q_CAP?C.red:C.text3}}>{spansMultipleQuarters?'—':`${Math.round(r.ytdSqlAmt/SQL_Q_CAP*100)}%`}</td>
                       </tr>
                     ))}
                     {isBdmViewer&&summaryRepData.length>1&&(
@@ -6543,7 +6596,7 @@ export default function Dashboard() {
                   <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
                     <thead>
                       <tr style={{borderBottom:`2px solid ${C.border2}`}}>
-                        {['Rep','Account','Tier','Source','AE','Quality','Meeting Date','SQL Date','SQO Date','ACV','Type',...(isBdmViewer?['Amount']:[])].map(h=>(
+                        {['✓','Rep','Account','Tier','Source','AE','Quality','Meeting Date','SQL Date','SQO Date','ACV','Type',...(isBdmViewer?['Amount']:[])].map(h=>(
                           <th key={h} style={{padding:'7px 8px',textAlign:['ACV','Amount'].includes(h)?'right':'left',fontSize:9,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',whiteSpace:'nowrap'}}>{h}</th>
                         ))}
                       </tr>
@@ -6557,13 +6610,17 @@ export default function Dashboard() {
                         const qualityColor = e.mqlQuality==='hq'?C.amber:e.mqlQuality==='lq'?'#fb923c':C.text3
                         const eventKey=`${e.email}-${i}`
                         const isExpanded=revopsExpandedEvent===eventKey
+                        const rowId=getRowId(e)
+                        const isVerified=!!commVerified[rowId]
+                        const isManual=e.email.startsWith('manual-')
                         return (
                           <React.Fragment key={eventKey}>
                           <tr style={{borderBottom:isExpanded?'none':`1px solid ${C.border}`,cursor:'pointer',background:isExpanded?C.surface2:'transparent'}} onClick={()=>setRevopsExpandedEvent(isExpanded?null:eventKey)}>
+                            <td style={{padding:'4px 6px',textAlign:'center'}}><input type="checkbox" checked={isVerified} onChange={()=>toggleVerified(rowId)} style={{cursor:'pointer',accentColor:C.green}}/></td>
                             <td style={{padding:'7px 8px',fontWeight:500,color:C.text2,whiteSpace:'nowrap'}}>{e.repName}</td>
                             <td style={{padding:'7px 8px',fontWeight:600,color:isExpanded?'#60d4f4':C.text,maxWidth:160,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{isExpanded?'▼ ':''}{e.account}</td>
                             <td style={{padding:'7px 8px'}}>{(()=>{const t=e.accountTier;const tc=t==='A'?C.green:t==='B'?'#60d4f4':t==='E'?C.purpleL:t==='C'?C.red:C.text3;return <span style={{fontSize:9,fontWeight:700,color:tc,background:`${tc}18`,padding:'1px 5px',borderRadius:3}}>{t||'—'}</span>})()}</td>
-                            <td style={{padding:'7px 8px',color:C.text3,fontSize:10}}>{e.sourceChannel||'—'}</td>
+                            <td style={{padding:'7px 8px',color:C.text3,fontSize:10}}>{isManual&&<span style={{fontSize:8,fontWeight:700,color:C.amber,background:'rgba(245,166,35,0.15)',padding:'1px 4px',borderRadius:3,marginRight:3}}>MANUAL</span>}{e.sourceChannel||'—'}</td>
                             <td style={{padding:'7px 8px',color:C.text2}}>{e.ae||'—'}</td>
                             <td style={{padding:'7px 8px'}}><span style={{fontSize:9,fontWeight:700,color:qualityColor,background:`${qualityColor}18`,padding:'1px 5px',borderRadius:3}}>{e.mqlQuality==='hq'?'HQ':e.mqlQuality==='lq'?'LQ':e.mqlQuality||'—'}</span></td>
                             <td style={{padding:'7px 8px',color:e.meetingDate?C.text2:C.text3,whiteSpace:'nowrap'}}>{e.meetingDate?new Date(e.meetingDate).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'2-digit'}):'—'}</td>
@@ -6583,7 +6640,7 @@ export default function Dashboard() {
                           </tr>
                           {isExpanded&&(
                             <tr style={{borderBottom:`1px solid ${C.border}`,background:C.surface2}}>
-                              <td colSpan={isBdmViewer?12:11} style={{padding:'10px 16px'}}>
+                              <td colSpan={isBdmViewer?13:12} style={{padding:'10px 16px'}}>
                                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:12}}>
                                   <div>
                                     <div style={{fontSize:8,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:3}}>Salesforce URL</div>
@@ -6609,12 +6666,49 @@ export default function Dashboard() {
                         )
                       })}
                       {periodAllEvents.length===0&&(
-                        <tr><td colSpan={isBdmViewer?12:11} style={{padding:'20px',textAlign:'center',color:C.text3}}>No commission events found for this period.</td></tr>
+                        <tr><td colSpan={isBdmViewer?13:12} style={{padding:'20px',textAlign:'center',color:C.text3}}>No commission events found for this period.</td></tr>
                       )}
                     </tbody>
                   </table>
                 </div>
               </div>
+
+              {/* + Add Spiff Entry */}
+              {isBdmViewer&&(<div style={{marginTop:12}}>
+                <button onClick={()=>setCommShowAddManual(!commShowAddManual)} style={{fontSize:11,fontWeight:700,padding:'6px 14px',borderRadius:6,border:`1px solid ${C.amber}`,background:'rgba(245,166,35,0.1)',color:C.amber,cursor:'pointer'}}>
+                  {commShowAddManual?'Cancel':'+ Add Spiff Entry'}
+                </button>
+                {commShowAddManual&&(()=>{
+                  const [mAcct,setMAcct]=React.useState('');const [mProspect,setMProspect]=React.useState('');const [mAe,setMAe]=React.useState('');const [mTier,setMTier]=React.useState('');const [mMtgDate,setMMtgDate]=React.useState('');const [mSqlDate,setMSqlDate]=React.useState('');const [mSource,setMSource]=React.useState('manual: spiff')
+                  return (<div style={{marginTop:8,padding:14,background:C.surface2,borderRadius:8,border:`1px solid ${C.border}`,display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:8}}>
+                    <div><label style={{fontSize:9,color:C.text3,display:'block',marginBottom:2}}>Account *</label><input value={mAcct} onChange={e=>setMAcct(e.target.value)} style={{...inputStyle,fontSize:10,padding:'4px 7px'}}/></div>
+                    <div><label style={{fontSize:9,color:C.text3,display:'block',marginBottom:2}}>Prospect</label><input value={mProspect} onChange={e=>setMProspect(e.target.value)} style={{...inputStyle,fontSize:10,padding:'4px 7px'}}/></div>
+                    <div><label style={{fontSize:9,color:C.text3,display:'block',marginBottom:2}}>AE</label><input value={mAe} onChange={e=>setMAe(e.target.value)} style={{...inputStyle,fontSize:10,padding:'4px 7px'}}/></div>
+                    <div><label style={{fontSize:9,color:C.text3,display:'block',marginBottom:2}}>Tier</label><select value={mTier} onChange={e=>setMTier(e.target.value)} style={{...inputStyle,fontSize:10,padding:'4px 7px'}}><option value="">—</option><option>A</option><option>B</option><option>E</option></select></div>
+                    <div><label style={{fontSize:9,color:C.text3,display:'block',marginBottom:2}}>Meeting Date</label><input type="date" value={mMtgDate} onChange={e=>setMMtgDate(e.target.value)} style={{...inputStyle,fontSize:10,padding:'4px 7px'}}/></div>
+                    <div><label style={{fontSize:9,color:C.text3,display:'block',marginBottom:2}}>SQL Date</label><input type="date" value={mSqlDate} onChange={e=>setMSqlDate(e.target.value)} style={{...inputStyle,fontSize:10,padding:'4px 7px'}}/></div>
+                    <div><label style={{fontSize:9,color:C.text3,display:'block',marginBottom:2}}>Source</label><input value={mSource} onChange={e=>setMSource(e.target.value)} style={{...inputStyle,fontSize:10,padding:'4px 7px'}}/></div>
+                    <div style={{display:'flex',alignItems:'end'}}><button onClick={()=>{if(!mAcct.trim())return;addManualEntry({id:`m-${Date.now()}`,account:mAcct.trim(),prospectName:mProspect.trim(),ae:mAe.trim(),tier:mTier,meetingDate:mMtgDate,sqlDate:mSqlDate,source:mSource});setCommShowAddManual(false)}} disabled={!mAcct.trim()} style={{fontSize:10,fontWeight:700,padding:'5px 12px',borderRadius:5,border:'none',background:mAcct.trim()?C.green:C.surface3,color:mAcct.trim()?'#000':C.text3,cursor:mAcct.trim()?'pointer':'default'}}>Add</button></div>
+                  </div>)
+                })()}
+              </div>)}
+
+              {/* Reconcile to Spiff (collapsed) */}
+              {isBdmViewer&&(<div style={{marginTop:16}}>
+                <button onClick={()=>setCommShowReconcile(!commShowReconcile)} style={{fontSize:10,fontWeight:600,color:C.text3,background:'none',border:'none',cursor:'pointer',padding:0}}>
+                  {commShowReconcile?'▼':'▶'} Reconcile to Spiff
+                </button>
+                {commShowReconcile&&(
+                  <div style={{marginTop:8,padding:12,background:C.surface2,borderRadius:8,border:`1px solid ${C.border}`,fontSize:11}}>
+                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:10,marginBottom:10}}>
+                      <div><span style={{color:C.text3}}>Total (All):</span> <strong>${periodRepData.reduce((s,r)=>s+r.periodTotal,0).toLocaleString()}</strong></div>
+                      <div><span style={{color:C.text3}}>Total (Verified):</span> <strong>${(()=>{const vEvts=periodRepData.flatMap(r=>r.periodEvents).filter(e2=>commVerified[getRowId(e2)]);return vEvts.reduce((s,e2)=>{const pM=e2.isMeeting&&inRange(e2.meetingDate)?e2.meetingPayout:0;const pS=e2.isSql&&inRange(e2.sqlDate)?e2.sqlPayout:0;return s+pM+pS},0)})().toLocaleString()}</strong></div>
+                      <div><span style={{color:C.text3}}>Unverified:</span> <strong>{periodAllEvents.filter(e2=>!commVerified[getRowId(e2)]).length}</strong></div>
+                      <div><span style={{color:C.text3}}>Last reconciled:</span> <strong>{commLastReconciled||'Never'}</strong> <button onClick={()=>{const ts=new Date().toLocaleString();setCommLastReconciled(ts);localStorage.setItem('commission-last-reconciled',ts)}} style={{fontSize:9,color:C.green,background:'none',border:'none',cursor:'pointer',marginLeft:4}}>Mark now</button></div>
+                    </div>
+                  </div>
+                )}
+              </div>)}
 
               </>)
             })()}
