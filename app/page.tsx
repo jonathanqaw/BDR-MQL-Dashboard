@@ -6345,6 +6345,17 @@ export default function Dashboard() {
               })
             })
 
+            // SQL dedup: same deal can appear as Lead + Contact with different emails.
+            // Dedup by normalized account name + AE + sqlDate to keep one SQL per deal.
+            const sqlSeen = new Set<string>()
+            events.forEach(e => {
+              if (!e.isSql || !e.sqlDate) return
+              const normAcct = e.account.toLowerCase().replace(/[^a-z0-9]/g, '')
+              const sqlDedupeKey = `${normAcct}|${e.ae}|${e.sqlDate}`
+              if (sqlSeen.has(sqlDedupeKey)) { e.isSql = false; e.sqlDate = null; e.sqlPayout = 0 }
+              else sqlSeen.add(sqlDedupeKey)
+            })
+
             // Apply SQL accelerator: sort SQL events by date within each month, first 3 at $620, rest at $930
             const sqlEvts = events.filter(e => e.isSql && e.sqlDate)
             const sqlByMonth = new Map<string, typeof sqlEvts>()
@@ -6605,33 +6616,6 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              {/* Reconciliation Panel — BDM only */}
-              {isBdmViewer&&(()=>{
-                const allExcluded=filteredRepData.flatMap(r=>(r.excluded||[]).map(e=>({...e,rep:r.rep.name})))
-                const sqlAccelBk=new Map<string,{base:number;accel:number;total:number}>()
-                periodAllEvents.filter(e=>e.isSql&&e.sqlDate&&inRange(e.sqlDate)).forEach(e=>{
-                  const mk=e.sqlDate!.slice(0,7);if(!sqlAccelBk.has(mk))sqlAccelBk.set(mk,{base:0,accel:0,total:0})
-                  const b=sqlAccelBk.get(mk)!;if(e.sqlPayout===SQL_BONUS)b.base++;else b.accel++;b.total+=e.sqlPayout
-                })
-                return (
-                <div style={{...card,marginTop:20,border:`1px solid rgba(96,212,244,0.3)`,background:'rgba(96,212,244,0.03)'}}>
-                  <div style={{fontSize:11,fontWeight:700,color:'#60d4f4',textTransform:'uppercase',letterSpacing:'.08em',marginBottom:12}}>Reconciliation · {periodLabel}</div>
-                  <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12,marginBottom:14}}>
-                    <div><div style={{fontSize:9,color:C.text3,textTransform:'uppercase'}}>Eligible Meetings</div><div style={{fontSize:13,fontWeight:700,color:C.green}}>{periodRepData.reduce((s,r)=>s+r.periodMeetings,0)}</div></div>
-                    <div><div style={{fontSize:9,color:C.text3,textTransform:'uppercase'}}>Eligible SQLs</div><div style={{fontSize:13,fontWeight:700,color:'#c084fc'}}>{periodRepData.reduce((s,r)=>s+r.periodSqls,0)}</div></div>
-                    <div><div style={{fontSize:9,color:C.text3,textTransform:'uppercase'}}>Commission Total</div><div style={{fontSize:13,fontWeight:800,color:C.text}}>${periodRepData.reduce((s,r)=>s+r.periodTotal,0).toLocaleString()}</div></div>
-                    <div><div style={{fontSize:9,color:C.text3,textTransform:'uppercase'}}>Meeting $</div><div style={{fontSize:13,fontWeight:700,color:C.green}}>${periodRepData.reduce((s,r)=>s+r.periodMeetingAmt,0).toLocaleString()}</div></div>
-                    <div><div style={{fontSize:9,color:C.text3,textTransform:'uppercase'}}>SQL $</div><div style={{fontSize:13,fontWeight:700,color:'#c084fc'}}>${periodRepData.reduce((s,r)=>s+r.periodSqlAmt,0).toLocaleString()}</div></div>
-                    <div><div style={{fontSize:9,color:C.text3,textTransform:'uppercase'}}>Duplicates Removed</div><div style={{fontSize:13,fontWeight:700,color:C.text3}}>{allExcluded.filter(e=>e.reason==='duplicate').length}</div></div>
-                  </div>
-                  {sqlAccelBk.size>0&&(<><div style={{fontSize:10,fontWeight:700,color:C.text3,marginBottom:6}}>SQL Accelerator by Month</div>
-                    <div style={{display:'grid',gap:3,marginBottom:12}}>{Array.from(sqlAccelBk.entries()).sort((a,b)=>a[0].localeCompare(b[0])).map(([mk,v])=>(
-                      <div key={mk} style={{fontSize:10,color:C.text2}}>{mk}: {v.base} base @$620 + {v.accel} accel @$930 = ${v.total.toLocaleString()}</div>
-                    ))}</div></>)}
-                  {allExcluded.length>0&&(<><div style={{fontSize:10,fontWeight:700,color:C.text3,marginBottom:6}}>Excluded ({allExcluded.length})</div>
-                    <div style={{maxHeight:120,overflowY:'auto'}}>{allExcluded.map((e,i)=><div key={i} style={{fontSize:9,color:C.text3,padding:'2px 0',borderBottom:`1px solid ${C.border}`}}>{e.account} — {e.reason}</div>)}</div></>)}
-                </div>)
-              })()}
               </>)
             })()}
 
