@@ -4984,13 +4984,12 @@ export default function Dashboard() {
 
           // ── Helper: is lead ICP — tier A/B/E qualifies, C does not ──
           // Falls back to mqlQuality === 'hq' for leads without a tier set
-          // ICP check: tier A, B, or approved E. C and untagged excluded unless mqlQuality=hq.
+          // ICP check: only tier C is explicitly excluded. Blank tier = eligible (matches Spiff behavior).
           const isIcp = (email: string): boolean => {
             const det = details[email] || (HISTORICAL_DETAILS[email] ? {...EMPTY_DETAIL,...HISTORICAL_DETAILS[email]} : null)
             const tier = det?.accountTier || ''
-            if (tier === 'A' || tier === 'B' || tier === 'E') return true
-            if (!tier && (det?.mqlQuality || '') === 'hq') return true
-            return false
+            if (tier === 'C') return false
+            return true
           }
 
           // ── Build per-rep commission data ────────────────────
@@ -6289,13 +6288,12 @@ export default function Dashboard() {
           const SQL_ACCELERATOR_THRESHOLD = 3
           const ANNUAL_SQL_CAP = 22320
           const ANNUAL_MEETING_CAP = 18000
-          // ICP check: tier A, B, or approved E. C and untagged excluded unless mqlQuality=hq.
+          // ICP check: only tier C is explicitly excluded. Blank tier = eligible (matches Spiff behavior).
           const isIcp = (email: string): boolean => {
             const det = details[email] || (HISTORICAL_DETAILS[email] ? {...EMPTY_DETAIL,...HISTORICAL_DETAILS[email]} : null)
             const tier = det?.accountTier || ''
-            if (tier === 'A' || tier === 'B' || tier === 'E') return true
-            if (!tier && (det?.mqlQuality || '') === 'hq') return true
-            return false
+            if (tier === 'C') return false
+            return true
           }
 
           // Use ALL leads unfiltered (revops needs full picture)
