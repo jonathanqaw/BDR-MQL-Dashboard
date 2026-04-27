@@ -6458,10 +6458,14 @@ export default function Dashboard() {
               // SQL events: date by sqlDate (when the SQL was logged)
               // Meeting events: date by meetingDate (when the meeting was held)
               const periodRepData=filteredRepData.map(r=>{
-                const periodEvents=r.events.filter(e=>{
+                const rawPE=r.events.filter(e=>{
                   const d=e.isSql?e.sqlDate:e.meetingDate
                   return inRange(d)
                 })
+                // Dedup: one event per account in this period. SQL wins over meeting.
+                const peMap=new Map<string,typeof rawPE[0]>()
+                rawPE.forEach(e=>{const ex=peMap.get(e.email);if(!ex||(e.isSql&&!ex.isSql))peMap.set(e.email,e)})
+                const periodEvents=Array.from(peMap.values())
                 const meetings=periodEvents.filter(e=>e.isMeeting).length
                 const sqls=periodEvents.filter(e=>e.isSql).length
                 // Sum itemized event amounts — do NOT re-apply accelerator logic. Spiff is source of truth.
@@ -6470,8 +6474,16 @@ export default function Dashboard() {
                 return {...r,periodEvents,periodMeetings:meetings,periodSqls:sqls,periodMeetingAmt:meetingAmt,periodSqlAmt:sqlAmt,periodAccelAmt:0,periodTotal:meetingAmt+sqlAmt}
               })
 
-              // Filter detail events by period
-              const periodAllEvents=periodRepData.flatMap(r=>r.periodEvents.map(e=>({...e,repName:r.rep.name,repId:r.rep.id})))
+              // Filter detail events by period, then dedup: one row per account
+              // If same account has both meeting and SQL in this period, keep SQL (higher credit)
+              const rawPeriodEvents=periodRepData.flatMap(r=>r.periodEvents.map(e=>({...e,repName:r.rep.name,repId:r.rep.id})))
+              const periodEventMap=new Map<string,typeof rawPeriodEvents[0]>()
+              rawPeriodEvents.forEach(e=>{
+                const key=e.email
+                const existing=periodEventMap.get(key)
+                if(!existing||(e.isSql&&!existing.isSql)){periodEventMap.set(key,e)}
+              })
+              const periodAllEvents=Array.from(periodEventMap.values())
                 .sort((a,b)=>{const da=a.isSql?(a.sqlDate||''):(a.meetingDate||'');const db=b.isSql?(b.sqlDate||''):(b.meetingDate||'');return db.localeCompare(da)})
 
               // Commission Summary visibility:
