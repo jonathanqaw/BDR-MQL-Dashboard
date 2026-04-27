@@ -6328,7 +6328,10 @@ export default function Dashboard() {
               if (l.domain && seenDomains.has(l.domain)) return
               seenEmails.add(l.email)
               if (l.domain) seenDomains.add(l.domain)
-              const det = details[l.email] || (HISTORICAL_DETAILS[l.email] ? {...EMPTY_DETAIL,...HISTORICAL_DETAILS[l.email]} : null)
+              // Merge localStorage details with HISTORICAL_DETAILS fallback for empty fields
+              const lsDet = details[l.email]
+              const histDet = HISTORICAL_DETAILS[l.email]
+              const det = lsDet ? (histDet ? {...EMPTY_DETAIL,...histDet,...Object.fromEntries(Object.entries(lsDet).filter(([,v])=>v!==''))} : lsDet) : (histDet ? {...EMPTY_DETAIL,...histDet} : null)
               if (!det) return
               const s = statuses[l.email] || 'new'
               const hasSql = (det.sqlDq||'').toLowerCase()==='yes'
