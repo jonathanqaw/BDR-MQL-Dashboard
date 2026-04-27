@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import React from 'react'
 import { signIn } from 'next-auth/react'
 import type { Lead } from '@/lib/slack'
+import { CommissionsTab, adaptToCommissionEvent } from './commissions-tab'
 
 
 // ─── Rep Registry ─────────────────────────────────────────────────────────────
@@ -1528,10 +1529,6 @@ export default function Dashboard() {
     try { const r=JSON.parse(localStorage.getItem('roundRobinAERoster')||'null'); if(Array.isArray(r)&&r.length>0) setRrRoster(r); else { const m=migrateAERoster(); setRrRoster(m); localStorage.setItem('roundRobinAERoster',JSON.stringify(m)) } } catch { const m=migrateAERoster(); setRrRoster(m); localStorage.setItem('roundRobinAERoster',JSON.stringify(m)) }
     try { const w=localStorage.getItem('rr-equity-window'); if(w==='week'||w==='month'||w==='quarter'||w==='year') setRrEquityWindow(w) } catch {}
     try { const t=localStorage.getItem('dashboard.activeTab'); if(t==='inbound'||t==='outbound'||t==='all'||t==='meetings') setPipelineDir(t as any) } catch {}
-    try { const v=localStorage.getItem('commission-view-mode'); if(v==='verified') setCommViewMode('verified') } catch {}
-    try { const v=JSON.parse(localStorage.getItem('commission-spiff-verified')||'{}'); setCommVerified(v) } catch {}
-    try { const v=JSON.parse(localStorage.getItem('commission-manual-entries')||'[]'); if(Array.isArray(v)) setCommManualEntries(v) } catch {}
-    try { setCommLastReconciled(localStorage.getItem('commission-last-reconciled')) } catch {}
     try { const r=JSON.parse(localStorage.getItem('ls-reviewed')||'[]'); if(Array.isArray(r)) setLsReviewed(new Set(r)) } catch {}
   },[])
 
@@ -1700,14 +1697,7 @@ export default function Dashboard() {
   const [revopsSelectedRep,setRevopsSelectedRep]=useState('all')
   const [revopsPeriod,setRevopsPeriod]=useState<'week'|'month'|'quarter'|'year'|'all'|'custom'>('month')
   const [revopsFrom,setRevopsFrom]=useState('')
-  const [revopsExpandedEvent,setRevopsExpandedEvent]=useState<string|null>(null)
   const [revopsTo,setRevopsTo]=useState('')
-  const [commViewMode,setCommViewMode]=useState<'all'|'verified'>('all')
-  const [commVerified,setCommVerified]=useState<Record<string,boolean>>({})
-  const [commManualEntries,setCommManualEntries]=useState<{id:string;account:string;prospectName:string;ae:string;tier:string;meetingDate:string;sqlDate:string;source:string}[]>([])
-  const [commShowAddManual,setCommShowAddManual]=useState(false)
-  const [commShowReconcile,setCommShowReconcile]=useState(false)
-  const [commLastReconciled,setCommLastReconciled]=useState<string|null>(null)
   const [commAdjustments,setCommAdjustments]=useState<{id:string;repId:string;month:string;amount:number;reason:string;createdAt:string}[]>([])
   const [showAdjModal,setShowAdjModal]=useState(false)
   const [editingAdj,setEditingAdj]=useState<{id:string;repId:string;month:string;amount:number;reason:string;createdAt:string}|null>(null)
@@ -6292,50 +6282,21 @@ export default function Dashboard() {
             REVOPS COMMISSIONS VIEW
         ══════════════════════════════════════════════════════ */}
         {view==='revops_commissions'&&(()=>{
-          const MEETING_BONUS = 150
-          const SQL_BONUS = 620
-          const SQL_ACCELERATOR = 930
-          const SQL_ACCELERATOR_THRESHOLD = 3
-          const MTG_Q_CAP = 18000  // quarterly cap — TODO: confirm Q2 numbers with Arnav
-          const SQL_Q_CAP = 22320  // quarterly cap
-          const ICP_SCORES_FOR_BONUS = new Set(['A','B','E'])
-          const toggleVerified=(rowId:string)=>{const next={...commVerified,[rowId]:!commVerified[rowId]};setCommVerified(next);localStorage.setItem('commission-spiff-verified',JSON.stringify(next))}
-          const setViewMode=(m:'all'|'verified')=>{setCommViewMode(m);localStorage.setItem('commission-view-mode',m)}
-          const addManualEntry=(entry:typeof commManualEntries[0])=>{const next=[...commManualEntries,entry];setCommManualEntries(next);localStorage.setItem('commission-manual-entries',JSON.stringify(next));const vNext={...commVerified,[entry.id]:true};setCommVerified(vNext);localStorage.setItem('commission-spiff-verified',JSON.stringify(vNext))}
-          const removeManualEntry=(id:string)=>{const next=commManualEntries.filter(e=>e.id!==id);setCommManualEntries(next);localStorage.setItem('commission-manual-entries',JSON.stringify(next))}
-          const getRowId=(e:{account:string;meetingDate:string|null;sqlDate:string|null})=>`${e.account}-${e.meetingDate||'nomtg'}-${e.sqlDate||'nosql'}`
-          // ICP check: only tier C is explicitly excluded. Blank tier = eligible (matches Spiff behavior).
-          const isIcp = (email: string): boolean => {
-            const det = details[email] || (HISTORICAL_DETAILS[email] ? {...EMPTY_DETAIL,...HISTORICAL_DETAILS[email]} : null)
-            const tier = det?.accountTier || ''
-            if (tier === 'C') return false
-            return true
-          }
-
-          // Use ALL leads unfiltered (revops needs full picture)
+          // Build raw events from pipeline data, then pass to CommissionsTab component
           const allLeadsUnfiltered: AppLead[] = [
             ...HISTORICAL_LEADS,
             ...manualLeads.filter(l => !HISTORICAL_LEADS.some(h => h.email === l.email)),
             ...liveLeads.filter(l => !HISTORICAL_LEADS.some(h => h.email === l.email) && !manualLeads.some(m => m.email === l.email) && !new Set(HISTORICAL_LEADS.map(h=>h.domain)).has(l.domain)),
           ].filter(l => !deletedEmails.has(l.email))
 
-          // Reference the same commission overrides used by the Commissions Tracker
-          // (defined inside the commissions IIFE — we access it via a module-level ref)
-          const mkPayoutLabelRO=(mk:string)=>{const [y,m]=mk.split('-').map(Number);return `${new Date(y,m,1).toLocaleString('en-US',{month:'short',year:'numeric'})} (2nd half)`}
-          const OVERRIDE_MONTHS = new Set(['2025-09','2025-10','2025-11','2025-12','2026-01','2026-02','2026-03'])
-
-          // ── Normalized Commission Event Engine ──
-          // One row per account. meetingPayout and sqlPayout calculated separately, stacked.
-          // SQL accelerator per calendar month per rep. ICP = tier A/B/E or mqlQuality=hq.
-          type RevOpsEvent = { email:string; account:string; meetingDate:string|null; sqlDate:string|null; sqoDate:string|null; mqlQuality:string; accountTier:string; sourceChannel:string; ae:string; acv:string; isMeeting:boolean; isSql:boolean; amount:number; meetingPayout:number; sqlPayout:number; sfUrl:string; gongUrl:string; dedupeKey:string; exclusionReason:string }
-
-          const repData = reps.filter(r=>r.slackId).map(rep => {
+          // Build per-rep raw events from pipeline data
+          const eventsByRep: Record<string, any[]> = {}
+          reps.filter(r=>r.slackId).forEach(rep => {
             const repLeads = rep.id === 'jonathan'
               ? allLeadsUnfiltered.filter(l => !l.repSlackId || l.repSlackId === rep.slackId)
               : allLeadsUnfiltered.filter(l => l.repSlackId === rep.slackId)
 
-            const events: RevOpsEvent[] = []
-            const excluded: {email:string;account:string;reason:string}[] = []
+            const events: any[] = []
             const nowTs = new Date()
             const seenKeys = new Set<string>()
             repLeads.forEach(l => {
@@ -6345,386 +6306,28 @@ export default function Dashboard() {
               if (!det) return
               const displayName = nameOverrides[l.email] || l.account || formatDomain(l.domain) || l.email
               const domKey = l.domain ? `dom:${l.domain}` : null
-              if (seenKeys.has(l.email)||(domKey&&seenKeys.has(domKey))) { excluded.push({email:l.email,account:displayName,reason:'duplicate'}); return }
+              if (seenKeys.has(l.email)||(domKey&&seenKeys.has(domKey))) return
               seenKeys.add(l.email); if(domKey)seenKeys.add(domKey)
-              if ((statuses[l.email]||'new')==='dq') { excluded.push({email:l.email,account:displayName,reason:'DQ'}); return }
+              if ((statuses[l.email]||'new')==='dq') return
               const hasMtg = !!det.meetingDate
               const hasSql = (det.sqlDq||'').toLowerCase()==='yes' && !!det.sqlDate
-              if (!hasMtg && !hasSql) { excluded.push({email:l.email,account:displayName,reason:'no meetingDate/SQL'}); return }
-              if (hasMtg && new Date(det.meetingDate) > nowTs) { excluded.push({email:l.email,account:displayName,reason:'future meeting'}); return }
-              // ICP gating: C-tier gets $0, A/B/E get full bonus, blank tier = eligible per Spiff
-              const tier = det.accountTier || ''
-              const icpEligible = tier !== 'C'
-              const mtgPay = hasMtg && icpEligible ? MEETING_BONUS : 0
+              if (!hasMtg && !hasSql) return
+              if (hasMtg && new Date(det.meetingDate) > nowTs) return
               events.push({
-                email:l.email,account:displayName,meetingDate:det.meetingDate||null,sqlDate:hasSql?det.sqlDate:null,sqoDate:det.sqoDate||null,
-                mqlQuality:det.mqlQuality||'',accountTier:tier,sourceChannel:det.sourceChannel||'',ae:det.ae||'',acv:det.acv||'',
-                isMeeting:hasMtg,isSql:hasSql&&icpEligible,meetingPayout:mtgPay,sqlPayout:0,amount:mtgPay,
-                sfUrl:det.sfLink||l.sfUrl||'',gongUrl:det.gongUrl||'',dedupeKey:l.email,exclusionReason:icpEligible?'':'C-tier ($0)',
+                account:displayName,meetingDate:det.meetingDate||null,sqlDate:hasSql?det.sqlDate:null,sqoDate:det.sqoDate||null,
+                mqlQuality:det.mqlQuality||'',accountTier:det.accountTier||'',sourceChannel:det.sourceChannel||'',ae:det.ae||'',acv:det.acv||'',
+                isMeeting:hasMtg,isSql:hasSql,sfUrl:det.sfLink||l.sfUrl||'',gongUrl:det.gongUrl||'',
               })
             })
-
-            // Inject manual Spiff entries (only for this rep)
-            commManualEntries.forEach(me=>{
-              const hasMtg=!!me.meetingDate;const hasSql=!!me.sqlDate;const icpOk=me.tier!=='C'
-              if(!hasMtg&&!hasSql)return
-              events.push({
-                email:`manual-${me.id}`,account:me.account,meetingDate:me.meetingDate||null,sqlDate:me.sqlDate||null,sqoDate:null,
-                mqlQuality:'',accountTier:me.tier,sourceChannel:me.source||'manual: spiff',ae:me.ae,acv:'',
-                isMeeting:hasMtg&&icpOk,isSql:hasSql&&icpOk,meetingPayout:hasMtg&&icpOk?MEETING_BONUS:0,sqlPayout:0,amount:hasMtg&&icpOk?MEETING_BONUS:0,
-                sfUrl:'',gongUrl:'',dedupeKey:`manual-${me.id}`,exclusionReason:'',
-              })
-            })
-
-            // SQL dedup: same deal can appear as Lead + Contact with different emails.
-            // Dedup by normalized account name + AE + sqlDate to keep one SQL per deal.
-            const sqlSeen = new Set<string>()
-            events.forEach(e => {
-              if (!e.isSql || !e.sqlDate) return
-              const normAcct = e.account.toLowerCase().replace(/[^a-z0-9]/g, '')
-              const sqlDedupeKey = `${normAcct}|${e.ae}|${e.sqlDate}`
-              if (sqlSeen.has(sqlDedupeKey)) { e.isSql = false; e.sqlDate = null; e.sqlPayout = 0 }
-              else sqlSeen.add(sqlDedupeKey)
-            })
-
-            // Apply SQL accelerator: sort SQL events by date within each month, first 3 at $620, rest at $930
-            const sqlEvts = events.filter(e => e.isSql && e.sqlDate)
-            const sqlByMonth = new Map<string, typeof sqlEvts>()
-            sqlEvts.forEach(e => {
-              const mk = e.sqlDate!.slice(0, 7)
-              if (!sqlByMonth.has(mk)) sqlByMonth.set(mk, [])
-              sqlByMonth.get(mk)!.push(e)
-            })
-            sqlByMonth.forEach(monthSqls => {
-              monthSqls.sort((a, b) => (a.sqlDate || '').localeCompare(b.sqlDate || ''))
-              monthSqls.forEach((e, i) => {
-                e.sqlPayout = i < SQL_ACCELERATOR_THRESHOLD ? SQL_BONUS : SQL_ACCELERATOR
-                e.amount = e.meetingPayout + e.sqlPayout
-              })
-            })
-
-            // Monthly totals — meeting payout grouped by meetingDate month, SQL payout by sqlDate month
-            const monthMap = new Map<string,{meetings:number;sqls:number;meetingAmt:number;sqlAmt:number;accelAmt:number}>()
-            events.forEach(e => {
-              if (e.isMeeting && e.meetingDate) {
-                const d = new Date(e.meetingDate)
-                const mk = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
-                if (!monthMap.has(mk)) monthMap.set(mk,{meetings:0,sqls:0,meetingAmt:0,sqlAmt:0,accelAmt:0})
-                const m=monthMap.get(mk)!; m.meetings++; m.meetingAmt+=e.meetingPayout
-              }
-              if (e.isSql && e.sqlDate) {
-                const d = new Date(e.sqlDate)
-                const mk = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
-                if (!monthMap.has(mk)) monthMap.set(mk,{meetings:0,sqls:0,meetingAmt:0,sqlAmt:0,accelAmt:0})
-                const m=monthMap.get(mk)!; m.sqls++; m.sqlAmt+=e.sqlPayout
-              }
-            })
-
-            const currentYear = new Date().getFullYear()
-            const inYtd=(d:string|null)=>d&&new Date(d).getFullYear()===currentYear
-            const ytdMeetings = events.filter(e=>e.isMeeting&&inYtd(e.meetingDate)).length
-            const ytdSqls = events.filter(e=>e.isSql&&inYtd(e.sqlDate)).length
-            const ytdMeetingAmt = events.reduce((s,e)=>s+(e.isMeeting&&inYtd(e.meetingDate)?e.meetingPayout:0),0)
-            const ytdSqlAmt = events.reduce((s,e)=>s+(e.isSql&&inYtd(e.sqlDate)?e.sqlPayout:0),0)
-            const ytdAccelAmt = 0
-            const ytdTotal = ytdMeetingAmt + ytdSqlAmt
-
-            return { rep, events, excluded, monthMap, ytdMeetings, ytdSqls, ytdMeetingAmt, ytdSqlAmt, ytdAccelAmt:0, ytdTotal }
+            eventsByRep[rep.name] = events
           })
 
-          const filteredRepData = revopsSelectedRep === 'all' ? repData : repData.filter(r => r.rep.id === revopsSelectedRep)
+          const commEvents = Object.entries(eventsByRep).flatMap(([rep, evs]) =>
+            evs.map(e => adaptToCommissionEvent(e, rep))
+          )
 
-          // All events for the detail table — sort by commissionable event date
-          const allEvents = filteredRepData.flatMap(r => r.events.map(e => ({ ...e, repName: r.rep.name, repId: r.rep.id })))
-            .sort((a, b) => {
-              const da = a.isSql ? (a.sqlDate||'') : (a.meetingDate||'')
-              const db = b.isSql ? (b.sqlDate||'') : (b.meetingDate||'')
-              return db.localeCompare(da)
-            })
-
-          return (<>
-            <div style={{marginBottom:28}}>
-              <div style={{fontSize:26,fontWeight:800,letterSpacing:'-0.02em',lineHeight:1.15}}>RevOps<br/><span style={{color:'#60d4f4'}}>Commissions.</span></div>
-              <div style={{fontSize:12,color:C.text3,marginTop:4}}>Commission verification · rep attribution · payout processing</div>
-            </div>
-
-            {/* Rep filter */}
-            <div style={{display:'flex',gap:5,marginBottom:12,flexWrap:'wrap'}}>
-              <button onClick={()=>setRevopsSelectedRep('all')} style={filterPill(revopsSelectedRep==='all','#60d4f4')}>All Reps</button>
-              {reps.filter(r=>r.slackId).map(r=>(
-                <button key={r.id} onClick={()=>setRevopsSelectedRep(r.id)} style={filterPill(revopsSelectedRep===r.id,'#60d4f4')}>{r.name}</button>
-              ))}
-            </div>
-
-            {/* Time period filter */}
-            <div style={{display:'flex',gap:5,marginBottom:12,flexWrap:'wrap'}}>
-              {(['week','month','quarter','year','all'] as const).map(p=>(
-                <button key={p} onClick={()=>{setRevopsPeriod(p);setRevopsFrom('');setRevopsTo('')}} style={filterPill(revopsPeriod===p)}>
-                  {{week:'This Week',month:'This Month',quarter:'This Quarter',year:'This Year',all:'All Time'}[p]}
-                </button>
-              ))}
-              <button onClick={()=>setRevopsPeriod('custom')} style={filterPill(revopsPeriod==='custom',C.amber)}>Custom Range</button>
-            </div>
-            {revopsPeriod==='custom'&&(
-              <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:12,flexWrap:'wrap'}}>
-                <span style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em'}}>From</span>
-                <input type="date" value={revopsFrom} onChange={e=>setRevopsFrom(e.target.value)} style={{fontSize:11,padding:'4px 8px',border:`1px solid ${C.border2}`,borderRadius:6,background:C.surface3,color:C.text2,outline:'none',colorScheme:'dark'}}/>
-                <span style={{fontSize:11,color:C.text3}}>→</span>
-                <input type="date" value={revopsTo} onChange={e=>setRevopsTo(e.target.value)} style={{fontSize:11,padding:'4px 8px',border:`1px solid ${C.border2}`,borderRadius:6,background:C.surface3,color:C.text2,outline:'none',colorScheme:'dark'}}/>
-                {(revopsFrom||revopsTo)&&<button onClick={()=>{setRevopsFrom('');setRevopsTo('')}} style={{fontSize:10,fontWeight:600,color:C.text3,background:'none',border:'none',cursor:'pointer',padding:'2px 6px'}}>✕ Clear</button>}
-              </div>
-            )}
-            <div style={{marginBottom:20}}/>
-
-            {/* Period-scoped Summary per rep */}
-            {(()=>{
-              // Compute period range
-              const now=new Date()
-              let pStart:Date,pEnd:Date
-              if(revopsPeriod==='week'){pStart=new Date(now);pStart.setDate(now.getDate()-now.getDay());pStart.setHours(0,0,0,0);pEnd=new Date(pStart);pEnd.setDate(pStart.getDate()+6);pEnd.setHours(23,59,59)}
-              else if(revopsPeriod==='month'){pStart=new Date(now.getFullYear(),now.getMonth(),1);pEnd=new Date(now.getFullYear(),now.getMonth()+1,0,23,59,59)}
-              else if(revopsPeriod==='quarter'){const qm=Math.floor(now.getMonth()/3)*3;pStart=new Date(now.getFullYear(),qm,1);pEnd=new Date(now.getFullYear(),qm+3,0,23,59,59)}
-              else if(revopsPeriod==='year'){pStart=new Date(now.getFullYear(),0,1);pEnd=new Date(now.getFullYear(),11,31,23,59,59)}
-              else if(revopsPeriod==='custom'&&revopsFrom){pStart=new Date(revopsFrom);pEnd=revopsTo?new Date(revopsTo+'T23:59:59'):new Date('2099-01-01')}
-              else {pStart=new Date('2020-01-01');pEnd=new Date('2099-01-01')}
-
-              const inRange=(d:string|null)=>{if(!d)return false;const dt=new Date(d);return dt>=pStart&&dt<=pEnd}
-              const periodLabel=revopsPeriod==='week'?'This Week':revopsPeriod==='month'?'This Month':revopsPeriod==='quarter'?'This Quarter':revopsPeriod==='year'?`YTD · ${now.getFullYear()}`:revopsPeriod==='custom'?'Custom Range':'All Time'
-              // Check if range spans multiple quarters (for cap display)
-              const qStart=Math.floor(pStart.getMonth()/3);const qEnd=Math.floor(pEnd.getMonth()/3)
-              const spansMultipleQuarters=pStart.getFullYear()!==pEnd.getFullYear()||qStart!==qEnd
-
-              // Filter events by period — include if meetingDate OR sqlDate falls in range
-              // For amounts, only count the payout components whose dates fall in range
-              // When Verified Only mode, filter to verified events and recompute accelerator
-              const periodRepData=filteredRepData.map(r=>{
-                let periodEvents=r.events.filter(e=>{
-                  return inRange(e.meetingDate)||inRange(e.sqlDate)
-                })
-                // Apply verified filter
-                if(commViewMode==='verified'){
-                  periodEvents=periodEvents.filter(e=>commVerified[getRowId(e)])
-                  // Recompute accelerator for verified-only SQL subset
-                  const vSqlByMo=new Map<string,typeof periodEvents>()
-                  periodEvents.filter(e2=>e2.isSql&&e2.sqlDate&&inRange(e2.sqlDate)).forEach(e2=>{const mk=e2.sqlDate!.slice(0,7);if(!vSqlByMo.has(mk))vSqlByMo.set(mk,[]);vSqlByMo.get(mk)!.push(e2)})
-                  vSqlByMo.forEach(ms=>{ms.sort((a,b)=>(a.sqlDate||'').localeCompare(b.sqlDate||''));ms.forEach((e2,i)=>{e2.sqlPayout=i<SQL_ACCELERATOR_THRESHOLD?SQL_BONUS:SQL_ACCELERATOR;e2.amount=e2.meetingPayout+e2.sqlPayout})})
-                }
-                // Count meetings/SQLs whose specific dates are in range
-                const meetings=periodEvents.filter(e=>e.isMeeting&&inRange(e.meetingDate)).length
-                const sqls=periodEvents.filter(e=>e.isSql&&inRange(e.sqlDate)).length
-                // Sum only the payout components whose dates fall in this period
-                const meetingAmt=periodEvents.reduce((s,e)=>s+(e.isMeeting&&inRange(e.meetingDate)?e.meetingPayout:0),0)
-                const sqlAmt=periodEvents.reduce((s,e)=>s+(e.isSql&&inRange(e.sqlDate)?e.sqlPayout:0),0)
-                return {...r,periodEvents,periodMeetings:meetings,periodSqls:sqls,periodMeetingAmt:meetingAmt,periodSqlAmt:sqlAmt,periodAccelAmt:0,periodTotal:meetingAmt+sqlAmt}
-              })
-
-              // One row per account — compute period-scoped amount for display
-              const periodAllEvents=periodRepData.flatMap(r=>r.periodEvents.map(e=>{
-                const pMtg=e.isMeeting&&inRange(e.meetingDate)?e.meetingPayout:0
-                const pSql=e.isSql&&inRange(e.sqlDate)?e.sqlPayout:0
-                return {...e,repName:r.rep.name,repId:r.rep.id,periodAmount:pMtg+pSql}
-              }))
-                .sort((a,b)=>{const da=a.isSql?(a.sqlDate||''):(a.meetingDate||'');const db=b.isSql?(b.sqlDate||''):(b.meetingDate||'');return db.localeCompare(da)})
-
-              // View toggle: All (Projected) / Verified Only
-              const viewToggle=(
-                <div style={{display:'flex',gap:0,background:C.surface3,borderRadius:6,padding:2,marginBottom:14}}>
-                  {([['all','All (Projected)'],['verified','Verified Only']] as const).map(([m,label])=>(
-                    <button key={m} onClick={()=>setViewMode(m)} style={{fontSize:11,fontWeight:commViewMode===m?700:500,padding:'5px 14px',borderRadius:5,border:'none',cursor:'pointer',background:commViewMode===m?C.green:'transparent',color:commViewMode===m?'#000':C.text3}}>{label}</button>
-                  ))}
-                </div>
-              )
-
-              // Commission Summary visibility:
-              // - BDM (Jonathan): sees all reps
-              // - Reps: see only their own row
-              // - Everyone else (CMO, PM, RevOps): hidden entirely
-              const isBdmViewer=auth&&'email' in auth&&isBdmEmail(auth.email)
-              const isRepViewer=auth&&'role' in auth&&auth.role==='rep'
-              const repViewerId=isRepViewer&&'repId' in auth?(auth as {repId:string}).repId:null
-              const showCommSummary=isBdmViewer||isRepViewer
-              const summaryRepData=isBdmViewer?periodRepData:isRepViewer?periodRepData.filter(r=>r.rep.id===repViewerId):[]
-
-              return (<>
-              {showCommSummary&&summaryRepData.length>0&&(
-              <div style={{...card,marginBottom:20}}>
-                <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:14}}>Commission Summary · {periodLabel}{commViewMode==='verified'?' · Verified Only':''}</div>
-                {viewToggle}
-                <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
-                  <thead>
-                    <tr style={{borderBottom:`2px solid ${C.border2}`}}>
-                      {['Rep','Meetings','Meeting $','SQLs','SQL $','Total','Mtg Q-Cap %','SQL Q-Cap %'].map(h=>(
-                        <th key={h} style={{padding:'8px 10px',textAlign:h==='Rep'?'left':'right',fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em'}}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {summaryRepData.map(r=>(
-                      <tr key={r.rep.id} style={{borderBottom:`1px solid ${C.border}`}}>
-                        <td style={{padding:'10px',fontWeight:600,color:C.text}}>{r.rep.name}</td>
-                        <td style={{padding:'10px',textAlign:'right',color:C.text}}>{r.periodMeetings}</td>
-                        <td style={{padding:'10px',textAlign:'right',color:C.green,fontWeight:600}}>${r.periodMeetingAmt.toLocaleString()}</td>
-                        <td style={{padding:'10px',textAlign:'right',color:C.text}}>{r.periodSqls}</td>
-                        <td style={{padding:'10px',textAlign:'right',color:'#c084fc',fontWeight:600}}>${r.periodSqlAmt.toLocaleString()}</td>
-                        <td style={{padding:'10px',textAlign:'right',fontWeight:800,color:C.text}}>${r.periodTotal.toLocaleString()}</td>
-                        <td style={{padding:'10px',textAlign:'right',fontSize:11,color:spansMultipleQuarters?C.text3:r.ytdMeetingAmt>=MTG_Q_CAP?C.red:C.text3}}>{spansMultipleQuarters?'—':`${Math.round(r.ytdMeetingAmt/MTG_Q_CAP*100)}%`}</td>
-                        <td style={{padding:'10px',textAlign:'right',fontSize:11,color:spansMultipleQuarters?C.text3:r.ytdSqlAmt>=SQL_Q_CAP?C.red:C.text3}}>{spansMultipleQuarters?'—':`${Math.round(r.ytdSqlAmt/SQL_Q_CAP*100)}%`}</td>
-                      </tr>
-                    ))}
-                    {isBdmViewer&&summaryRepData.length>1&&(
-                      <tr style={{borderTop:`2px solid ${C.border2}`,background:C.surface2}}>
-                        <td style={{padding:'10px',fontWeight:800,color:C.text}}>Total</td>
-                        <td style={{padding:'10px',textAlign:'right',fontWeight:700,color:C.text}}>{summaryRepData.reduce((s,r)=>s+r.periodMeetings,0)}</td>
-                        <td style={{padding:'10px',textAlign:'right',fontWeight:700,color:C.green}}>${summaryRepData.reduce((s,r)=>s+r.periodMeetingAmt,0).toLocaleString()}</td>
-                        <td style={{padding:'10px',textAlign:'right',fontWeight:700,color:C.text}}>{summaryRepData.reduce((s,r)=>s+r.periodSqls,0)}</td>
-                        <td style={{padding:'10px',textAlign:'right',fontWeight:700,color:'#c084fc'}}>${summaryRepData.reduce((s,r)=>s+r.periodSqlAmt,0).toLocaleString()}</td>
-                        <td style={{padding:'10px',textAlign:'right',fontWeight:800,color:C.text}}>${summaryRepData.reduce((s,r)=>s+r.periodTotal,0).toLocaleString()}</td>
-                        <td/><td/>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-              )}
-
-              {/* Detailed attribution table — filtered by period */}
-              <div style={{...card,marginBottom:20}}>
-                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
-                  <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em'}}>Commission Event Detail · {periodAllEvents.length} events · {periodLabel}</div>
-                </div>
-                <div style={{overflowX:'auto'}}>
-                  <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
-                    <thead>
-                      <tr style={{borderBottom:`2px solid ${C.border2}`}}>
-                        {['✓','Rep','Account','Tier','Source','AE','Quality','Meeting Date','SQL Date','SQO Date','ACV','Type',...(isBdmViewer?['Amount']:[])].map(h=>(
-                          <th key={h} style={{padding:'7px 8px',textAlign:['ACV','Amount'].includes(h)?'right':'left',fontSize:9,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',whiteSpace:'nowrap'}}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {periodAllEvents.map((e,i)=>{
-                        const types: string[] = []
-                        if (e.isMeeting&&inRange(e.meetingDate)) types.push('Meeting')
-                        if (e.isSql&&inRange(e.sqlDate)) types.push('SQL')
-                        const amount = (e as any).periodAmount ?? e.amount
-                        const qualityColor = e.mqlQuality==='hq'?C.amber:e.mqlQuality==='lq'?'#fb923c':C.text3
-                        const eventKey=`${e.email}-${i}`
-                        const isExpanded=revopsExpandedEvent===eventKey
-                        const rowId=getRowId(e)
-                        const isVerified=!!commVerified[rowId]
-                        const isManual=e.email.startsWith('manual-')
-                        return (
-                          <React.Fragment key={eventKey}>
-                          <tr style={{borderBottom:isExpanded?'none':`1px solid ${C.border}`,cursor:'pointer',background:isExpanded?C.surface2:'transparent'}} onClick={()=>setRevopsExpandedEvent(isExpanded?null:eventKey)}>
-                            <td style={{padding:'4px 6px',textAlign:'center'}}><input type="checkbox" checked={isVerified} onChange={()=>toggleVerified(rowId)} style={{cursor:'pointer',accentColor:C.green}}/></td>
-                            <td style={{padding:'7px 8px',fontWeight:500,color:C.text2,whiteSpace:'nowrap'}}>{e.repName}</td>
-                            <td style={{padding:'7px 8px',fontWeight:600,color:isExpanded?'#60d4f4':C.text,maxWidth:160,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{isExpanded?'▼ ':''}{e.account}</td>
-                            <td style={{padding:'7px 8px'}}>{(()=>{const t=e.accountTier;const tc=t==='A'?C.green:t==='B'?'#60d4f4':t==='E'?C.purpleL:t==='C'?C.red:C.text3;return <span style={{fontSize:9,fontWeight:700,color:tc,background:`${tc}18`,padding:'1px 5px',borderRadius:3}}>{t||'—'}</span>})()}</td>
-                            <td style={{padding:'7px 8px',color:C.text3,fontSize:10}}>{isManual&&<span style={{fontSize:8,fontWeight:700,color:C.amber,background:'rgba(245,166,35,0.15)',padding:'1px 4px',borderRadius:3,marginRight:3}}>MANUAL</span>}{e.sourceChannel||'—'}</td>
-                            <td style={{padding:'7px 8px',color:C.text2}}>{e.ae||'—'}</td>
-                            <td style={{padding:'7px 8px'}}><span style={{fontSize:9,fontWeight:700,color:qualityColor,background:`${qualityColor}18`,padding:'1px 5px',borderRadius:3}}>{e.mqlQuality==='hq'?'HQ':e.mqlQuality==='lq'?'LQ':e.mqlQuality||'—'}</span></td>
-                            <td style={{padding:'7px 8px',color:e.meetingDate?C.text2:C.text3,whiteSpace:'nowrap'}}>{e.meetingDate?new Date(e.meetingDate).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'2-digit'}):'—'}</td>
-                            <td style={{padding:'7px 8px',color:e.sqlDate?'#c084fc':C.text3,whiteSpace:'nowrap'}}>{e.sqlDate?new Date(e.sqlDate).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'2-digit'}):'—'}</td>
-                            <td style={{padding:'7px 8px',color:e.sqoDate?C.amber:C.text3,whiteSpace:'nowrap'}}>{e.sqoDate?new Date(e.sqoDate).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'2-digit'}):'—'}</td>
-                            <td style={{padding:'7px 8px',textAlign:'right',color:e.acv?C.text2:C.text3}}>{e.acv?`$${parseAcv(e.acv).toLocaleString()}`:'—'}</td>
-                            <td style={{padding:'7px 8px'}}>
-                              {types.map(t=>(
-                                <span key={t} style={{fontSize:9,fontWeight:700,padding:'1px 5px',borderRadius:3,marginRight:3,
-                                  background:t==='Meeting'?'rgba(0,229,160,0.15)':'rgba(192,132,252,0.15)',
-                                  color:t==='Meeting'?C.green:'#c084fc',
-                                  border:`1px solid ${t==='Meeting'?'rgba(0,229,160,0.3)':'rgba(192,132,252,0.3)'}`,
-                                }}>{t}</span>
-                              ))}
-                            </td>
-                            {isBdmViewer&&<td style={{padding:'7px 8px',textAlign:'right',fontWeight:700,color:C.text}}>${amount.toLocaleString()}</td>}
-                          </tr>
-                          {isExpanded&&(
-                            <tr style={{borderBottom:`1px solid ${C.border}`,background:C.surface2}}>
-                              <td colSpan={isBdmViewer?13:12} style={{padding:'10px 16px'}}>
-                                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:12}}>
-                                  <div>
-                                    <div style={{fontSize:8,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:3}}>Salesforce URL</div>
-                                    {e.sfUrl?<a href={e.sfUrl} target="_blank" rel="noopener noreferrer" style={{fontSize:10,color:'#60d4f4',textDecoration:'none',wordBreak:'break-all'}} onClick={ev=>ev.stopPropagation()}>{e.sfUrl.length>50?e.sfUrl.slice(0,50)+'…':e.sfUrl}</a>:<span style={{fontSize:10,color:C.text3}}>—</span>}
-                                  </div>
-                                  <div>
-                                    <div style={{fontSize:8,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:3}}>Meeting Booked</div>
-                                    <div style={{fontSize:10,color:e.meetingDate?C.text:C.text3}}>{e.meetingDate?new Date(e.meetingDate).toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'}):'—'}</div>
-                                  </div>
-                                  <div>
-                                    <div style={{fontSize:8,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:3}}>SQL Date</div>
-                                    <div style={{fontSize:10,color:e.sqlDate?'#c084fc':C.text3}}>{e.sqlDate?new Date(e.sqlDate).toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'}):'—'}</div>
-                                  </div>
-                                  <div>
-                                    <div style={{fontSize:8,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:3}}>Gong URL</div>
-                                    {e.gongUrl?<a href={e.gongUrl} target="_blank" rel="noopener noreferrer" style={{fontSize:10,color:'#60d4f4',textDecoration:'none',wordBreak:'break-all'}} onClick={ev=>ev.stopPropagation()}>{e.gongUrl.length>50?e.gongUrl.slice(0,50)+'…':e.gongUrl}</a>:<span style={{fontSize:10,color:C.text3}}>—</span>}
-                                  </div>
-                                </div>
-                              </td>
-                            </tr>
-                          )}
-                          </React.Fragment>
-                        )
-                      })}
-                      {periodAllEvents.length===0&&(
-                        <tr><td colSpan={isBdmViewer?13:12} style={{padding:'20px',textAlign:'center',color:C.text3}}>No commission events found for this period.</td></tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {/* + Add Spiff Entry */}
-              {isBdmViewer&&(<div style={{marginTop:12}}>
-                <button onClick={()=>setCommShowAddManual(!commShowAddManual)} style={{fontSize:11,fontWeight:700,padding:'6px 14px',borderRadius:6,border:`1px solid ${C.amber}`,background:'rgba(245,166,35,0.1)',color:C.amber,cursor:'pointer'}}>
-                  {commShowAddManual?'Cancel':'+ Add Spiff Entry'}
-                </button>
-                {commShowAddManual&&(()=>{
-                  const [mAcct,setMAcct]=React.useState('');const [mProspect,setMProspect]=React.useState('');const [mAe,setMAe]=React.useState('');const [mTier,setMTier]=React.useState('');const [mMtgDate,setMMtgDate]=React.useState('');const [mSqlDate,setMSqlDate]=React.useState('');const [mSource,setMSource]=React.useState('manual: spiff')
-                  return (<div style={{marginTop:8,padding:14,background:C.surface2,borderRadius:8,border:`1px solid ${C.border}`,display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:8}}>
-                    <div><label style={{fontSize:9,color:C.text3,display:'block',marginBottom:2}}>Account *</label><input value={mAcct} onChange={e=>setMAcct(e.target.value)} style={{...inputStyle,fontSize:10,padding:'4px 7px'}}/></div>
-                    <div><label style={{fontSize:9,color:C.text3,display:'block',marginBottom:2}}>Prospect</label><input value={mProspect} onChange={e=>setMProspect(e.target.value)} style={{...inputStyle,fontSize:10,padding:'4px 7px'}}/></div>
-                    <div><label style={{fontSize:9,color:C.text3,display:'block',marginBottom:2}}>AE</label><input value={mAe} onChange={e=>setMAe(e.target.value)} style={{...inputStyle,fontSize:10,padding:'4px 7px'}}/></div>
-                    <div><label style={{fontSize:9,color:C.text3,display:'block',marginBottom:2}}>Tier</label><select value={mTier} onChange={e=>setMTier(e.target.value)} style={{...inputStyle,fontSize:10,padding:'4px 7px'}}><option value="">—</option><option>A</option><option>B</option><option>E</option></select></div>
-                    <div><label style={{fontSize:9,color:C.text3,display:'block',marginBottom:2}}>Meeting Date</label><input type="date" value={mMtgDate} onChange={e=>setMMtgDate(e.target.value)} style={{...inputStyle,fontSize:10,padding:'4px 7px'}}/></div>
-                    <div><label style={{fontSize:9,color:C.text3,display:'block',marginBottom:2}}>SQL Date</label><input type="date" value={mSqlDate} onChange={e=>setMSqlDate(e.target.value)} style={{...inputStyle,fontSize:10,padding:'4px 7px'}}/></div>
-                    <div><label style={{fontSize:9,color:C.text3,display:'block',marginBottom:2}}>Source</label><input value={mSource} onChange={e=>setMSource(e.target.value)} style={{...inputStyle,fontSize:10,padding:'4px 7px'}}/></div>
-                    <div style={{display:'flex',alignItems:'end'}}><button onClick={()=>{if(!mAcct.trim())return;addManualEntry({id:`m-${Date.now()}`,account:mAcct.trim(),prospectName:mProspect.trim(),ae:mAe.trim(),tier:mTier,meetingDate:mMtgDate,sqlDate:mSqlDate,source:mSource});setCommShowAddManual(false)}} disabled={!mAcct.trim()} style={{fontSize:10,fontWeight:700,padding:'5px 12px',borderRadius:5,border:'none',background:mAcct.trim()?C.green:C.surface3,color:mAcct.trim()?'#000':C.text3,cursor:mAcct.trim()?'pointer':'default'}}>Add</button></div>
-                  </div>)
-                })()}
-              </div>)}
-
-              {/* Reconcile to Spiff (collapsed) */}
-              {isBdmViewer&&(<div style={{marginTop:16}}>
-                <button onClick={()=>setCommShowReconcile(!commShowReconcile)} style={{fontSize:10,fontWeight:600,color:C.text3,background:'none',border:'none',cursor:'pointer',padding:0}}>
-                  {commShowReconcile?'▼':'▶'} Reconcile to Spiff
-                </button>
-                {commShowReconcile&&(
-                  <div style={{marginTop:8,padding:12,background:C.surface2,borderRadius:8,border:`1px solid ${C.border}`,fontSize:11}}>
-                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:10,marginBottom:10}}>
-                      <div><span style={{color:C.text3}}>Total (All):</span> <strong>${periodRepData.reduce((s,r)=>s+r.periodTotal,0).toLocaleString()}</strong></div>
-                      <div><span style={{color:C.text3}}>Total (Verified):</span> <strong>${(()=>{const vEvts=periodRepData.flatMap(r=>r.periodEvents).filter(e2=>commVerified[getRowId(e2)]);return vEvts.reduce((s,e2)=>{const pM=e2.isMeeting&&inRange(e2.meetingDate)?e2.meetingPayout:0;const pS=e2.isSql&&inRange(e2.sqlDate)?e2.sqlPayout:0;return s+pM+pS},0)})().toLocaleString()}</strong></div>
-                      <div><span style={{color:C.text3}}>Unverified:</span> <strong>{periodAllEvents.filter(e2=>!commVerified[getRowId(e2)]).length}</strong></div>
-                      <div><span style={{color:C.text3}}>Last reconciled:</span> <strong>{commLastReconciled||'Never'}</strong> <button onClick={()=>{const ts=new Date().toLocaleString();setCommLastReconciled(ts);localStorage.setItem('commission-last-reconciled',ts)}} style={{fontSize:9,color:C.green,background:'none',border:'none',cursor:'pointer',marginLeft:4}}>Mark now</button></div>
-                    </div>
-                  </div>
-                )}
-              </div>)}
-
-              </>)
-            })()}
-
-            {/* Commission rules reference */}
-            <div style={{...card,opacity:0.7}}>
-              <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:10}}>Commission Structure Reference</div>
-              <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:12,fontSize:11,color:C.text2}}>
-                <div><strong style={{color:C.text}}>Meeting Booked:</strong> $150/ICP meeting (A/B/E tier)</div>
-                <div><strong style={{color:C.text}}>SQL:</strong> $620/SQL · $930 accelerator if &gt;3/month</div>
-              </div>
-              <div style={{fontSize:10,color:C.text3,marginTop:8}}>Payout: following month, 2nd half pay cycle. Meeting + SQL can stack on the same account.</div>
-            </div>
-          </>)
+          return <CommissionsTab events={commEvents} reps={Object.keys(eventsByRep)} />
         })()}
-
 
         {/* ══════════════════════════════════════════════════════
             ROUND ROBIN VIEW (v2 — click-to-book)
