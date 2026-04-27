@@ -6347,10 +6347,21 @@ export default function Dashboard() {
               if (!isIcp(l.email)) return
               const displayName = nameOverrides[l.email] || l.account || formatDomain(l.domain) || l.email
               const baseFields = {email:l.email,account:displayName,sqoDate:det.sqoDate||null,mqlQuality:det.mqlQuality||'',accountTier:det.accountTier||'',sourceChannel:det.sourceChannel||'',ae:det.ae||'',acv:det.acv||'',sfUrl:det.sfLink||l.sfUrl||'',gongUrl:det.gongUrl||''}
-              // Mutually exclusive payout per Spiff: SQL replaces meeting, never stacks.
-              // If SQL exists → SQL payout only. If meeting only → meeting payout only.
-              if (hasSql && det.sqlDate) {
-                events.push({...baseFields,meetingDate:det.meetingDate||null,sqlDate:det.sqlDate,isMeeting:false,isSql:true,amount:SQL_BONUS})
+              // Mutually exclusive payout per Spiff: SQL replaces meeting in the SAME month.
+              // Different months: meeting payout stands in its month, SQL payout in its month.
+              if (hasSql && det.sqlDate && hasMeetingDate) {
+                const mtgMonth=det.meetingDate.slice(0,7)
+                const sqlMonth=det.sqlDate.slice(0,7)
+                if (mtgMonth !== sqlMonth) {
+                  // Cross-month: meeting payout in meeting's month, SQL payout in SQL's month
+                  events.push({...baseFields,meetingDate:det.meetingDate,sqlDate:null,isMeeting:true,isSql:false,amount:MEETING_BONUS})
+                  events.push({...baseFields,meetingDate:null,sqlDate:det.sqlDate,isMeeting:false,isSql:true,amount:SQL_BONUS})
+                } else {
+                  // Same month: SQL replaces meeting
+                  events.push({...baseFields,meetingDate:det.meetingDate,sqlDate:det.sqlDate,isMeeting:false,isSql:true,amount:SQL_BONUS})
+                }
+              } else if (hasSql && det.sqlDate) {
+                events.push({...baseFields,meetingDate:null,sqlDate:det.sqlDate,isMeeting:false,isSql:true,amount:SQL_BONUS})
               } else if (hasMeetingDate) {
                 events.push({...baseFields,meetingDate:det.meetingDate,sqlDate:null,isMeeting:true,isSql:false,amount:MEETING_BONUS})
               }
