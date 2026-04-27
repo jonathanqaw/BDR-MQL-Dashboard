@@ -6346,15 +6346,23 @@ export default function Dashboard() {
               if (!isIcp(l.email)) return
               const displayName = nameOverrides[l.email] || l.account || formatDomain(l.domain) || l.email
               const baseFields = {email:l.email,account:displayName,sqoDate:det.sqoDate||null,mqlQuality:det.mqlQuality||'',accountTier:det.accountTier||'',sourceChannel:det.sourceChannel||'',ae:det.ae||'',acv:det.acv||'',sfUrl:det.sfLink||l.sfUrl||'',gongUrl:det.gongUrl||''}
-              // Two separate commission events when both meeting and SQL exist:
-              // Meeting credit ($150) dated by meetingDate — shows in the month meeting was booked
-              // SQL credit ($620) dated by sqlDate — shows in the month SQL was registered
-              // Period filter uses isSql to pick the right date for each event
-              if (hasMeetingDate) {
-                events.push({...baseFields,meetingDate:det.meetingDate,sqlDate:null,isMeeting:true,isSql:false,amount:MEETING_BONUS})
-              }
-              if (hasSql && det.sqlDate) {
+              // One row per account per month. If meeting and SQL are in DIFFERENT months,
+              // create two events so each shows in its own month. If same month, one row (SQL wins).
+              if (hasSql && det.sqlDate && hasMeetingDate) {
+                const mtgMonth=det.meetingDate.slice(0,7)
+                const sqlMonth=det.sqlDate.slice(0,7)
+                if (mtgMonth !== sqlMonth) {
+                  // Different months: meeting credit in meeting's month, SQL credit in SQL's month
+                  events.push({...baseFields,meetingDate:det.meetingDate,sqlDate:null,isMeeting:true,isSql:false,amount:MEETING_BONUS})
+                  events.push({...baseFields,meetingDate:null,sqlDate:det.sqlDate,isMeeting:false,isSql:true,amount:SQL_BONUS})
+                } else {
+                  // Same month: one SQL row (higher credit) carrying both dates
+                  events.push({...baseFields,meetingDate:det.meetingDate,sqlDate:det.sqlDate,isMeeting:false,isSql:true,amount:SQL_BONUS})
+                }
+              } else if (hasSql && det.sqlDate) {
                 events.push({...baseFields,meetingDate:null,sqlDate:det.sqlDate,isMeeting:false,isSql:true,amount:SQL_BONUS})
+              } else if (hasMeetingDate) {
+                events.push({...baseFields,meetingDate:det.meetingDate,sqlDate:null,isMeeting:true,isSql:false,amount:MEETING_BONUS})
               }
             })
 
