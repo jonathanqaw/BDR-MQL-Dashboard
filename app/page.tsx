@@ -6342,25 +6342,14 @@ export default function Dashboard() {
               }
               if (!isIcp(l.email)) return
               const displayName = nameOverrides[l.email] || l.account || formatDomain(l.domain) || l.email
-              // SQL takes priority if both exist
+              const baseFields = {email:l.email,account:displayName,sqoDate:det.sqoDate||null,mqlQuality:det.mqlQuality||'',accountTier:det.accountTier||'',sourceChannel:det.sourceChannel||'',ae:det.ae||'',acv:det.acv||'',sfUrl:det.sfLink||l.sfUrl||'',gongUrl:det.gongUrl||''}
+              // Meeting event: if meetingDate exists, create a meeting credit (dated by meetingDate)
+              if (hasMeetingDate) {
+                events.push({...baseFields,meetingDate:det.meetingDate,sqlDate:null,isMeeting:true,isSql:false,amount:MEETING_BONUS})
+              }
+              // SQL event: if SQL exists with sqlDate, create a separate SQL credit (dated by sqlDate)
               if (hasSql && det.sqlDate) {
-                events.push({
-                  email: l.email, account: displayName,
-                  meetingDate: det.meetingDate||null, sqlDate: det.sqlDate,
-                  sqoDate: det.sqoDate||null,
-                  mqlQuality: det.mqlQuality||'', accountTier: det.accountTier||'', sourceChannel: det.sourceChannel||'', ae: det.ae||'', acv: det.acv||'',
-                  isMeeting: false, isSql: true, amount: SQL_BONUS,
-                  sfUrl: det.sfLink || l.sfUrl || '', gongUrl: det.gongUrl || '',
-                })
-              } else {
-                events.push({
-                  email: l.email, account: displayName,
-                  meetingDate: det.meetingDate||null, sqlDate: null,
-                  sqoDate: det.sqoDate||null,
-                  mqlQuality: det.mqlQuality||'', accountTier: det.accountTier||'', sourceChannel: det.sourceChannel||'', ae: det.ae||'', acv: det.acv||'',
-                  isMeeting: true, isSql: false, amount: MEETING_BONUS,
-                  sfUrl: det.sfLink || l.sfUrl || '', gongUrl: det.gongUrl || '',
-                })
+                events.push({...baseFields,meetingDate:det.meetingDate||null,sqlDate:det.sqlDate,isMeeting:false,isSql:true,amount:SQL_BONUS})
               }
             })
 
