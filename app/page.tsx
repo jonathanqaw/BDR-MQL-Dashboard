@@ -6347,24 +6347,29 @@ export default function Dashboard() {
               if (!isIcp(l.email)) return
               const displayName = nameOverrides[l.email] || l.account || formatDomain(l.domain) || l.email
               const baseFields = {email:l.email,account:displayName,sqoDate:det.sqoDate||null,mqlQuality:det.mqlQuality||'',accountTier:det.accountTier||'',sourceChannel:det.sourceChannel||'',ae:det.ae||'',acv:det.acv||'',sfUrl:det.sfLink||l.sfUrl||'',gongUrl:det.gongUrl||''}
-              // Mutually exclusive payout per Spiff: SQL replaces meeting in the SAME month.
-              // Different months: meeting payout stands in its month, SQL payout in its month.
-              if (hasSql && det.sqlDate && hasMeetingDate) {
-                const mtgMonth=det.meetingDate.slice(0,7)
-                const sqlMonth=det.sqlDate.slice(0,7)
-                if (mtgMonth !== sqlMonth) {
-                  // Cross-month: meeting payout in meeting's month, SQL payout in SQL's month
-                  events.push({...baseFields,meetingDate:det.meetingDate,sqlDate:null,isMeeting:true,isSql:false,amount:MEETING_BONUS})
-                  events.push({...baseFields,meetingDate:null,sqlDate:det.sqlDate,isMeeting:false,isSql:true,amount:SQL_BONUS})
-                } else {
-                  // Same month: SQL replaces meeting
-                  events.push({...baseFields,meetingDate:det.meetingDate,sqlDate:det.sqlDate,isMeeting:false,isSql:true,amount:SQL_BONUS})
-                }
-              } else if (hasSql && det.sqlDate) {
-                events.push({...baseFields,meetingDate:null,sqlDate:det.sqlDate,isMeeting:false,isSql:true,amount:SQL_BONUS})
-              } else if (hasMeetingDate) {
+              // Spiff pays BOTH meeting and SQL — they stack, not replace.
+              // Meeting: $150 for every record with meetingDate
+              // SQL: additional payout on top (amount set later by accelerator)
+              if (hasMeetingDate) {
                 events.push({...baseFields,meetingDate:det.meetingDate,sqlDate:null,isMeeting:true,isSql:false,amount:MEETING_BONUS})
               }
+              if (hasSql && det.sqlDate) {
+                // SQL amount placeholder — will be updated by accelerator pass below
+                events.push({...baseFields,meetingDate:null,sqlDate:det.sqlDate,isMeeting:false,isSql:true,amount:0})
+              }
+            })
+
+            // Apply SQL accelerator: sort SQLs by date within each month, first 3 at $620, rest at $930
+            const sqlEvents = events.filter(e => e.isSql && e.sqlDate)
+            const sqlByMonth = new Map<string, typeof sqlEvents>()
+            sqlEvents.forEach(e => {
+              const mk = e.sqlDate!.slice(0, 7)
+              if (!sqlByMonth.has(mk)) sqlByMonth.set(mk, [])
+              sqlByMonth.get(mk)!.push(e)
+            })
+            sqlByMonth.forEach(monthSqls => {
+              monthSqls.sort((a, b) => (a.sqlDate || '').localeCompare(b.sqlDate || ''))
+              monthSqls.forEach((e, i) => { e.amount = i < SQL_ACCELERATOR_THRESHOLD ? SQL_BONUS : SQL_ACCELERATOR })
             })
 
             // Monthly totals
@@ -6463,10 +6468,8 @@ export default function Dashboard() {
                   const d=e.isSql?e.sqlDate:e.meetingDate
                   return inRange(d)
                 })
-                // Dedup: one event per account in this period. SQL wins over meeting.
-                const peMap=new Map<string,typeof rawPE[0]>()
-                rawPE.forEach(e=>{const ex=peMap.get(e.email);if(!ex||(e.isSql&&!ex.isSql))peMap.set(e.email,e)})
-                const periodEvents=Array.from(peMap.values())
+                // Both meeting and SQL events show — they stack per Spiff
+                const periodEvents=rawPE
                 const meetings=periodEvents.filter(e=>e.isMeeting).length
                 const sqls=periodEvents.filter(e=>e.isSql).length
                 // Sum itemized event amounts — do NOT re-apply accelerator logic. Spiff is source of truth.
@@ -6475,16 +6478,8 @@ export default function Dashboard() {
                 return {...r,periodEvents,periodMeetings:meetings,periodSqls:sqls,periodMeetingAmt:meetingAmt,periodSqlAmt:sqlAmt,periodAccelAmt:0,periodTotal:meetingAmt+sqlAmt}
               })
 
-              // Filter detail events by period, then dedup: one row per account
-              // If same account has both meeting and SQL in this period, keep SQL (higher credit)
-              const rawPeriodEvents=periodRepData.flatMap(r=>r.periodEvents.map(e=>({...e,repName:r.rep.name,repId:r.rep.id})))
-              const periodEventMap=new Map<string,typeof rawPeriodEvents[0]>()
-              rawPeriodEvents.forEach(e=>{
-                const key=e.email
-                const existing=periodEventMap.get(key)
-                if(!existing||(e.isSql&&!existing.isSql)){periodEventMap.set(key,e)}
-              })
-              const periodAllEvents=Array.from(periodEventMap.values())
+              // Both meeting and SQL events show per account — they stack per Spiff
+              const periodAllEvents=periodRepData.flatMap(r=>r.periodEvents.map(e=>({...e,repName:r.rep.name,repId:r.rep.id})))
                 .sort((a,b)=>{const da=a.isSql?(a.sqlDate||''):(a.meetingDate||'');const db=b.isSql?(b.sqlDate||''):(b.meetingDate||'');return db.localeCompare(da)})
 
               // Commission Summary visibility:
