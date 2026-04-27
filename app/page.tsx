@@ -6308,7 +6308,7 @@ export default function Dashboard() {
           const mkPayoutLabelRO=(mk:string)=>{const [y,m]=mk.split('-').map(Number);return `${new Date(y,m,1).toLocaleString('en-US',{month:'short',year:'numeric'})} (2nd half)`}
           const OVERRIDE_MONTHS = new Set(['2025-09','2025-10','2025-11','2025-12','2026-01','2026-02','2026-03'])
 
-          type RevOpsEvent = { email:string; account:string; meetingDate:string|null; sqlDate:string|null; sqoDate:string|null; mqlQuality:string; accountTier:string; sourceChannel:string; ae:string; acv:string; isMeeting:boolean; isSql:boolean; amount:number; sfUrl:string; gongUrl:string }
+          type RevOpsEvent = { email:string; account:string; meetingDate:string|null; sqlDate:string|null; sqoDate:string|null; mqlQuality:string; accountTier:string; sourceChannel:string; ae:string; acv:string; isMeeting:boolean; isSql:boolean; amount:number; meetingPayout:number; sqlPayout:number; sfUrl:string; gongUrl:string }
 
           // Build per-rep data — derived directly from pipeline data (statuses + details)
           // No frozen overrides — pipeline is the single source of truth for commission events
@@ -6346,56 +6346,60 @@ export default function Dashboard() {
               }
               if (!isIcp(l.email)) return
               const displayName = nameOverrides[l.email] || l.account || formatDomain(l.domain) || l.email
-              const baseFields = {email:l.email,account:displayName,sqoDate:det.sqoDate||null,mqlQuality:det.mqlQuality||'',accountTier:det.accountTier||'',sourceChannel:det.sourceChannel||'',ae:det.ae||'',acv:det.acv||'',sfUrl:det.sfLink||l.sfUrl||'',gongUrl:det.gongUrl||''}
-              // Spiff pays BOTH meeting and SQL — they stack, not replace.
-              // Meeting: $150 for every record with meetingDate
-              // SQL: additional payout on top (amount set later by accelerator)
-              if (hasMeetingDate) {
-                events.push({...baseFields,meetingDate:det.meetingDate,sqlDate:null,isMeeting:true,isSql:false,amount:MEETING_BONUS})
-              }
-              if (hasSql && det.sqlDate) {
-                // SQL amount placeholder — will be updated by accelerator pass below
-                events.push({...baseFields,meetingDate:null,sqlDate:det.sqlDate,isMeeting:false,isSql:true,amount:0})
-              }
+              // One row per account. Meeting ($150) and SQL (accelerator) stack.
+              const mtgPay = hasMeetingDate ? MEETING_BONUS : 0
+              events.push({
+                email:l.email,account:displayName,
+                meetingDate:det.meetingDate||null,sqlDate:hasSql?det.sqlDate:null,
+                sqoDate:det.sqoDate||null,
+                mqlQuality:det.mqlQuality||'',accountTier:det.accountTier||'',sourceChannel:det.sourceChannel||'',ae:det.ae||'',acv:det.acv||'',
+                isMeeting:hasMeetingDate,isSql:!!(hasSql&&det.sqlDate),
+                meetingPayout:mtgPay,sqlPayout:0, // SQL payout set by accelerator pass below
+                amount:mtgPay, // will be updated after accelerator
+                sfUrl:det.sfLink||l.sfUrl||'',gongUrl:det.gongUrl||'',
+              })
             })
 
-            // Apply SQL accelerator: sort SQLs by date within each month, first 3 at $620, rest at $930
-            const sqlEvents = events.filter(e => e.isSql && e.sqlDate)
-            const sqlByMonth = new Map<string, typeof sqlEvents>()
-            sqlEvents.forEach(e => {
+            // Apply SQL accelerator: sort SQL events by date within each month, first 3 at $620, rest at $930
+            const sqlEvts = events.filter(e => e.isSql && e.sqlDate)
+            const sqlByMonth = new Map<string, typeof sqlEvts>()
+            sqlEvts.forEach(e => {
               const mk = e.sqlDate!.slice(0, 7)
               if (!sqlByMonth.has(mk)) sqlByMonth.set(mk, [])
               sqlByMonth.get(mk)!.push(e)
             })
             sqlByMonth.forEach(monthSqls => {
               monthSqls.sort((a, b) => (a.sqlDate || '').localeCompare(b.sqlDate || ''))
-              monthSqls.forEach((e, i) => { e.amount = i < SQL_ACCELERATOR_THRESHOLD ? SQL_BONUS : SQL_ACCELERATOR })
+              monthSqls.forEach((e, i) => {
+                e.sqlPayout = i < SQL_ACCELERATOR_THRESHOLD ? SQL_BONUS : SQL_ACCELERATOR
+                e.amount = e.meetingPayout + e.sqlPayout
+              })
             })
 
-            // Monthly totals
+            // Monthly totals — meeting payout grouped by meetingDate month, SQL payout by sqlDate month
             const monthMap = new Map<string,{meetings:number;sqls:number;meetingAmt:number;sqlAmt:number;accelAmt:number}>()
             events.forEach(e => {
               if (e.isMeeting && e.meetingDate) {
                 const d = new Date(e.meetingDate)
                 const mk = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
                 if (!monthMap.has(mk)) monthMap.set(mk,{meetings:0,sqls:0,meetingAmt:0,sqlAmt:0,accelAmt:0})
-                const m=monthMap.get(mk)!; m.meetings++; m.meetingAmt+=e.amount
+                const m=monthMap.get(mk)!; m.meetings++; m.meetingAmt+=e.meetingPayout
               }
               if (e.isSql && e.sqlDate) {
                 const d = new Date(e.sqlDate)
                 const mk = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
                 if (!monthMap.has(mk)) monthMap.set(mk,{meetings:0,sqls:0,meetingAmt:0,sqlAmt:0,accelAmt:0})
-                const m=monthMap.get(mk)!; m.sqls++; m.sqlAmt+=e.amount
+                const m=monthMap.get(mk)!; m.sqls++; m.sqlAmt+=e.sqlPayout
               }
             })
 
             const currentYear = new Date().getFullYear()
-            const ytdEvents = events.filter(e=>{const d=e.isSql?e.sqlDate:e.meetingDate;return d&&new Date(d).getFullYear()===currentYear})
-            const ytdMeetings = ytdEvents.filter(e=>e.isMeeting).length
-            const ytdSqls = ytdEvents.filter(e=>e.isSql).length
-            const ytdMeetingAmt = ytdEvents.filter(e=>e.isMeeting).reduce((s,e)=>s+e.amount,0)
-            const ytdSqlAmt = ytdEvents.filter(e=>e.isSql).reduce((s,e)=>s+e.amount,0)
-            const ytdAccelAmt = 0 // included in sqlAmt from overrides
+            const inYtd=(d:string|null)=>d&&new Date(d).getFullYear()===currentYear
+            const ytdMeetings = events.filter(e=>e.isMeeting&&inYtd(e.meetingDate)).length
+            const ytdSqls = events.filter(e=>e.isSql&&inYtd(e.sqlDate)).length
+            const ytdMeetingAmt = events.reduce((s,e)=>s+(e.isMeeting&&inYtd(e.meetingDate)?e.meetingPayout:0),0)
+            const ytdSqlAmt = events.reduce((s,e)=>s+(e.isSql&&inYtd(e.sqlDate)?e.sqlPayout:0),0)
+            const ytdAccelAmt = 0
             const ytdTotal = ytdMeetingAmt + ytdSqlAmt
 
             return { rep, events, monthMap, ytdMeetings, ytdSqls, ytdMeetingAmt, ytdSqlAmt, ytdAccelAmt, ytdTotal }
@@ -6460,26 +6464,27 @@ export default function Dashboard() {
               const inRange=(d:string|null)=>{if(!d)return false;const dt=new Date(d);return dt>=pStart&&dt<=pEnd}
               const periodLabel=revopsPeriod==='week'?'This Week':revopsPeriod==='month'?'This Month':revopsPeriod==='quarter'?'This Quarter':revopsPeriod==='year'?`YTD · ${now.getFullYear()}`:revopsPeriod==='custom'?'Custom Range':'All Time'
 
-              // Filter events by period — use the commissionable event date:
-              // SQL events: date by sqlDate (when the SQL was logged)
-              // Meeting events: date by meetingDate (when the meeting was held)
+              // Filter events by period — include if meetingDate OR sqlDate falls in range
+              // For amounts, only count the payout components whose dates fall in range
               const periodRepData=filteredRepData.map(r=>{
-                const rawPE=r.events.filter(e=>{
-                  const d=e.isSql?e.sqlDate:e.meetingDate
-                  return inRange(d)
+                const periodEvents=r.events.filter(e=>{
+                  return inRange(e.meetingDate)||inRange(e.sqlDate)
                 })
-                // Both meeting and SQL events show — they stack per Spiff
-                const periodEvents=rawPE
-                const meetings=periodEvents.filter(e=>e.isMeeting).length
-                const sqls=periodEvents.filter(e=>e.isSql).length
-                // Sum itemized event amounts — do NOT re-apply accelerator logic. Spiff is source of truth.
-                const meetingAmt=periodEvents.filter(e=>e.isMeeting).reduce((s,e)=>s+e.amount,0)
-                const sqlAmt=periodEvents.filter(e=>e.isSql).reduce((s,e)=>s+e.amount,0)
+                // Count meetings/SQLs whose specific dates are in range
+                const meetings=periodEvents.filter(e=>e.isMeeting&&inRange(e.meetingDate)).length
+                const sqls=periodEvents.filter(e=>e.isSql&&inRange(e.sqlDate)).length
+                // Sum only the payout components whose dates fall in this period
+                const meetingAmt=periodEvents.reduce((s,e)=>s+(e.isMeeting&&inRange(e.meetingDate)?e.meetingPayout:0),0)
+                const sqlAmt=periodEvents.reduce((s,e)=>s+(e.isSql&&inRange(e.sqlDate)?e.sqlPayout:0),0)
                 return {...r,periodEvents,periodMeetings:meetings,periodSqls:sqls,periodMeetingAmt:meetingAmt,periodSqlAmt:sqlAmt,periodAccelAmt:0,periodTotal:meetingAmt+sqlAmt}
               })
 
-              // Both meeting and SQL events show per account — they stack per Spiff
-              const periodAllEvents=periodRepData.flatMap(r=>r.periodEvents.map(e=>({...e,repName:r.rep.name,repId:r.rep.id})))
+              // One row per account — compute period-scoped amount for display
+              const periodAllEvents=periodRepData.flatMap(r=>r.periodEvents.map(e=>{
+                const pMtg=e.isMeeting&&inRange(e.meetingDate)?e.meetingPayout:0
+                const pSql=e.isSql&&inRange(e.sqlDate)?e.sqlPayout:0
+                return {...e,repName:r.rep.name,repId:r.rep.id,periodAmount:pMtg+pSql}
+              }))
                 .sort((a,b)=>{const da=a.isSql?(a.sqlDate||''):(a.meetingDate||'');const db=b.isSql?(b.sqlDate||''):(b.meetingDate||'');return db.localeCompare(da)})
 
               // Commission Summary visibility:
@@ -6550,9 +6555,9 @@ export default function Dashboard() {
                     <tbody>
                       {periodAllEvents.map((e,i)=>{
                         const types: string[] = []
-                        if (e.isMeeting) types.push('Meeting')
-                        if (e.isSql) types.push('SQL')
-                        const amount = e.amount
+                        if (e.isMeeting&&inRange(e.meetingDate)) types.push('Meeting')
+                        if (e.isSql&&inRange(e.sqlDate)) types.push('SQL')
+                        const amount = (e as any).periodAmount ?? e.amount
                         const qualityColor = e.mqlQuality==='hq'?C.amber:e.mqlQuality==='lq'?'#fb923c':C.text3
                         const eventKey=`${e.email}-${i}`
                         const isExpanded=revopsExpandedEvent===eventKey
