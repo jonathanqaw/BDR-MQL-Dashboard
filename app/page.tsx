@@ -6320,11 +6320,14 @@ export default function Dashboard() {
             const events: RevOpsEvent[] = []
             const nowTs = new Date()
             const seenEmails = new Set<string>() // dedup by email
+            const seenDomains = new Set<string>() // dedup by domain to prevent historical+live duplicates
             const BOOKED_STATUSES_C=new Set(['booked','inprogress','closedwon'])
             const NON_COMMISSION_STATUSES=new Set(['new','contacted','lost','dq','na'])
             repLeads.forEach(l => {
               if (seenEmails.has(l.email)) return
+              if (l.domain && seenDomains.has(l.domain)) return
               seenEmails.add(l.email)
+              if (l.domain) seenDomains.add(l.domain)
               const det = details[l.email] || (HISTORICAL_DETAILS[l.email] ? {...EMPTY_DETAIL,...HISTORICAL_DETAILS[l.email]} : null)
               if (!det) return
               const s = statuses[l.email] || 'new'
