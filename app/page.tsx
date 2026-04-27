@@ -6334,13 +6334,11 @@ export default function Dashboard() {
               const det = lsDet ? (histDet ? {...EMPTY_DETAIL,...histDet,...Object.fromEntries(Object.entries(lsDet).filter(([,v])=>v!==''))} : lsDet) : (histDet ? {...EMPTY_DETAIL,...histDet} : null)
               if (!det) return
               const s = statuses[l.email] || 'new'
+              if (s === 'dq') return // DQ is the only status that kills commission eligibility
               const hasSql = (det.sqlDq||'').toLowerCase()==='yes'
-              // Exclude non-commission statuses (lost, dq, na, new, contacted) unless they have an SQL
-              if (NON_COMMISSION_STATUSES.has(s) && !hasSql) return
-              // Commission-eligible: has meetingDate, OR is in a booked+ status, OR has SQL
+              // Commission-eligible: has meetingDate OR has SQL — status doesn't gate it beyond DQ
               const hasMeetingDate = !!det.meetingDate
-              const isBookedStatus = BOOKED_STATUSES_C.has(s as Status)
-              if (!hasMeetingDate && !isBookedStatus && !hasSql) return
+              if (!hasMeetingDate && !hasSql) return
               // If meetingDate is in the future, skip (not yet held)
               if (hasMeetingDate) {
                 const meetDt = new Date(det.meetingDate)
