@@ -123,8 +123,17 @@ function rowId(e: CommissionEvent): string {
 }
 
 function isIcp(tier: Tier): boolean {
-  if (tier === null) return false
+  // C-tier explicitly excluded. Missing tier defaults to ICP-eligible
+  // (dashboard data sometimes lacks tier even when Salesforce/Spiff has it).
+  if (tier === 'C') return false
+  if (tier === null) return true
   return (ICP_SCORES_FOR_BONUS as readonly string[]).includes(tier)
+}
+
+function isInRange(date: Date | null, start: Date | null, end: Date | null): boolean {
+  if (!start || !end) return true
+  if (!date) return false
+  return date >= start && date <= end
 }
 
 function toIsoDate(d: Date): string {
@@ -166,16 +175,15 @@ function fmtDateShort(d: Date | null): string {
  * Group by month → sort by SQL date asc → first 3 = $620, 4th+ = $930.
  * Non-ICP and non-SQL events get $0.
  */
-export function computeSqlCommissions(events: CommissionEvent[]): Map<string, number> {
+export function computeSqlCommissions(
+  events: CommissionEvent[],
+  rangeStart: Date | null = null,
+  rangeEnd: Date | null = null
+): Map<string, number> {
   const out = new Map<string, number>()
-
-  // Initialize all events to 0
   for (const e of events) out.set(rowId(e), 0)
 
-  // Filter to commissionable SQLs
   const qualifying = events.filter(e => e.hasSql && e.sqlDate && isIcp(e.tier))
-
-  // Group by month
   const byMonth = new Map<string, CommissionEvent[]>()
   for (const e of qualifying) {
     const k = monthKey(e.sqlDate!)
@@ -183,14 +191,17 @@ export function computeSqlCommissions(events: CommissionEvent[]): Map<string, nu
     byMonth.get(k)!.push(e)
   }
 
-  // Apply accelerator within each month
   for (const monthEvents of byMonth.values()) {
     const sorted = [...monthEvents].sort(
       (a, b) => a.sqlDate!.getTime() - b.sqlDate!.getTime()
     )
     sorted.forEach((e, idx) => {
-      const amount = idx >= SQL_ACCELERATOR_THRESHOLD ? SQL_ACCELERATOR : SQL_BASE
-      out.set(rowId(e), amount)
+      // Accelerator ranking uses full monthly context, but bonus only credits if date in range
+      const inRng = isInRange(e.sqlDate, rangeStart, rangeEnd)
+      if (inRng) {
+        const amount = idx >= SQL_ACCELERATOR_THRESHOLD ? SQL_ACCELERATOR : SQL_BASE
+        out.set(rowId(e), amount)
+      }
     })
   }
 
@@ -201,11 +212,16 @@ export function computeSqlCommissions(events: CommissionEvent[]): Map<string, nu
  * Compute Meeting commission per event.
  * Rule: $150 per ICP meeting. Non-ICP gets $0.
  */
-export function computeMeetingCommissions(events: CommissionEvent[]): Map<string, number> {
+export function computeMeetingCommissions(
+  events: CommissionEvent[],
+  rangeStart: Date | null = null,
+  rangeEnd: Date | null = null
+): Map<string, number> {
   const out = new Map<string, number>()
   for (const e of events) {
     const id = rowId(e)
-    out.set(id, e.hasMeeting && e.meetingDate && isIcp(e.tier) ? MEETING_BONUS : 0)
+    const inRng = isInRange(e.meetingDate, rangeStart, rangeEnd)
+    out.set(id, e.hasMeeting && e.meetingDate && isIcp(e.tier) && inRng ? MEETING_BONUS : 0)
   }
   return out
 }
@@ -310,8 +326,10 @@ export function CommissionsTab({ events, reps }: Props) {
   // ── Filter events ──────────────────────────────────────────────────────
   const rangeEvents = useMemo(() => filterEventsToRange(allEvents, start, end), [allEvents, start, end])
 
-  const visibleEvents = useMemo(() => {
-    let filtered = rangeEvents
+  // computeEvents: rep + view-mode filtered, NOT range-filtered.
+  // (Accelerator needs full monthly context to rank correctly.)
+  const computeEvents = useMemo(() => {
+    let filtered = allEvents
     if (selectedRep !== 'All Reps') {
       filtered = filtered.filter(e => e.rep === selectedRep)
     }
@@ -319,14 +337,29 @@ export function CommissionsTab({ events, reps }: Props) {
       filtered = filtered.filter(e => verified[rowId(e)] || e.isManual)
     }
     return filtered
-  }, [rangeEvents, selectedRep, viewMode, verified])
+  }, [allEvents, selectedRep, viewMode, verified])
+
+  // visibleEvents: additionally range-filtered for the detail table display.
+  const visibleEvents = useMemo(() => {
+    if (!start || !end) return computeEvents
+    return computeEvents.filter(e => {
+      const meetingInRange = e.meetingDate && e.meetingDate >= start && e.meetingDate <= end
+      const sqlInRange = e.sqlDate && e.sqlDate >= start && e.sqlDate <= end
+      return meetingInRange || sqlInRange
+    })
+  }, [computeEvents, start, end])
 
   // ── Compute commission amounts ─────────────────────────────────────────
-  // IMPORTANT: When in Verified Only mode, accelerator is recomputed over the
-  // verified subset only — so removing 3 unverified SQLs correctly demotes
-  // later SQLs back to $620.
-  const meetingCommissions = useMemo(() => computeMeetingCommissions(visibleEvents), [visibleEvents])
-  const sqlCommissions = useMemo(() => computeSqlCommissions(visibleEvents), [visibleEvents])
+  // Uses computeEvents (full monthly context) with range params so each bonus
+  // only credits if its specific date is in the selected range.
+  const meetingCommissions = useMemo(
+    () => computeMeetingCommissions(computeEvents, start, end),
+    [computeEvents, start, end]
+  )
+  const sqlCommissions = useMemo(
+    () => computeSqlCommissions(computeEvents, start, end),
+    [computeEvents, start, end]
+  )
 
   // ── Adjustments in current range ───────────────────────────────────────
   const rangeAdjustments = useMemo(() => {
@@ -342,7 +375,7 @@ export function CommissionsTab({ events, reps }: Props) {
   const repTotals = useMemo(() => {
     const repList = selectedRep === 'All Reps' ? reps : [selectedRep]
     return repList.map(rep => {
-      const evs = visibleEvents.filter(e => e.rep === rep)
+      const evs = computeEvents.filter(e => e.rep === rep)
       let meetings = 0
       let meetingMoney = 0
       let sqls = 0
