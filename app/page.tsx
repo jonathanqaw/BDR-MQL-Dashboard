@@ -6355,19 +6355,24 @@ export default function Dashboard() {
             })
 
             // Inject frozen override events (only for Jonathan since overrides are his data)
+            // Merge meetings and SQLs by email into single events to avoid duplicate rows
             if (rep.id === 'jonathan') {
+              const overrideByEmail = new Map<string,RevOpsEvent>()
               OVERRIDE_MONTHS.forEach(mk => {
-                // Use the same override data as the Commissions Tracker
-                // We inline the frozen data reference here
                 const overrideData = getCommissionOverride(mk)
                 if (!overrideData) return
                 overrideData.meetings.forEach(m => {
-                  events.push({ email:m.email, account:m.account, meetingDate:m.date, sqlDate:null, sqoDate:null, mqlQuality:'hq', accountTier:'', sourceChannel:'', ae:'', acv:'', isMeeting:true, isSql:false, amount:m.amount, sfUrl:'', gongUrl:'' })
+                  const ex = overrideByEmail.get(m.email)
+                  if (ex) { ex.isMeeting = true; ex.meetingDate = m.date; ex.amount += m.amount }
+                  else overrideByEmail.set(m.email, { email:m.email, account:m.account, meetingDate:m.date, sqlDate:null, sqoDate:null, mqlQuality:'hq', accountTier:'', sourceChannel:'', ae:'', acv:'', isMeeting:true, isSql:false, amount:m.amount, sfUrl:'', gongUrl:'' })
                 })
                 overrideData.sqls.forEach(s => {
-                  events.push({ email:s.email, account:s.account, meetingDate:null, sqlDate:s.date, sqoDate:null, mqlQuality:'hq', accountTier:'', sourceChannel:'', ae:'', acv:'', isMeeting:false, isSql:true, amount:s.amount, sfUrl:'', gongUrl:'' })
+                  const ex = overrideByEmail.get(s.email)
+                  if (ex) { ex.isSql = true; ex.sqlDate = s.date; ex.amount += s.amount }
+                  else overrideByEmail.set(s.email, { email:s.email, account:s.account, meetingDate:null, sqlDate:s.date, sqoDate:null, mqlQuality:'hq', accountTier:'', sourceChannel:'', ae:'', acv:'', isMeeting:false, isSql:true, amount:s.amount, sfUrl:'', gongUrl:'' })
                 })
               })
+              overrideByEmail.forEach(e => events.push(e))
             }
 
             // Monthly totals
@@ -6486,25 +6491,7 @@ export default function Dashboard() {
               })
 
               // Filter detail events by period
-              // Collapse duplicate account rows: merge meeting+SQL events for the same account into one row
-              const rawPeriodEvents=periodRepData.flatMap(r=>r.periodEvents.map(e=>({...e,repName:r.rep.name,repId:r.rep.id})))
-              const mergeMap=new Map<string,typeof rawPeriodEvents[0]>()
-              rawPeriodEvents.forEach(e=>{
-                // Key by normalized account name to merge meeting+SQL for the same account
-                const key=e.account.toLowerCase().replace(/[^a-z0-9]/g,'')+'|'+e.repName
-                const existing=mergeMap.get(key)
-                if(!existing){mergeMap.set(key,{...e});return}
-                // Merge: combine flags and dates
-                if(e.isMeeting&&!existing.isMeeting){existing.isMeeting=true;existing.meetingDate=e.meetingDate}
-                if(e.isSql&&!existing.isSql){existing.isSql=true;existing.sqlDate=e.sqlDate}
-                if(e.sqoDate&&!existing.sqoDate)existing.sqoDate=e.sqoDate
-                if(e.ae&&!existing.ae)existing.ae=e.ae
-                if(e.accountTier&&!existing.accountTier)existing.accountTier=e.accountTier
-                if(e.sourceChannel&&!existing.sourceChannel)existing.sourceChannel=e.sourceChannel
-                if(e.acv&&!existing.acv)existing.acv=e.acv
-                if(e.sfUrl&&!existing.sfUrl)existing.sfUrl=e.sfUrl
-              })
-              const periodAllEvents=Array.from(mergeMap.values())
+              const periodAllEvents=periodRepData.flatMap(r=>r.periodEvents.map(e=>({...e,repName:r.rep.name,repId:r.rep.id})))
                 .sort((a,b)=>{const da=a.meetingDate||a.sqlDate||'';const db=b.meetingDate||b.sqlDate||'';return db.localeCompare(da)})
 
               // Commission Summary visibility:
