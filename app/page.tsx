@@ -6356,20 +6356,24 @@ export default function Dashboard() {
 
             // Inject frozen override events (only for Jonathan since overrides are his data)
             // Merge meetings and SQLs by email into single events to avoid duplicate rows
+            // Strip "Name — " prefix from override accounts to match April format (account name only)
+            const acctOnly=(s:string)=>{const i=s.indexOf(' — ');return i>=0?s.slice(i+3):s}
             if (rep.id === 'jonathan') {
               const overrideByEmail = new Map<string,RevOpsEvent>()
               OVERRIDE_MONTHS.forEach(mk => {
                 const overrideData = getCommissionOverride(mk)
                 if (!overrideData) return
                 overrideData.meetings.forEach(m => {
+                  const acct=acctOnly(m.account)
                   const ex = overrideByEmail.get(m.email)
                   if (ex) { ex.isMeeting = true; ex.meetingDate = m.date; ex.amount += m.amount }
-                  else overrideByEmail.set(m.email, { email:m.email, account:m.account, meetingDate:m.date, sqlDate:null, sqoDate:null, mqlQuality:'hq', accountTier:'', sourceChannel:'', ae:'', acv:'', isMeeting:true, isSql:false, amount:m.amount, sfUrl:'', gongUrl:'' })
+                  else overrideByEmail.set(m.email, { email:m.email, account:acct, meetingDate:m.date, sqlDate:null, sqoDate:null, mqlQuality:'hq', accountTier:'', sourceChannel:'', ae:'', acv:'', isMeeting:true, isSql:false, amount:m.amount, sfUrl:'', gongUrl:'' })
                 })
                 overrideData.sqls.forEach(s => {
+                  const acct=acctOnly(s.account)
                   const ex = overrideByEmail.get(s.email)
                   if (ex) { ex.isSql = true; ex.sqlDate = s.date; ex.amount += s.amount }
-                  else overrideByEmail.set(s.email, { email:s.email, account:s.account, meetingDate:null, sqlDate:s.date, sqoDate:null, mqlQuality:'hq', accountTier:'', sourceChannel:'', ae:'', acv:'', isMeeting:false, isSql:true, amount:s.amount, sfUrl:'', gongUrl:'' })
+                  else overrideByEmail.set(s.email, { email:s.email, account:acct, meetingDate:null, sqlDate:s.date, sqoDate:null, mqlQuality:'hq', accountTier:'', sourceChannel:'', ae:'', acv:'', isMeeting:false, isSql:true, amount:s.amount, sfUrl:'', gongUrl:'' })
                 })
               })
               overrideByEmail.forEach(e => events.push(e))
