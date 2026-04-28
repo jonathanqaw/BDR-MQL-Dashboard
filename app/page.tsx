@@ -6486,7 +6486,25 @@ export default function Dashboard() {
               })
 
               // Filter detail events by period
-              const periodAllEvents=periodRepData.flatMap(r=>r.periodEvents.map(e=>({...e,repName:r.rep.name,repId:r.rep.id})))
+              // Collapse duplicate account rows: merge meeting+SQL events for the same account into one row
+              const rawPeriodEvents=periodRepData.flatMap(r=>r.periodEvents.map(e=>({...e,repName:r.rep.name,repId:r.rep.id})))
+              const mergeMap=new Map<string,typeof rawPeriodEvents[0]>()
+              rawPeriodEvents.forEach(e=>{
+                // Key by normalized account name to merge meeting+SQL for the same account
+                const key=e.account.toLowerCase().replace(/[^a-z0-9]/g,'')+'|'+e.repName
+                const existing=mergeMap.get(key)
+                if(!existing){mergeMap.set(key,{...e});return}
+                // Merge: combine flags and dates
+                if(e.isMeeting&&!existing.isMeeting){existing.isMeeting=true;existing.meetingDate=e.meetingDate}
+                if(e.isSql&&!existing.isSql){existing.isSql=true;existing.sqlDate=e.sqlDate}
+                if(e.sqoDate&&!existing.sqoDate)existing.sqoDate=e.sqoDate
+                if(e.ae&&!existing.ae)existing.ae=e.ae
+                if(e.accountTier&&!existing.accountTier)existing.accountTier=e.accountTier
+                if(e.sourceChannel&&!existing.sourceChannel)existing.sourceChannel=e.sourceChannel
+                if(e.acv&&!existing.acv)existing.acv=e.acv
+                if(e.sfUrl&&!existing.sfUrl)existing.sfUrl=e.sfUrl
+              })
+              const periodAllEvents=Array.from(mergeMap.values())
                 .sort((a,b)=>{const da=a.meetingDate||a.sqlDate||'';const db=b.meetingDate||b.sqlDate||'';return db.localeCompare(da)})
 
               // Commission Summary visibility:
