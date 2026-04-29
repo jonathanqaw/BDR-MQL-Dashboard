@@ -1665,6 +1665,7 @@ export default function Dashboard() {
   const [lsReviewed,setLsReviewed]=useState<Set<string>>(new Set())
   const [lsExpandedBatches,setLsExpandedBatches]=useState<Set<string>>(new Set())
   const [pipelineSearch,setPipelineSearch]=useState('')
+  const [pieFilter,setPieFilter]=useState<'inbound'|'outbound'|'all'>('inbound')
   const [mtgSeg,setMtgSeg]=useState<'week'|'month'|'quarter'|'year'|'custom'>('month')
   const [mtgCompare,setMtgCompare]=useState(false)
   const [mtgCustomFrom,setMtgCustomFrom]=useState('')
@@ -2086,8 +2087,9 @@ export default function Dashboard() {
 
   // ── Analytics data ──────────────────────────────────────────────────────────
   // Pie: all-time status breakdown
+  const pieLeads=pieFilter==='inbound'?allLeads.filter(l=>!isOutbound(l)):pieFilter==='outbound'?allLeads.filter(l=>isOutbound(l)):allLeads
   const pieData=(Object.keys(STATUS_CONFIG) as Status[])
-    .map(s=>({label:STATUS_CONFIG[s].label,value:allLeads.filter(l=>(statuses[l.email]||'new')===s).length,color:STATUS_CONFIG[s].color}))
+    .map(s=>({label:STATUS_CONFIG[s].label,value:pieLeads.filter(l=>(statuses[l.email]||'new')===s).length,color:STATUS_CONFIG[s].color}))
     .filter(d=>d.value>0)
 
   // Bar: group leads by week or month, stacked by status, with optional date range filter
@@ -3397,7 +3399,14 @@ export default function Dashboard() {
           <div style={{display:'grid',gridTemplateColumns:'1fr 2fr',gap:16,marginBottom:24}}>
             {/* Pie */}
             <div style={card}>
-              <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:16}}>Status breakdown · all time · click a slice to filter</div>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+                <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em'}}>Status breakdown · all time</div>
+                <div style={{display:'flex',gap:0,background:C.surface3,borderRadius:6,padding:2}}>
+                  {([['inbound','Inbound','#60d4f4'],['outbound','Outbound','#e879f9'],['all','All',C.purple]] as const).map(([v,label,color])=>(
+                    <button key={v} onClick={()=>setPieFilter(v as any)} style={{fontSize:10,fontWeight:pieFilter===v?700:500,padding:'4px 10px',borderRadius:4,border:'none',cursor:'pointer',background:pieFilter===v?color:'transparent',color:pieFilter===v?'#000':C.text3}}>{label}</button>
+                  ))}
+                </div>
+              </div>
               <PieChart data={pieData} onSliceClick={(label)=>{
                 const s=(Object.keys(STATUS_CONFIG) as Status[]).find(k=>STATUS_CONFIG[k].label===label)
                 if (s) { setView('pipeline'); setStFilter(s); setPeriod('all') }
