@@ -1492,7 +1492,7 @@ export default function Dashboard() {
     } catch { sessionStorage.removeItem('mql-auth') } }
     // Check URL param for direct rep access (bypasses login)
     const params = new URLSearchParams(window.location.search)
-    const REP_VIEWS: DashView[] = ['pipeline','analytics','reporting','commissions','leaderboard','roundrobin']
+    const REP_VIEWS: DashView[] = ['pipeline','analytics','reporting','leaderboard','roundrobin']
     const repParam = params.get('rep')
     if (repParam) {
       const a:AuthState = { role:'rep', repId: repParam, allowedViews:REP_VIEWS }
@@ -1555,7 +1555,7 @@ export default function Dashboard() {
     }
     // Fall back: check rep passcodes (email + password, for reps set by manager)
     const rep = reps.find(r=>r.slackId && r.slackId.toLowerCase()===emailLower && r.passcode && r.passcode===loginPass)
-    const REP_VIEWS: DashView[] = ['pipeline','analytics','reporting','commissions','leaderboard','roundrobin']
+    const REP_VIEWS: DashView[] = ['pipeline','analytics','reporting','leaderboard','roundrobin']
     if (rep) {
       const a:AuthState = { role:'rep', repId: rep.id, allowedViews:REP_VIEWS }
       setAuth(a); sessionStorage.setItem('mql-auth', JSON.stringify(a))
@@ -2086,8 +2086,13 @@ export default function Dashboard() {
   const sqoAllTime=allLeads.filter(l=>(details[l.email]?.sqo||'')==='Yes').length
 
   // ── Analytics data ──────────────────────────────────────────────────────────
-  // Pie: all-time status breakdown
-  const pieLeads=pieFilter==='inbound'?allLeads.filter(l=>!isOutbound(l)):pieFilter==='outbound'?allLeads.filter(l=>isOutbound(l)):allLeads
+  // Pie: status breakdown — uses the same period-filtered pipeline data, then applies inbound/outbound filter
+  const pieBase=allLeads.filter(l=>{
+    if (!l.date&&!l.receivedAt) return false
+    if (period!=='all'&&!hasActivityInPeriod(l,periodStart)) return false
+    return true
+  })
+  const pieLeads=pieFilter==='inbound'?pieBase.filter(l=>!isOutbound(l)):pieFilter==='outbound'?pieBase.filter(l=>isOutbound(l)):pieBase
   const pieData=(Object.keys(STATUS_CONFIG) as Status[])
     .map(s=>({label:STATUS_CONFIG[s].label,value:pieLeads.filter(l=>(statuses[l.email]||'new')===s).length,color:STATUS_CONFIG[s].color}))
     .filter(d=>d.value>0)
@@ -2791,7 +2796,7 @@ export default function Dashboard() {
           ['pipeline','📊','Pipeline','Lead tracking · expandable'] as const,
           ['analytics','📈','Analytics','Charts · trends · breakdown'] as const,
           ...(isManagerRole(auth) ? [['reporting','🧾','Reporting','Generated summaries · leadership-ready'] as const] : []),
-          ['commissions','💲','Commissions','Bonus tracking · payouts'] as const,
+          ...(isBdm ? [['commissions','💲','Commissions','Bonus tracking · payouts'] as const] : []),
           ['leaderboard','🏆','Leaderboard','Rep rankings · spiffs'] as const,
           ['roundrobin','🔄','Round Robin','AE meeting distribution'] as const,
           ...(isManagerRole(auth) ? [['revops_commissions','📋','RevOps','Commission verification · payouts'] as const] : []),
@@ -3400,7 +3405,7 @@ export default function Dashboard() {
             {/* Pie */}
             <div style={card}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
-                <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em'}}>Status breakdown · all time</div>
+                <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em'}}>Status breakdown · {period==='all'?'all time':period}</div>
                 <div style={{display:'flex',gap:0,background:C.surface3,borderRadius:6,padding:2}}>
                   {([['inbound','Inbound','#60d4f4'],['outbound','Outbound','#e879f9'],['all','All',C.purple]] as const).map(([v,label,color])=>(
                     <button key={v} onClick={()=>setPieFilter(v as any)} style={{fontSize:10,fontWeight:pieFilter===v?700:500,padding:'4px 10px',borderRadius:4,border:'none',cursor:'pointer',background:pieFilter===v?color:'transparent',color:pieFilter===v?'#000':C.text3}}>{label}</button>
