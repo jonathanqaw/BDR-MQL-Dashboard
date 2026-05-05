@@ -3378,11 +3378,16 @@ export default function Dashboard() {
           const aSqlAllTime=aLeads.filter(l=>(details[l.email]?.sqlDq||'')==='Yes').length
           const aSqoAllTime=aLeads.filter(l=>(details[l.email]?.sqo||'')==='Yes').length
           return (<>
-
-          <div style={{display:'flex',gap:0,background:C.surface3,borderRadius:8,padding:2,marginBottom:20}}>
-            {([['inbound','Inbound','#60d4f4'],['outbound','Outbound','#e879f9'],['all','Both',C.purple]] as const).map(([v,label,color])=>(
-              <button key={v} onClick={()=>setAnalyticsDir(v as any)} style={{fontSize:12,fontWeight:analyticsDir===v?700:500,padding:'7px 18px',borderRadius:6,border:'none',cursor:'pointer',transition:'all 0.15s',background:analyticsDir===v?color:'transparent',color:analyticsDir===v?'#000':C.text3}}>{label}</button>
-            ))}
+          <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:16,marginBottom:28}}>
+            <div>
+              <div style={{fontSize:26,fontWeight:800,letterSpacing:'-0.02em',lineHeight:1.15}}>Analytics<br/><span style={{color:C.green}}>& Trends.</span></div>
+              <div style={{fontSize:12,color:C.text3,marginTop:4}}>Jonathan Kim · {analyticsDir==='all'?'all leads':analyticsDir} performance</div>
+            </div>
+            <div style={{display:'flex',gap:0,background:C.surface3,borderRadius:8,padding:2}}>
+              {([['inbound','Inbound','#60d4f4'],['outbound','Outbound','#e879f9'],['all','Both',C.purple]] as const).map(([v,label,color])=>(
+                <button key={v} onClick={()=>setAnalyticsDir(v as any)} style={{fontSize:12,fontWeight:analyticsDir===v?700:500,padding:'7px 18px',borderRadius:6,border:'none',cursor:'pointer',transition:'all 0.15s',background:analyticsDir===v?color:'transparent',color:analyticsDir===v?'#000':C.text3}}>{label}</button>
+              ))}
+            </div>
           </div>
 
           {/* Top stats */}
