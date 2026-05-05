@@ -1665,7 +1665,7 @@ export default function Dashboard() {
   const [lsReviewed,setLsReviewed]=useState<Set<string>>(new Set())
   const [lsExpandedBatches,setLsExpandedBatches]=useState<Set<string>>(new Set())
   const [pipelineSearch,setPipelineSearch]=useState('')
-  const [pieFilter,setPieFilter]=useState<'inbound'|'outbound'|'all'>('inbound')
+  const [analyticsDir,setAnalyticsDir]=useState<'inbound'|'outbound'|'all'>('inbound')
   const [mtgSeg,setMtgSeg]=useState<'week'|'month'|'quarter'|'year'|'custom'>('month')
   const [mtgCompare,setMtgCompare]=useState(false)
   const [mtgCustomFrom,setMtgCustomFrom]=useState('')
@@ -2086,21 +2086,21 @@ export default function Dashboard() {
   const sqoAllTime=allLeads.filter(l=>(details[l.email]?.sqo||'')==='Yes').length
 
   // ── Analytics data ──────────────────────────────────────────────────────────
-  // Pie: status breakdown — uses the same period-filtered pipeline data, then applies inbound/outbound filter
+  // Pie: status breakdown — uses analytics-filtered leads with period filter
   const pieBase=allLeads.filter(l=>{
     if (!l.date&&!l.receivedAt) return false
     if (period!=='all'&&!hasActivityInPeriod(l,periodStart)) return false
     return true
   })
-  const pieLeads=pieFilter==='inbound'?pieBase.filter(l=>!isOutbound(l)):pieFilter==='outbound'?pieBase.filter(l=>isOutbound(l)):pieBase
+  const pieLeads=analyticsDir==='inbound'?pieBase.filter(l=>!isOutbound(l)):analyticsDir==='outbound'?pieBase.filter(l=>isOutbound(l)):pieBase
   const pieData=(Object.keys(STATUS_CONFIG) as Status[])
     .map(s=>({label:STATUS_CONFIG[s].label,value:pieLeads.filter(l=>(statuses[l.email]||'new')===s).length,color:STATUS_CONFIG[s].color}))
     .filter(d=>d.value>0)
 
   // Bar: group leads by week or month, stacked by status, with optional date range filter
-  const buildBars=(groupBy:'week'|'month'|'quarter')=>{
+  const buildBars=(groupBy:'week'|'month'|'quarter',leadsSource:AppLead[]=allLeads)=>{
     const groups=new Map<string,{label:string;date:Date;byStatus:Record<Status,number>;leads:AppLead[]}>()
-    allLeads.forEach(l=>{
+    leadsSource.forEach(l=>{
       if (!l.receivedAt) return
       const d=new Date(l.receivedAt)
       if (chartFrom && d < new Date(chartFrom)) return
@@ -3373,24 +3373,30 @@ export default function Dashboard() {
         {/* ══════════════════════════════════════════════════════
             ANALYTICS VIEW
         ══════════════════════════════════════════════════════ */}
-        {view==='analytics'&&(<>
-          <div style={{marginBottom:28}}>
-            <div style={{fontSize:26,fontWeight:800,letterSpacing:'-0.02em',lineHeight:1.15}}>Analytics<br/><span style={{color:C.green}}>& Trends.</span></div>
-            <div style={{fontSize:12,color:C.text3,marginTop:4}}>Jonathan Kim · all-time performance</div>
+        {view==='analytics'&&(()=>{
+          const aLeads=analyticsDir==='inbound'?allLeads.filter(l=>!isOutbound(l)):analyticsDir==='outbound'?allLeads.filter(l=>isOutbound(l)):allLeads
+          const aSqlAllTime=aLeads.filter(l=>(details[l.email]?.sqlDq||'')==='Yes').length
+          const aSqoAllTime=aLeads.filter(l=>(details[l.email]?.sqo||'')==='Yes').length
+          return (<>
+
+          <div style={{display:'flex',gap:0,background:C.surface3,borderRadius:8,padding:2,marginBottom:20}}>
+            {([['inbound','Inbound','#60d4f4'],['outbound','Outbound','#e879f9'],['all','Both',C.purple]] as const).map(([v,label,color])=>(
+              <button key={v} onClick={()=>setAnalyticsDir(v as any)} style={{fontSize:12,fontWeight:analyticsDir===v?700:500,padding:'7px 18px',borderRadius:6,border:'none',cursor:'pointer',transition:'all 0.15s',background:analyticsDir===v?color:'transparent',color:analyticsDir===v?'#000':C.text3}}>{label}</button>
+            ))}
           </div>
 
           {/* Top stats */}
           <div style={{display:'grid',gridTemplateColumns:'repeat(8,1fr)',gap:12,marginBottom:28}}>
             {[
-              {label:'Total leads',     value:allLeads.length,                                                                                           color:C.green,   sub:'all time'},
-              {label:'Booked',          value:allLeads.filter(l=>(statuses[l.email]||'new')==='booked').length,                                          color:C.green,   sub:'meetings set'},
-              {label:'SQLs',            value:sqlAllTime,                                                                                                color:'#60d4f4', sub:'SQL / DQ = Yes'},
-              {label:'SQOs',            value:sqoAllTime,                                                                                                color:'#c084fc', sub:'opp created'},
-              {label:'Closed-Won',      value:allLeads.filter(l=>(details[l.email]?.closedWon||'')==='Yes'||(statuses[l.email]||'new')==='closedwon').length,                                     color:'#f59e0b', sub:'won accounts'},
-              {label:'SQL rate',        value:`${allLeads.length?Math.round(sqlAllTime/allLeads.length*100):0}%`,                                        color:C.purpleL, sub:'SQL / total'},
-              {label:'SQO rate',        value:`${allLeads.length?Math.round(sqoAllTime/allLeads.length*100):0}%`,                                        color:'#c084fc', sub:'SQO / total'},
-              {label:'Pipeline ACV',    value:`$${allLeads.reduce((s,l)=>{const d=details[l.email]; return s+((d?.sqo==='Yes'&&d?.acv)?parseAcv(d.acv):0)},0).toLocaleString()}`, color:C.amber, sub:'SQO accounts only'},
-              {label:'Closed-Won ACV',  value:`$${allLeads.reduce((s,l)=>{const d=details[l.email]; return s+(((d?.closedWon==='Yes'||(statuses[l.email]||'new')==='closedwon')&&d?.acv)?parseAcv(d.acv):0)},0).toLocaleString()}`, color:'#f59e0b', sub:'won revenue'},
+              {label:'Total leads',     value:aLeads.length,                                                                                           color:C.green,   sub:'all time'},
+              {label:'Booked',          value:aLeads.filter(l=>(statuses[l.email]||'new')==='booked').length,                                          color:C.green,   sub:'meetings set'},
+              {label:'SQLs',            value:aSqlAllTime,                                                                                                color:'#60d4f4', sub:'SQL / DQ = Yes'},
+              {label:'SQOs',            value:aSqoAllTime,                                                                                                color:'#c084fc', sub:'opp created'},
+              {label:'Closed-Won',      value:aLeads.filter(l=>(details[l.email]?.closedWon||'')==='Yes'||(statuses[l.email]||'new')==='closedwon').length,                                     color:'#f59e0b', sub:'won accounts'},
+              {label:'SQL rate',        value:`${aLeads.length?Math.round(aSqlAllTime/aLeads.length*100):0}%`,                                        color:C.purpleL, sub:'SQL / total'},
+              {label:'SQO rate',        value:`${aLeads.length?Math.round(aSqoAllTime/aLeads.length*100):0}%`,                                        color:'#c084fc', sub:'SQO / total'},
+              {label:'Pipeline ACV',    value:`$${aLeads.reduce((s,l)=>{const d=details[l.email]; return s+((d?.sqo==='Yes'&&d?.acv)?parseAcv(d.acv):0)},0).toLocaleString()}`, color:C.amber, sub:'SQO accounts only'},
+              {label:'Closed-Won ACV',  value:`$${aLeads.reduce((s,l)=>{const d=details[l.email]; return s+(((d?.closedWon==='Yes'||(statuses[l.email]||'new')==='closedwon')&&d?.acv)?parseAcv(d.acv):0)},0).toLocaleString()}`, color:'#f59e0b', sub:'won revenue'},
             ].map(s=>(
               <div key={s.label} style={card}>
                 <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:8}}>{s.label}</div>
@@ -3404,14 +3410,7 @@ export default function Dashboard() {
           <div style={{display:'grid',gridTemplateColumns:'1fr 2fr',gap:16,marginBottom:24}}>
             {/* Pie */}
             <div style={card}>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
-                <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em'}}>Status breakdown · {period==='all'?'all time':period}</div>
-                <div style={{display:'flex',gap:0,background:C.surface3,borderRadius:6,padding:2}}>
-                  {([['inbound','Inbound','#60d4f4'],['outbound','Outbound','#e879f9'],['all','All',C.purple]] as const).map(([v,label,color])=>(
-                    <button key={v} onClick={()=>setPieFilter(v as any)} style={{fontSize:10,fontWeight:pieFilter===v?700:500,padding:'4px 10px',borderRadius:4,border:'none',cursor:'pointer',background:pieFilter===v?color:'transparent',color:pieFilter===v?'#000':C.text3}}>{label}</button>
-                  ))}
-                </div>
-              </div>
+              <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:16}}>Status breakdown · {period==='all'?'all time':period}</div>
               <PieChart data={pieData} onSliceClick={(label)=>{
                 const s=(Object.keys(STATUS_CONFIG) as Status[]).find(k=>STATUS_CONFIG[k].label===label)
                 if (s) { setView('pipeline'); setStFilter(s); setPeriod('all') }
@@ -3437,7 +3436,7 @@ export default function Dashboard() {
                 {(chartFrom||chartTo)&&<button onClick={()=>{setChartFrom('');setChartTo('')}} style={{fontSize:10,fontWeight:600,color:C.text3,background:'none',border:'none',cursor:'pointer',padding:'2px 6px'}}>✕ Clear</button>}
               </div>
               <BarChart
-                bars={buildBars(chartPeriod)}
+                bars={buildBars(chartPeriod,aLeads)}
                 title={chartPeriod==='week'?'Weekly lead volume':chartPeriod==='month'?'Monthly lead volume':'Quarterly lead volume'}
                 statuses={statuses}
                 details={details}
@@ -3508,7 +3507,7 @@ export default function Dashboard() {
             const PERIOD_LABELS:{[k:string]:string}={day:'today',week:'this week',month:'this month',quarter:'this quarter',year:'this year'}
             const COMPARE_LABELS:{[k:string]:string}={day:'yesterday',week:'last week',month:'last month',quarter:'last quarter',year:'last year'}
 
-            const filterLeadsByRange=(start:Date,end:Date)=>allLeads.filter(l=>{
+            const filterLeadsByRange=(start:Date,end:Date)=>aLeads.filter(l=>{
               const dateStr=getLeadActivityDate(l)
               if(!dateStr) return false
               const d=new Date(dateStr)
@@ -3714,7 +3713,7 @@ export default function Dashboard() {
               </div>
               <BarChart
                 bars={Object.entries(
-                  allLeads
+                  aLeads
                     .filter(l => (details[l.email]?.sqo||'') === 'Yes')
                     .reduce((acc, l) => {
                       const d = details[l.email]
@@ -3747,19 +3746,19 @@ export default function Dashboard() {
               <div style={{display:'grid',gridTemplateColumns:'1fr',gap:10}}>
                 <div style={{background:C.surface3,border:`1px solid ${C.border}`,borderRadius:8,padding:'12px 14px'}}>
                   <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase'}}>Total opportunities</div>
-                  <div style={{fontSize:24,fontWeight:800,color:'#c084fc',marginTop:6}}>{allLeads.filter(l=>(details[l.email]?.sqo||'')==='Yes').length}</div>
+                  <div style={{fontSize:24,fontWeight:800,color:'#c084fc',marginTop:6}}>{aLeads.filter(l=>(details[l.email]?.sqo||'')==='Yes').length}</div>
                 </div>
                 <div style={{background:C.surface3,border:`1px solid ${C.border}`,borderRadius:8,padding:'12px 14px'}}>
                   <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase'}}>Active opportunities</div>
-                  <div style={{fontSize:24,fontWeight:800,color:'#00e5a0',marginTop:6}}>{allLeads.filter(l=>{const d=details[l.email]; const s=statuses[l.email]||'new'; return d?.sqo==='Yes' && d?.closedWon!=='Yes' && s!=='lost' && s!=='dq'}).length}</div>
+                  <div style={{fontSize:24,fontWeight:800,color:'#00e5a0',marginTop:6}}>{aLeads.filter(l=>{const d=details[l.email]; const s=statuses[l.email]||'new'; return d?.sqo==='Yes' && d?.closedWon!=='Yes' && s!=='lost' && s!=='dq'}).length}</div>
                 </div>
                 <div style={{background:C.surface3,border:`1px solid ${C.border}`,borderRadius:8,padding:'12px 14px'}}>
                   <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase'}}>Lost opportunities</div>
-                  <div style={{fontSize:24,fontWeight:800,color:C.red,marginTop:6}}>{allLeads.filter(l=>{const d=details[l.email]; const s=statuses[l.email]||'new'; return d?.sqo==='Yes' && d?.closedWon!=='Yes' && (s==='lost' || s==='dq')}).length}</div>
+                  <div style={{fontSize:24,fontWeight:800,color:C.red,marginTop:6}}>{aLeads.filter(l=>{const d=details[l.email]; const s=statuses[l.email]||'new'; return d?.sqo==='Yes' && d?.closedWon!=='Yes' && (s==='lost' || s==='dq')}).length}</div>
                 </div>
                 <div style={{background:C.surface3,border:`1px solid ${C.border}`,borderRadius:8,padding:'12px 14px'}}>
                   <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase'}}>Pipeline ACV</div>
-                  <div style={{fontSize:24,fontWeight:800,color:C.amber,marginTop:6}}>${allLeads.reduce((s,l)=>{const d=details[l.email]; return s+((d?.sqo==='Yes'&&d?.acv)?parseAcv(d.acv):0)},0).toLocaleString()}</div>
+                  <div style={{fontSize:24,fontWeight:800,color:C.amber,marginTop:6}}>${aLeads.reduce((s,l)=>{const d=details[l.email]; return s+((d?.sqo==='Yes'&&d?.acv)?parseAcv(d.acv):0)},0).toLocaleString()}</div>
                 </div>
               </div>
             </div>
@@ -3786,7 +3785,7 @@ export default function Dashboard() {
             // MQL date = receivedAt or date (when the lead entered the system)
             // SQL date = details.sqlDate (when sqlDq = Yes)
             // SQO date = details.sqoDate (when sqo = Yes)
-            const entries=allLeads.map(l=>{
+            const entries=aLeads.map(l=>{
               const det=details[l.email]||EMPTY_DETAIL
               const mqlDate=l.date||l.receivedAt||''
               const sqlDate=((det.sqlDq||'').toLowerCase()==='yes')?det.sqlDate:'';
@@ -4190,8 +4189,8 @@ export default function Dashboard() {
               }
             }).sort((a,b)=>b.acv-a.acv)
 
-            const sqoLeads=allLeads.filter(l=>(details[l.email]?.sqo||'')==='Yes'&&parseAcv(details[l.email]?.acv)>0)
-            const wonLeads=allLeads.filter(l=>((details[l.email]?.closedWon||'')==='Yes'||(statuses[l.email]||'new')==='closedwon')&&parseAcv(details[l.email]?.acv)>0)
+            const sqoLeads=aLeads.filter(l=>(details[l.email]?.sqo||'')==='Yes'&&parseAcv(details[l.email]?.acv)>0)
+            const wonLeads=aLeads.filter(l=>((details[l.email]?.closedWon||'')==='Yes'||(statuses[l.email]||'new')==='closedwon')&&parseAcv(details[l.email]?.acv)>0)
             const sqoEntries=buildEntries(sqoLeads)
             const wonEntries=buildEntries(wonLeads)
             const totalSqoAcv=sqoEntries.reduce((s,e)=>s+e.acv,0)
@@ -4354,7 +4353,7 @@ export default function Dashboard() {
                 ))}
               </div>
             </div>
-            <MQLQualityChart allLeads={allLeads} statuses={statuses} details={details}/>
+            <MQLQualityChart allLeads={aLeads} statuses={statuses} details={details}/>
           </div>
 
           {/* DQ / Nurture / Lost breakdown — clickable */}
@@ -4364,7 +4363,7 @@ export default function Dashboard() {
             </div>
             <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12}}>
               {(['nurture','lost','dq'] as Status[]).map(s=>{
-                const leads=allLeads.filter(l=>(statuses[l.email]||'new')===s)
+                const leads=aLeads.filter(l=>(statuses[l.email]||'new')===s)
                 const cfg=STATUS_CONFIG[s]
                 return (
                   <div key={s} style={{background:C.surface3,borderRadius:8,padding:'14px 16px',border:`1px solid ${cfg.border}`}}>
@@ -4423,7 +4422,7 @@ export default function Dashboard() {
               const md=new Date(det2.meetingDate);return md>=range.start&&md<=range.end
             }
             // All leads with a meetingDate in the range
-            const mtgLeads=allLeads.filter(mtgInRange)
+            const mtgLeads=aLeads.filter(mtgInRange)
             const booked=mtgLeads.length
             const held=mtgLeads.filter(l=>{const det2=details[l.email];const md=new Date(det2?.meetingDate||'');return md<=now2&&(BOOKED_SET.has((statuses[l.email]||'new') as Status)||(det2?.sqlDq||'').toLowerCase()==='yes')}).length
             const sql=mtgLeads.filter(l=>(details[l.email]?.sqlDq||'').toLowerCase()==='yes').length
@@ -4438,7 +4437,7 @@ export default function Dashboard() {
               const det2=details[l.email];if(!det2?.meetingDate)return false
               const md=new Date(det2.meetingDate);return md>=prevRange.start&&md<=prevRange.end
             }
-            const prevLeads=allLeads.filter(prevInRange)
+            const prevLeads=aLeads.filter(prevInRange)
             const pBooked=prevLeads.length
             const pHeld=prevLeads.filter(l=>{const det2=details[l.email];const md=new Date(det2?.meetingDate||'');return md<=now2&&(BOOKED_SET.has((statuses[l.email]||'new') as Status)||(det2?.sqlDq||'').toLowerCase()==='yes')}).length
             const pSql=prevLeads.filter(l=>(details[l.email]?.sqlDq||'').toLowerCase()==='yes').length
@@ -4515,7 +4514,7 @@ export default function Dashboard() {
             )
           })()}
 
-        </>)}
+        </>)})()}
 
 
         {/* ══════════════════════════════════════════════════════
