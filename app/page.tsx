@@ -3397,11 +3397,11 @@ export default function Dashboard() {
               {label:'Booked',          value:aLeads.filter(l=>(statuses[l.email]||'new')==='booked').length,                                          color:C.green,   sub:'meetings set'},
               {label:'SQLs',            value:aSqlAllTime,                                                                                                color:'#60d4f4', sub:'SQL / DQ = Yes'},
               {label:'SQOs',            value:aSqoAllTime,                                                                                                color:'#c084fc', sub:'opp created'},
-              {label:'Closed-Won',      value:aLeads.filter(l=>(details[l.email]?.closedWon||'')==='Yes'||(statuses[l.email]||'new')==='closedwon').length,                                     color:'#f59e0b', sub:'won accounts'},
+              {label:'Closed-Won',      value:aLeads.filter(l=>(statuses[l.email]||'new')==='closedwon').length,                                     color:'#f59e0b', sub:'won accounts'},
               {label:'SQL rate',        value:`${aLeads.length?Math.round(aSqlAllTime/aLeads.length*100):0}%`,                                        color:C.purpleL, sub:'SQL / total'},
               {label:'SQO rate',        value:`${aLeads.length?Math.round(aSqoAllTime/aLeads.length*100):0}%`,                                        color:'#c084fc', sub:'SQO / total'},
               {label:'Pipeline ACV',    value:`$${aLeads.reduce((s,l)=>{const d=details[l.email]; return s+((d?.sqo==='Yes'&&d?.acv)?parseAcv(d.acv):0)},0).toLocaleString()}`, color:C.amber, sub:'SQO accounts only'},
-              {label:'Closed-Won ACV',  value:`$${aLeads.reduce((s,l)=>{const d=details[l.email]; return s+(((d?.closedWon==='Yes'||(statuses[l.email]||'new')==='closedwon')&&d?.acv)?parseAcv(d.acv):0)},0).toLocaleString()}`, color:'#f59e0b', sub:'won revenue'},
+              {label:'Closed-Won ACV',  value:`$${aLeads.reduce((s,l)=>{const d=details[l.email]; return s+(((statuses[l.email]||'new')==='closedwon'&&d?.acv)?parseAcv(d.acv):0)},0).toLocaleString()}`, color:'#f59e0b', sub:'won revenue'},
             ].map(s=>(
               <div key={s.label} style={card}>
                 <div style={{fontSize:10,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:8}}>{s.label}</div>
@@ -3481,7 +3481,7 @@ export default function Dashboard() {
                   meetings:cl.filter(l=>!!details[l.email]?.meetingDate).length,
                   sqls:cl.filter(l=>(details[l.email]?.sqlDq||'').toLowerCase()==='yes').length,
                   sqos:cl.filter(l=>(details[l.email]?.sqo||'').toLowerCase()==='yes').length,
-                  won:cl.filter(l=>(details[l.email]?.closedWon||'')==='Yes'||(statuses[l.email]||'new')==='closedwon').length,
+                  won:cl.filter(l=>(statuses[l.email]||'new')==='closedwon').length,
                 }
               })
 
