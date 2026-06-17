@@ -98,7 +98,10 @@ export async function POST(req: NextRequest) {
       if (authErr) return NextResponse.json({ error: authErr.error }, { status: authErr.status })
       const sourceId: string = body.source || 'external'
       const rows: OutboundSignal[] = Array.isArray(body.signals) ? body.signals : []
-      store = upsertPushed(store, sourceId, rows)
+      // replace:true resets the store to exactly the pushed rows (clears mock /
+      // stale data for a clean full sync); otherwise upsert per category+source.
+      const base = body.replace ? { ...EMPTY_STORE } : store
+      store = upsertPushed(base, sourceId, rows)
       const persisted = await writeStore(store)
       return NextResponse.json({ ...store, sources: listSources(), persisted })
     }
