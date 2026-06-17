@@ -66,6 +66,29 @@ interface AppLead extends Lead {
   repId?: string | null
 }
 
+// ─── Outbound intent signals (Lonescale via Salesforce reports) ──────────────
+// These are a SEPARATE data set from the Slack-driven MQL leads above. They never
+// feed Forecast / SQL / SQO / pipeline math — they only power the Outbound tab's
+// signal queue + category views.
+type SignalCategory = 'job_postings' | 'job_changes' | 'new_hires' | 'new_eng_leaders'
+type SignalStatus   = 'New' | 'Reviewed' | 'Contacted' | 'Nurture' | 'Not Relevant'
+type SignalPriority = 'High' | 'Medium' | 'Low'
+type SignalBucket   = 'Call Today' | 'Work This Week' | 'Monitor' | 'Completed'
+interface OutboundSignal {
+  id: string            // stable dedup key — sf:<id>  OR  c:<account>|<contact>|<category>
+  sfId: string          // Salesforce record ID (optional)
+  category: SignalCategory
+  account: string
+  contact: string
+  title: string         // role / signal detail (job title, new title, etc.)
+  detail: string        // free-form extra context from the report
+  status: SignalStatus
+  priority: SignalPriority
+  bucket: SignalBucket
+  dateAdded: string     // YYYY-MM-DD — set once on first import, NEVER reset on refresh
+  sfUrl: string         // per-record Salesforce link (optional)
+}
+
 const EMPTY_DETAIL: LeadDetail = {
   prospectName:'', title:'', sourceChannel:'', outreachChannel:'',
   connectedDate:'', meetingDate:'', nextStep:'', nextStepStatus:'',
@@ -337,6 +360,67 @@ const SQL_OPTIONS      = ['','Yes','No','Pending']
 const SQO_OPTIONS      = ['','Yes','No']
 const CLOSED_WON_OPTIONS = ['','Yes','No']
 const MT_OPTIONS       = ['','Yes','No']
+
+// ─── Outbound signal config ──────────────────────────────────────────────────
+const SIGNAL_CATEGORIES: {key:SignalCategory;label:string}[] = [
+  {key:'job_postings',    label:'Job Postings'},
+  {key:'job_changes',     label:'Job Changes'},
+  {key:'new_hires',       label:'New Hires'},
+  {key:'new_eng_leaders', label:'New Engineering Leaders - Prospects'},
+]
+const SIGNAL_STATUSES:   SignalStatus[]   = ['New','Reviewed','Contacted','Nurture','Not Relevant']
+const SIGNAL_PRIORITIES: SignalPriority[] = ['High','Medium','Low']
+const SIGNAL_BUCKETS:    SignalBucket[]   = ['Call Today','Work This Week','Monitor','Completed']
+const SIGNAL_STATUS_C:   Record<SignalStatus,string>   = { 'New':'#60a5fa','Reviewed':'#7b6ef6','Contacted':'#00e5a0','Nurture':'#f5a623','Not Relevant':'rgba(255,255,255,0.4)' }
+const SIGNAL_PRIORITY_C: Record<SignalPriority,string> = { 'High':'#ff5c5c','Medium':'#f5a623','Low':'rgba(255,255,255,0.5)' }
+const SIGNAL_BUCKET_C:   Record<SignalBucket,string>   = { 'Call Today':'#ff5c5c','Work This Week':'#f5a623','Monitor':'#60a5fa','Completed':'#00e5a0' }
+const PRIORITY_RANK: Record<SignalPriority,number> = { 'High':0,'Medium':1,'Low':2 }
+const BUCKET_RANK:   Record<SignalBucket,number>   = { 'Call Today':0,'Work This Week':1,'Monitor':2,'Completed':3 }
+const signalDedupKey = (s:{sfId?:string;account?:string;contact?:string;category:SignalCategory}):string => {
+  const sf=(s.sfId||'').trim()
+  if(sf) return `sf:${sf}`
+  return `c:${(s.account||'').trim().toLowerCase()}|${(s.contact||'').trim().toLowerCase()}|${s.category}`
+}
+// Parse pasted/exported report rows (TSV or CSV, header-aware) into raw signal fields.
+function parsePastedSignals(raw:string, category:SignalCategory):{sfId:string;category:SignalCategory;account:string;contact:string;title:string;detail:string;sfUrl:string}[] {
+  const lines=raw.split(/\r?\n/).map(l=>l.trim()).filter(Boolean)
+  if(lines.length===0) return []
+  const delim = lines[0].includes('\t') ? '\t' : ','
+  const split=(l:string)=>l.split(delim).map(c=>c.trim().replace(/^"|"$/g,''))
+  const first=split(lines[0]).map(c=>c.toLowerCase())
+  const looksHeader=first.some(c=>/account|company|contact|^name$|prospect|title|role|position|salesforce|record id|link|url/.test(c))
+  let idx={account:0,contact:1,title:2,sfId:-1,sfUrl:-1}
+  let dataLines=lines
+  if(looksHeader){
+    const find=(...keys:string[])=>first.findIndex(c=>keys.some(k=>c.includes(k)))
+    const acct=find('account','company')
+    // Prefer an explicit contact/prospect column; only fall back to a bare "name" column
+    // that isn't the account column (so "Account Name" never gets misread as the contact).
+    let cont=find('contact','prospect')
+    if(cont<0) cont=first.findIndex((c,i)=>i!==acct && c.includes('name'))
+    const ttl=find('title','role','position','job')
+    idx={
+      account: acct>=0?acct:0,
+      contact: cont>=0?cont:1,
+      title:   ttl>=0?ttl:2,
+      sfId:    find('record id','sfid','salesforce id','18-digit','15-digit'),
+      sfUrl:   find('url','link'),
+    }
+    dataLines=lines.slice(1)
+  }
+  return dataLines.map(l=>{
+    const c=split(l)
+    return {
+      sfId:   idx.sfId>=0 ? (c[idx.sfId]||'')   : '',
+      category,
+      account:c[idx.account]||'',
+      contact:c[idx.contact]||'',
+      title:  c[idx.title]||'',
+      detail: '',
+      sfUrl:  idx.sfUrl>=0 ? (c[idx.sfUrl]||'') : '',
+    }
+  }).filter(r=>r.account||r.contact)
+}
 
 // ─── AE Round Robin Roster (v2) ─────────────────────────────────────────────
 interface AERosterEntry { name:string; calendarId:string; team:string; se:string }
@@ -1592,6 +1676,8 @@ export default function Dashboard() {
         deleted:  localStorage.getItem('mql-deleted'),
         spiffs:   localStorage.getItem('mql-spiffs'),
         commAdj:  localStorage.getItem('mql-comm-adj'),
+        'mql-ob-signals': localStorage.getItem('mql-ob-signals'),
+        'mql-ob-urls':    localStorage.getItem('mql-ob-urls'),
         savedAt:  new Date().toISOString(),
       }
       await fetch('/api/rep-data', {
@@ -1604,7 +1690,7 @@ export default function Dashboard() {
   }, [currentRep])
 
   const loadFromEdgeConfig = useCallback(async (slackId: string) => {
-    const keys = ['mql-st','mql-dt','mql-names','mql-manual','mql-deleted'] as const
+    const keys = ['mql-st','mql-dt','mql-names','mql-manual','mql-deleted','mql-ob-signals','mql-ob-urls'] as const
 
     // Always start clean when switching reps so one rep never inherits another rep's view
     keys.forEach(k => localStorage.removeItem(k))
@@ -1620,6 +1706,8 @@ export default function Dashboard() {
         if (data['mql-names'] || data.names) localStorage.setItem('mql-names', data['mql-names'] ?? data.names)
         if (data['mql-manual'] || data.manual) localStorage.setItem('mql-manual', data['mql-manual'] ?? data.manual)
         if (data['mql-deleted'] || data.deleted) localStorage.setItem('mql-deleted', data['mql-deleted'] ?? data.deleted)
+        if (data['mql-ob-signals']) localStorage.setItem('mql-ob-signals', data['mql-ob-signals'])
+        if (data['mql-ob-urls']) localStorage.setItem('mql-ob-urls', data['mql-ob-urls'])
       }
     } catch(e) {
       console.error('Rep data load failed:', e)
@@ -1630,6 +1718,8 @@ export default function Dashboard() {
     setNameOverrides(getNameOverrides())
     setManualLeads(getManualLeads())
     setDeletedEmails(getDeletedEmails())
+    setOutboundSignals(getOutboundSignals())
+    setObReportUrls(getObReportUrls())
   }, [])
 
   const [liveLeads,  setLiveLeads]  = useState<AppLead[]>([])
@@ -1680,6 +1770,15 @@ export default function Dashboard() {
   const [chartTo,    setChartTo]    = useState('')
   const [showCreate, setShowCreate] = useState(false)
   const [manualLeads,setManualLeads]= useState<AppLead[]>([])
+  // ── Outbound intent signals (Salesforce reports) ──
+  const [outboundSignals,setOutboundSignals]=useState<OutboundSignal[]>([])
+  const [obReportUrls,setObReportUrls]=useState<Record<string,string>>({})
+  const [obImportCat,setObImportCat]=useState<SignalCategory|null>(null)
+  const [obPasteText,setObPasteText]=useState('')
+  const [obQueueBucket,setObQueueBucket]=useState<'all'|SignalBucket>('all')
+  const [obCollapsedCats,setObCollapsedCats]=useState<Set<string>>(new Set())
+  const [obEditUrlCat,setObEditUrlCat]=useState<SignalCategory|null>(null)
+  const [obUrlDraft,setObUrlDraft]=useState('')
   const [nameOverrides,setNameOverrides]=useState<Record<string,string>>({})
   const [deletedEmails,setDeletedEmails]=useState<Set<string>>(new Set())
   const [showHistory,setShowHistory]=useState(false)
@@ -1796,6 +1895,11 @@ export default function Dashboard() {
   const getManualLeads=():AppLead[]=>{ try { return JSON.parse(localStorage.getItem('mql-manual')||'[]') } catch { return [] } }
   const saveManualLeads=(leads:AppLead[])=>{ localStorage.setItem('mql-manual',JSON.stringify(leads)) }
 
+  const getOutboundSignals=():OutboundSignal[]=>{ try { return JSON.parse(localStorage.getItem('mql-ob-signals')||'[]') } catch { return [] } }
+  const saveOutboundSignals=(s:OutboundSignal[])=>{ localStorage.setItem('mql-ob-signals',JSON.stringify(s)) }
+  const getObReportUrls=():Record<string,string>=>{ try { return JSON.parse(localStorage.getItem('mql-ob-urls')||'{}') } catch { return {} } }
+  const saveObReportUrls=(u:Record<string,string>)=>{ localStorage.setItem('mql-ob-urls',JSON.stringify(u)) }
+
   const getDeletedEmails=():Set<string>=>{ try { return new Set(JSON.parse(localStorage.getItem('mql-deleted')||'[]')) } catch { return new Set() } }
   const deleteAccount=(email:string)=>{
     // Remove from manual leads if it's a manual entry
@@ -1824,6 +1928,8 @@ export default function Dashboard() {
       'mql-names':localStorage.getItem('mql-names'),
       'mql-manual':localStorage.getItem('mql-manual'),
       'mql-deleted':localStorage.getItem('mql-deleted'),
+      'mql-ob-signals':localStorage.getItem('mql-ob-signals'),
+      'mql-ob-urls':localStorage.getItem('mql-ob-urls'),
     }
     const snaps=[snap,...getSnapshots()].slice(0,MAX_SNAPSHOTS)
     localStorage.setItem('mql-history',JSON.stringify(snaps))
@@ -1833,9 +1939,14 @@ export default function Dashboard() {
     saveSnapshot('before-restore')
     const keys=['mql-st','mql-dt','mql-names','mql-manual','mql-deleted'] as const
     keys.forEach(k=>{ if(snap[k]) localStorage.setItem(k,snap[k]); else localStorage.removeItem(k) })
+    // Outbound signals: only overwrite if the snapshot carries them (older snapshots predate
+    // the feature — never wipe live signals just because a legacy snapshot lacks the key).
+    if(snap['mql-ob-signals']) localStorage.setItem('mql-ob-signals',snap['mql-ob-signals'])
+    if(snap['mql-ob-urls']) localStorage.setItem('mql-ob-urls',snap['mql-ob-urls'])
     setStatuses(getSt()); setDetails(getDetails())
     setNameOverrides(getNameOverrides()); setManualLeads(getManualLeads())
     setDeletedEmails(getDeletedEmails())
+    setOutboundSignals(getOutboundSignals()); setObReportUrls(getObReportUrls())
     setShowHistory(false)
     alert('Snapshot restored.')
   }
@@ -1862,6 +1973,8 @@ export default function Dashboard() {
     setManualLeads(getManualLeads())
     setNameOverrides(getNameOverrides())
     setDeletedEmails(getDeletedEmails())
+    setOutboundSignals(getOutboundSignals())
+    setObReportUrls(getObReportUrls())
   },[])
 
   const fetchLeads=useCallback(async()=>{
@@ -1910,11 +2023,62 @@ export default function Dashboard() {
         setStatuses(st); setDetails(dt)
         setManualLeads(getManualLeads()); setNameOverrides(getNameOverrides())
         setDeletedEmails(getDeletedEmails())
+        setOutboundSignals(getOutboundSignals()); setObReportUrls(getObReportUrls())
       })
     }
   },[currentRep?.id, auth?.role])
 
   const updateStatus=(email:string,v:Status)=>{ saveSt(email,v); setStatuses(p=>({...p,[email]:v})); if(v==='closedwon'){const d={...(getDetails()[email]||EMPTY_DETAIL),closedWon:'Yes'};saveDetail(email,d);setDetails(p=>({...p,[email]:d}))} saveSnapshot('status'); syncToEdgeConfig() }
+
+  // ── Outbound signal mutators ──
+  // Import merges by dedup key. Existing rows KEEP their status/priority/bucket/dateAdded
+  // (never reset on refresh); only descriptive fields are refreshed. New rows enter as New.
+  const importOutboundSignals=(category:SignalCategory, rows:ReturnType<typeof parsePastedSignals>)=>{
+    // Match against existing rows by canonical dedup key (NOT by row.id) so that manually
+    // added rows — whose id is a throwaway tmp key — still merge when a later import carries
+    // the same account+contact. Existing rows keep their workflow state; only descriptive
+    // fields refresh. New rows enter as New / Medium / Monitor.
+    const result=[...getOutboundSignals()]
+    const today=new Date().toISOString().split('T')[0]
+    const used=new Set<number>()
+    let added=0, updated=0
+    rows.forEach(r=>{
+      const canon=signalDedupKey(r)
+      const i=result.findIndex((s,idx)=>!used.has(idx) && signalDedupKey(s)===canon)
+      if(i>=0){
+        used.add(i)
+        result[i]={...result[i], account:r.account||result[i].account, contact:r.contact||result[i].contact, title:r.title||result[i].title, sfId:r.sfId||result[i].sfId, sfUrl:r.sfUrl||result[i].sfUrl}
+        updated++
+      } else {
+        result.push({ id:canon, sfId:r.sfId, category, account:r.account, contact:r.contact, title:r.title, detail:r.detail||'', status:'New', priority:'Medium', bucket:'Monitor', dateAdded:today, sfUrl:r.sfUrl })
+        added++
+      }
+    })
+    setOutboundSignals(result); saveOutboundSignals(result); saveSnapshot('ob-import'); syncToEdgeConfig()
+    return {added,updated}
+  }
+  // id stays stable across inline edits (changing it would remount the row and steal focus).
+  // Dedup identity is recomputed only at import time. Pass sync=false for per-keystroke text
+  // edits and flush with syncToEdgeConfig() on blur to avoid a network write per character.
+  const updateOutboundSignal=(id:string, patch:Partial<OutboundSignal>, sync:boolean=true)=>{
+    const next=getOutboundSignals().map(s=>s.id===id?{...s,...patch}:s)
+    setOutboundSignals(next); saveOutboundSignals(next); if(sync) syncToEdgeConfig()
+  }
+  const deleteOutboundSignal=(id:string)=>{
+    const next=getOutboundSignals().filter(s=>s.id!==id)
+    setOutboundSignals(next); saveOutboundSignals(next); saveSnapshot('ob-delete'); syncToEdgeConfig()
+  }
+  const addManualSignal=(category:SignalCategory)=>{
+    const today=new Date().toISOString().split('T')[0]
+    const id=`tmp:${Date.now()}-${Math.round(Math.random()*1e6)}`
+    const row:OutboundSignal={ id, sfId:'', category, account:'', contact:'', title:'', detail:'', status:'New', priority:'Medium', bucket:'Monitor', dateAdded:today, sfUrl:'' }
+    const next=[row,...getOutboundSignals()]
+    setOutboundSignals(next); saveOutboundSignals(next); syncToEdgeConfig()
+  }
+  const setObReportUrl=(category:SignalCategory, url:string)=>{
+    const next={...getObReportUrls(),[category]:url}
+    setObReportUrls(next); saveObReportUrls(next); syncToEdgeConfig()
+  }
   const updateDetail=(email:string,d:LeadDetail)=>{ saveDetail(email,d); setDetails(p=>({...p,[email]:d})); saveSnapshot('detail'); syncToEdgeConfig() }
   const copyEmail=(email:string)=>{ navigator.clipboard.writeText(email).then(()=>{ setCopied(email); setTimeout(()=>setCopied(null),2000) }) }
 
@@ -2867,6 +3031,8 @@ export default function Dashboard() {
               'mql-manual':localStorage.getItem('mql-manual'),
               'mql-ae-opts-v2':localStorage.getItem('mql-ae-opts-v2'),
               'mql-deleted':localStorage.getItem('mql-deleted'),
+              'mql-ob-signals':localStorage.getItem('mql-ob-signals'),
+              'mql-ob-urls':localStorage.getItem('mql-ob-urls'),
               'mql-history':localStorage.getItem('mql-history'),
               exportedAt: new Date().toISOString(),
             }
@@ -2884,11 +3050,12 @@ export default function Dashboard() {
               reader.onload=ev=>{
                 try {
                   const data=JSON.parse(ev.target?.result as string)
-                  const keys=['mql-st','mql-dt','mql-names','mql-manual','mql-ae-opts-v2','mql-deleted'] as const
+                  const keys=['mql-st','mql-dt','mql-names','mql-manual','mql-ae-opts-v2','mql-deleted','mql-ob-signals','mql-ob-urls'] as const
                   keys.forEach(k=>{ if(data[k]) localStorage.setItem(k,data[k]) })
                   setStatuses(getSt()); setDetails(getDetails())
                   setNameOverrides(getNameOverrides()); setManualLeads(getManualLeads())
                   setDeletedEmails(getDeletedEmails())
+                  setOutboundSignals(getOutboundSignals()); setObReportUrls(getObReportUrls())
                   alert('Backup restored successfully.')
                 } catch { alert('Invalid backup file.') }
               }
@@ -3282,6 +3449,134 @@ export default function Dashboard() {
           })()}
 
 
+          {/* ══ Outbound Signals — Lonescale via Salesforce reports (Outbound tab only) ══ */}
+          {pipelineDir==='outbound'&&!searchQ&&(()=>{
+            const td:React.CSSProperties={padding:'6px 10px',verticalAlign:'middle'}
+            const inp:React.CSSProperties={fontSize:12,padding:'3px 6px',borderRadius:4,border:`1px solid ${C.border}`,background:C.surface2,color:C.text,width:'100%',minWidth:90}
+            const sel=(color:string):React.CSSProperties=>({fontSize:10,fontWeight:600,padding:'3px 5px',borderRadius:4,border:`1px solid ${C.border2}`,background:C.surface2,color,cursor:'pointer'})
+            const btnGhost:React.CSSProperties={fontSize:10,fontWeight:600,padding:'4px 9px',borderRadius:5,border:`1px solid ${C.border2}`,background:'transparent',color:C.text2,cursor:'pointer'}
+            const btnPurple:React.CSSProperties={...btnGhost,border:`1px solid ${C.purple}`,background:'rgba(123,110,246,0.12)',color:C.purpleL}
+            const btnGreen:React.CSSProperties={...btnGhost,border:`1px solid ${C.green}`,background:'rgba(0,229,160,0.12)',color:C.green}
+            const btnLink:React.CSSProperties={...btnGhost,border:`1px solid ${C.purple}`,color:C.purpleL,textDecoration:'none'}
+            const sortSignals=(arr:OutboundSignal[])=>[...arr].sort((a,b)=>(BUCKET_RANK[a.bucket]-BUCKET_RANK[b.bucket])||(PRIORITY_RANK[a.priority]-PRIORITY_RANK[b.priority])||b.dateAdded.localeCompare(a.dateAdded))
+
+            const sigRow=(s:OutboundSignal, showCat:boolean)=>{
+              const catLabel=SIGNAL_CATEGORIES.find(c=>c.key===s.category)?.label||s.category
+              return (
+                <tr key={s.id} style={{borderBottom:`1px solid ${C.border}`}}>
+                  <td style={td}><input value={s.account} onChange={e=>updateOutboundSignal(s.id,{account:e.target.value},false)} onBlur={()=>syncToEdgeConfig()} placeholder="Account" style={inp}/></td>
+                  <td style={td}><input value={s.contact} onChange={e=>updateOutboundSignal(s.id,{contact:e.target.value},false)} onBlur={()=>syncToEdgeConfig()} placeholder="Contact" style={inp}/></td>
+                  <td style={td}><input value={s.title} onChange={e=>updateOutboundSignal(s.id,{title:e.target.value},false)} onBlur={()=>syncToEdgeConfig()} placeholder="Signal / title" style={inp}/></td>
+                  {showCat&&<td style={td}><span style={{fontSize:9,fontWeight:700,padding:'2px 6px',borderRadius:999,background:'rgba(96,165,250,0.15)',color:'#60a5fa',whiteSpace:'nowrap'}}>{catLabel}</span></td>}
+                  <td style={td}><select value={s.priority} onChange={e=>updateOutboundSignal(s.id,{priority:e.target.value as SignalPriority})} style={sel(SIGNAL_PRIORITY_C[s.priority])}>{SIGNAL_PRIORITIES.map(p=><option key={p} value={p}>{p}</option>)}</select></td>
+                  <td style={td}><select value={s.status} onChange={e=>updateOutboundSignal(s.id,{status:e.target.value as SignalStatus})} style={sel(SIGNAL_STATUS_C[s.status])}>{SIGNAL_STATUSES.map(p=><option key={p} value={p}>{p}</option>)}</select></td>
+                  <td style={td}><select value={s.bucket} onChange={e=>updateOutboundSignal(s.id,{bucket:e.target.value as SignalBucket})} style={sel(SIGNAL_BUCKET_C[s.bucket])}>{SIGNAL_BUCKETS.map(p=><option key={p} value={p}>{p}</option>)}</select></td>
+                  <td style={td}><span style={{fontSize:11,color:C.text3,whiteSpace:'nowrap'}}>{s.dateAdded}</span></td>
+                  <td style={td}>
+                    <div style={{display:'flex',alignItems:'center',gap:6}}>
+                      {s.sfUrl
+                        ? <a href={s.sfUrl} target="_blank" rel="noreferrer" style={{fontSize:11,fontWeight:600,color:C.purpleL,textDecoration:'none'}}>SF ↗</a>
+                        : <input value={s.sfUrl} onChange={e=>updateOutboundSignal(s.id,{sfUrl:e.target.value},false)} onBlur={()=>syncToEdgeConfig()} placeholder="SF URL" style={{...inp,minWidth:70,width:80}}/>}
+                      <button onClick={()=>{if(window.confirm('Delete this signal?'))deleteOutboundSignal(s.id)}} title="Delete signal" style={{fontSize:11,padding:'2px 5px',borderRadius:4,border:`1px solid ${C.border2}`,background:'transparent',color:C.text3,cursor:'pointer'}}>✕</button>
+                    </div>
+                  </td>
+                </tr>
+              )
+            }
+            const sigTable=(rows:OutboundSignal[], showCat:boolean)=>(
+              <div style={{border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden',overflowX:'auto'}}>
+                <table style={{width:'100%',borderCollapse:'collapse',minWidth:showCat?860:760}}>
+                  <thead><tr style={{background:C.surface2,borderBottom:`1px solid ${C.border}`}}>
+                    {['Account','Contact','Signal',...(showCat?['Category']:[]),'Priority','Status','Bucket','Date Added','SF'].map(h=>(
+                      <th key={h} style={{textAlign:'left',padding:'8px 10px',fontSize:9,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.07em',whiteSpace:'nowrap'}}>{h}</th>
+                    ))}
+                  </tr></thead>
+                  <tbody>{rows.map(s=>sigRow(s,showCat))}</tbody>
+                </table>
+              </div>
+            )
+
+            // Prioritized queue
+            const queueVisible=sortSignals(obQueueBucket==='all'?outboundSignals.filter(s=>s.status!=='Not Relevant'):outboundSignals.filter(s=>s.bucket===obQueueBucket))
+            const bucketCount=(b:SignalBucket)=>outboundSignals.filter(s=>s.bucket===b).length
+
+            return (
+              <div style={{marginTop:20,marginBottom:24}}>
+                <div style={{display:'flex',alignItems:'baseline',gap:10,marginBottom:4}}>
+                  <span style={{fontSize:13,fontWeight:800,color:C.text,letterSpacing:'-0.01em'}}>Outbound Signals</span>
+                  <span style={{fontSize:11,color:C.text3}}>Lonescale intent · Salesforce reports · {outboundSignals.length} records</span>
+                </div>
+
+                {/* ── All Outbound Signals queue ── */}
+                <div style={{marginTop:10,marginBottom:18}}>
+                  <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',marginBottom:8}}>
+                    <span style={{fontSize:11,fontWeight:700,color:C.amber,textTransform:'uppercase',letterSpacing:'.06em'}}>All Outbound Signals</span>
+                    {([['all','All',outboundSignals.filter(s=>s.status!=='Not Relevant').length],['Call Today','Call Today',bucketCount('Call Today')],['Work This Week','Work This Week',bucketCount('Work This Week')],['Monitor','Monitor',bucketCount('Monitor')],['Completed','Completed',bucketCount('Completed')]] as const).map(([key,label,n])=>(
+                      <button key={key} onClick={()=>setObQueueBucket(key as 'all'|SignalBucket)} style={{fontSize:10,fontWeight:obQueueBucket===key?700:600,padding:'3px 9px',borderRadius:999,cursor:'pointer',border:`1px solid ${obQueueBucket===key?(key==='all'?C.purple:SIGNAL_BUCKET_C[key as SignalBucket]):C.border2}`,background:obQueueBucket===key?(key==='all'?'rgba(123,110,246,0.15)':'rgba(255,255,255,0.06)'):'transparent',color:obQueueBucket===key?(key==='all'?C.purpleL:SIGNAL_BUCKET_C[key as SignalBucket]):C.text3}}>{label} {n}</button>
+                    ))}
+                  </div>
+                  {queueVisible.length>0
+                    ? sigTable(queueVisible,true)
+                    : <div style={{border:`1px solid ${C.border}`,borderRadius:10,padding:'28px 16px',textAlign:'center',color:C.text3,fontSize:12}}>{outboundSignals.length===0?'No outbound signals yet. Import from the Salesforce reports below to build your prioritized queue.':'No signals in this bucket.'}</div>}
+                </div>
+
+                {/* ── Category sections ── */}
+                {SIGNAL_CATEGORIES.map(cat=>{
+                  const rows=sortSignals(outboundSignals.filter(s=>s.category===cat.key))
+                  const collapsed=obCollapsedCats.has(cat.key)
+                  const url=obReportUrls[cat.key]||''
+                  const toggleCollapse=()=>setObCollapsedCats(prev=>{const n=new Set(prev);if(n.has(cat.key))n.delete(cat.key);else n.add(cat.key);return n})
+                  return (
+                    <div key={cat.key} style={{marginBottom:12,border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden'}}>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,padding:'10px 14px',background:C.surface2,flexWrap:'wrap'}}>
+                        <div onClick={toggleCollapse} style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer'}}>
+                          <span style={{fontSize:12,color:C.text3}}>{collapsed?'▶':'▼'}</span>
+                          <span style={{fontSize:13,fontWeight:700,color:C.text}}>{cat.label}</span>
+                          <span style={{fontSize:11,color:C.text3}}>{rows.length} records</span>
+                        </div>
+                        <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
+                          {obEditUrlCat===cat.key
+                            ? <>
+                                <input value={obUrlDraft} onChange={e=>setObUrlDraft(e.target.value)} placeholder="https://…salesforce report URL" style={{...inp,width:240,minWidth:160}}/>
+                                <button onClick={()=>{setObReportUrl(cat.key,obUrlDraft.trim());setObEditUrlCat(null)}} style={btnGreen}>Save</button>
+                                <button onClick={()=>setObEditUrlCat(null)} style={btnGhost}>Cancel</button>
+                              </>
+                            : <>
+                                {url
+                                  ? <a href={url} target="_blank" rel="noreferrer" style={btnLink}>Open Salesforce Report ↗</a>
+                                  : <span style={{fontSize:10,color:C.text3}}>No report link set</span>}
+                                <button onClick={()=>{setObEditUrlCat(cat.key);setObUrlDraft(url)}} style={btnGhost}>{url?'Edit link':'Set report link'}</button>
+                                <button onClick={()=>{setObImportCat(obImportCat===cat.key?null:cat.key);setObPasteText('')}} style={btnPurple}>Import / Refresh</button>
+                                <button onClick={()=>addManualSignal(cat.key)} style={btnGhost}>+ Add row</button>
+                              </>}
+                        </div>
+                      </div>
+                      {obImportCat===cat.key&&(
+                        <div style={{padding:'12px 14px',borderTop:`1px solid ${C.border}`,background:C.surface}}>
+                          <div style={{fontSize:10,color:C.text3,marginBottom:6,lineHeight:1.5}}>Paste rows from the “{cat.label}” Salesforce report (TSV or CSV). A header row is auto-detected; otherwise columns are read in order: <b>Account, Contact, Title/Signal, Salesforce Record ID (optional), URL (optional)</b>. Re-importing updates existing rows and adds new ones — <b>statuses, priorities and buckets are preserved</b>.</div>
+                          <textarea value={obPasteText} onChange={e=>setObPasteText(e.target.value)} rows={5} placeholder={'Account\tContact\tTitle\tRecord ID\tURL'} style={{width:'100%',fontSize:12,fontFamily:'monospace',padding:8,borderRadius:6,border:`1px solid ${C.border2}`,background:C.surface2,color:C.text,boxSizing:'border-box'}}/>
+                          <div style={{display:'flex',gap:8,marginTop:8}}>
+                            <button onClick={()=>{
+                              const parsed=parsePastedSignals(obPasteText,cat.key)
+                              if(parsed.length===0){alert('No rows detected — check the paste format.');return}
+                              const res=importOutboundSignals(cat.key,parsed)
+                              setObPasteText('');setObImportCat(null)
+                              alert(`${cat.label}: ${res.added} new, ${res.updated} updated. Existing statuses preserved.`)
+                            }} style={btnGreen}>Import rows</button>
+                            <button onClick={()=>{setObImportCat(null);setObPasteText('')}} style={btnGhost}>Cancel</button>
+                          </div>
+                        </div>
+                      )}
+                      {!collapsed&&(rows.length>0
+                        ? <div>{sigTable(rows,false)}</div>
+                        : <div style={{padding:'22px 14px',textAlign:'center',color:C.text3,fontSize:12}}>No records yet. Use “Import / Refresh” to paste from the Salesforce report, or “+ Add row”.</div>)}
+                    </div>
+                  )
+                })}
+              </div>
+            )
+          })()}
+
           {/* ── Lonescale Section (Outbound tab only) — includes ALL outbound leads ── */}
           {pipelineDir==='outbound'&&!searchQ&&(()=>{
             const lsLeads=pipelineLeads.filter(l=>isOutbound(l))
@@ -3316,7 +3611,7 @@ export default function Dashboard() {
             }
             return (
               <div style={{marginTop:20}}>
-                <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:10}}>Lonescale Intent Signals · {lsLeads.length} pings</div>
+                <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.08em',marginBottom:10}}>Live Lonescale Pings (Slack) · {lsLeads.length} pings</div>
                 {/* Today's leads — flat, ungrouped */}
                 {todayLeads.length>0&&(
                   <div style={{marginBottom:16}}>
