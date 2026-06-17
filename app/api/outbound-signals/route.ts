@@ -15,14 +15,25 @@ const KEY = 'outbound-signals.json'
 let memStore: SignalStore | null = null
 
 // The external push (`action:'ingest'`) is how off-app sources (scheduled Claude
-// job / Zapier / CSV) write to the store. If OUTBOUND_INGEST_TOKEN is set, the
-// caller must present it as `Authorization: Bearer <token>`. If unset, the push
-// is open (fine for dev; set the token in production to lock it down).
-function ingestAuthorized(req: NextRequest): boolean {
+// job / Zapier / CSV) write to the store. It is FAIL-CLOSED: it is rejected
+// unless OUTBOUND_INGEST_TOKEN is configured server-side AND the caller presents
+// it as `Authorization: Bearer <token>`. No token configured ⇒ ingest disabled.
+// (The UI never calls 'ingest' — it only reads, and 'refresh' runs in-app
+// ingestion — so locking this down does not affect the dashboard.)
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false
+  let diff = 0
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i)
+  return diff === 0
+}
+function ingestAuthError(req: NextRequest): { status: number; error: string } | null {
   const expected = process.env.OUTBOUND_INGEST_TOKEN
-  if (!expected) return true
+  if (!expected) return { status: 503, error: 'ingest disabled: OUTBOUND_INGEST_TOKEN is not configured' }
   const header = req.headers.get('authorization') || ''
-  return header === `Bearer ${expected}`
+  const prefix = 'Bearer '
+  const presented = header.startsWith(prefix) ? header.slice(prefix.length) : ''
+  if (!presented || !timingSafeEqual(presented, expected)) return { status: 401, error: 'unauthorized' }
+  return null
 }
 
 // The Outbound Signals Store — shared across reps (the SF/source data is the
@@ -83,7 +94,8 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === 'ingest') {
-      if (!ingestAuthorized(req)) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+      const authErr = ingestAuthError(req)
+      if (authErr) return NextResponse.json({ error: authErr.error }, { status: authErr.status })
       const sourceId: string = body.source || 'external'
       const rows: OutboundSignal[] = Array.isArray(body.signals) ? body.signals : []
       store = upsertPushed(store, sourceId, rows)
