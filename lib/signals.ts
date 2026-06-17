@@ -15,6 +15,7 @@ import {
   type LonescaleRecord,
   type LonescaleCategory,
 } from '@/lib/lonescale'
+import { salesforceConfigured, fetchSalesforceCategory } from '@/lib/salesforce'
 
 export type SignalCategory = LonescaleCategory
 export const SIGNAL_CATEGORY_ORDER = LONESCALE_CATEGORY_ORDER
@@ -58,7 +59,20 @@ const SOURCES: Record<string, IngestionSource> = {
   mock: mockSource,
 }
 
+// Salesforce source registers itself only when credentials are present (so the
+// app cleanly falls back to mock otherwise). Imported lazily to keep this module
+// free of server-only assumptions at import time.
+if (salesforceConfigured()) {
+  SOURCES.salesforce = {
+    id: 'salesforce',
+    label: 'Salesforce (Lonescale)',
+    ingest: (category) => fetchSalesforceCategory(category),
+  }
+}
+
 export const DEFAULT_SOURCE_ID = 'mock'
+// Prefer Salesforce when it's configured; otherwise fall back to mock.
+export function defaultSourceId(): string { return SOURCES.salesforce ? 'salesforce' : 'mock' }
 export function listSources() { return Object.values(SOURCES).map(s => ({ id: s.id, label: s.label })) }
 export function getSource(id?: string): IngestionSource { return (id && SOURCES[id]) || mockSource }
 

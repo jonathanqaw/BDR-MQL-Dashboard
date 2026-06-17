@@ -1,13 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { put, get } from '@vercel/blob'
 import {
-  ingestCategory, upsertCategory, upsertPushed, listSources, DEFAULT_SOURCE_ID,
+  ingestCategory, upsertCategory, upsertPushed, listSources, defaultSourceId,
   SIGNAL_CATEGORY_ORDER, EMPTY_STORE, type SignalStore, type SignalCategory, type OutboundSignal,
 } from '@/lib/signals'
 
 export const dynamic = 'force-dynamic'
 
 const KEY = 'outbound-signals.json'
+
+// The external push (`action:'ingest'`) is how off-app sources (scheduled Claude
+// job / Zapier / CSV) write to the store. If OUTBOUND_INGEST_TOKEN is set, the
+// caller must present it as `Authorization: Bearer <token>`. If unset, the push
+// is open (fine for dev; set the token in production to lock it down).
+function ingestAuthorized(req: NextRequest): boolean {
+  const expected = process.env.OUTBOUND_INGEST_TOKEN
+  if (!expected) return true
+  const header = req.headers.get('authorization') || ''
+  return header === `Bearer ${expected}`
+}
 
 // The Outbound Signals Store — shared across reps (the SF/source data is the
 // same for everyone). Per-rep workflow state lives in rep-data, not here.
@@ -46,7 +57,7 @@ export async function POST(req: NextRequest) {
     let store = await readStore()
 
     if (action === 'refresh') {
-      const sourceId: string = body.source || DEFAULT_SOURCE_ID
+      const sourceId: string = body.source || defaultSourceId()
       const cats: SignalCategory[] = body.category ? [body.category] : [...SIGNAL_CATEGORY_ORDER]
       for (const cat of cats) {
         const fresh = await ingestCategory(sourceId, cat)
@@ -57,6 +68,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === 'ingest') {
+      if (!ingestAuthorized(req)) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
       const sourceId: string = body.source || 'external'
       const rows: OutboundSignal[] = Array.isArray(body.signals) ? body.signals : []
       store = upsertPushed(store, sourceId, rows)
