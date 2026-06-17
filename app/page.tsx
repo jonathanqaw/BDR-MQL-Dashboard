@@ -2039,12 +2039,13 @@ export default function Dashboard() {
   // Thin aliases keep the existing button call sites unchanged.
   const fetchObCategory=(category:SignalCategory)=>refreshObStore(category)
   const fetchAllObCategories=()=>refreshObStore()
-  // First time the Outbound tab opens this session: load the store, and if it's
-  // empty, run one ingestion pass so the four categories populate automatically.
+  // First time the Outbound tab opens this session: read the store. We do NOT
+  // auto-ingest — data is populated by a real source (Salesforce push/refresh).
+  // In dev with an empty store, use the "Refresh" button to seed sample data.
   useEffect(()=>{
     if(pipelineDir!=='outbound' || obAutoSynced) return
     setObAutoSynced(true)
-    ;(async()=>{ const n=await loadObStore(); if(!n) await refreshObStore() })()
+    loadObStore()
   },[pipelineDir,obAutoSynced])
   const updateDetail=(email:string,d:LeadDetail)=>{ saveDetail(email,d); setDetails(p=>({...p,[email]:d})); saveSnapshot('detail'); syncToEdgeConfig() }
   const copyEmail=(email:string)=>{ navigator.clipboard.writeText(email).then(()=>{ setCopied(email); setTimeout(()=>setCopied(null),2000) }) }
