@@ -2005,29 +2005,47 @@ export default function Dashboard() {
     const next={...cur,[id]:merged}
     setObOverlay(next); saveObOverlay(next); if(sync){ saveSnapshot('ob-overlay'); syncToEdgeConfig() }
   }
-  // Fetch (sync) one category's rows from the Salesforce report via /api/lonescale.
-  // SF-sourced fields refresh; the overlay is untouched, so status/priority/bucket/notes/
-  // next step are preserved across refreshes. Dedup happens server-side in lib/lonescale.
-  const fetchObCategory=useCallback(async(category:SignalCategory):Promise<number>=>{
-    setObLoading(prev=>new Set(prev).add(category)); setObError(null)
+  // ── Outbound Signals store (server-backed, source-agnostic) ──
+  // The workbench reads from /api/outbound-signals. "Refresh" runs the ingestion
+  // layer server-side (mock today; swappable to Salesforce/CSV/Apollo/etc. via
+  // lib/signals.ts) and the store returns merged rows. The per-rep workflow
+  // overlay is layered on by record id in the UI, so refreshing never disturbs
+  // status / priority / bucket / notes / next step.
+  const applyStore=(store:{signals?:any[];meta?:Record<string,any>})=>{
+    const byCat:Record<SignalCategory,LonescaleRecord[]>={job_postings:[],job_changes:[],new_hires:[],new_eng_leaders:[]}
+    ;(store.signals||[]).forEach((s:any)=>{ if(byCat[s.category as SignalCategory]) byCat[s.category as SignalCategory].push(s) })
+    const fa:Record<string,string>={}
+    Object.entries(store.meta||{}).forEach(([k,v]:any)=>{ if(v&&v.lastIngestedAt) fa[k]=v.lastIngestedAt })
+    setObRecords(byCat)
+    setObFetchedAt(prev=>({...prev,...fa}))
+    saveObCache(byCat,fa)
+  }
+  const loadObStore=async():Promise<number>=>{
+    try{ const res=await fetch('/api/outbound-signals'); const data=await res.json(); if(data&&!data.error) applyStore(data); return (data?.signals||[]).length }
+    catch(e){ setObError(e instanceof Error?e.message:'Failed to load signals'); return -1 }
+  }
+  const refreshObStore=async(category?:SignalCategory):Promise<number>=>{
+    const cats=category?[category]:[...LONESCALE_CATEGORY_ORDER]
+    setObLoading(prev=>{ const n=new Set(prev); cats.forEach(c=>n.add(c)); return n }); setObError(null)
     try{
-      const res=await fetch(`/api/lonescale?category=${category}`)
+      const res=await fetch('/api/outbound-signals',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'refresh',...(category?{category}:{})})})
       const data=await res.json()
       if(data.error) throw new Error(data.error)
-      const records:LonescaleRecord[]=data.records||[]
-      const at:string=data.fetchedAt||new Date().toISOString()
-      setObRecords(prev=>{ const next={...prev,[category]:records}; setObFetchedAt(f=>{ const nf={...f,[category]:at}; saveObCache(next,nf); return nf }); return next })
-      return records.length
-    }catch(e){ setObError(e instanceof Error?e.message:'Salesforce sync failed'); return -1 }
-    finally{ setObLoading(prev=>{ const n=new Set(prev); n.delete(category); return n }) }
-  },[])
-  const fetchAllObCategories=useCallback(async()=>{ await Promise.all(LONESCALE_CATEGORY_ORDER.map(c=>fetchObCategory(c))) },[fetchObCategory])
-  // First time the Outbound tab is opened in a session, pull any categories not already cached.
+      applyStore(data)
+      return (data.signals||[]).length
+    }catch(e){ setObError(e instanceof Error?e.message:'Refresh failed'); return -1 }
+    finally{ setObLoading(prev=>{ const n=new Set(prev); cats.forEach(c=>n.delete(c)); return n }) }
+  }
+  // Thin aliases keep the existing button call sites unchanged.
+  const fetchObCategory=(category:SignalCategory)=>refreshObStore(category)
+  const fetchAllObCategories=()=>refreshObStore()
+  // First time the Outbound tab opens this session: load the store, and if it's
+  // empty, run one ingestion pass so the four categories populate automatically.
   useEffect(()=>{
     if(pipelineDir!=='outbound' || obAutoSynced) return
     setObAutoSynced(true)
-    LONESCALE_CATEGORY_ORDER.forEach(c=>{ if(!(obRecords[c]&&obRecords[c].length)) fetchObCategory(c) })
-  },[pipelineDir,obAutoSynced,obRecords,fetchObCategory])
+    ;(async()=>{ const n=await loadObStore(); if(!n) await refreshObStore() })()
+  },[pipelineDir,obAutoSynced])
   const updateDetail=(email:string,d:LeadDetail)=>{ saveDetail(email,d); setDetails(p=>({...p,[email]:d})); saveSnapshot('detail'); syncToEdgeConfig() }
   const copyEmail=(email:string)=>{ navigator.clipboard.writeText(email).then(()=>{ setCopied(email); setTimeout(()=>setCopied(null),2000) }) }
 
@@ -3512,9 +3530,9 @@ export default function Dashboard() {
                 <div style={{marginTop:18,marginBottom:24}}>
                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',gap:10,flexWrap:'wrap',marginBottom:4}}>
                     <div><span style={{fontSize:14,fontWeight:800,color:C.text,letterSpacing:'-0.01em'}}>Outbound Workbench</span> <span style={{fontSize:11,color:C.text3}}>Lonescale intent signals from Salesforce · {c.total} records</span></div>
-                    <button onClick={()=>fetchAllObCategories()} disabled={obLoading.size>0} style={{...btnGhost,border:`1px solid ${C.purple}`,color:C.purpleL,opacity:obLoading.size>0?0.6:1}}>{obLoading.size>0?'Syncing…':'⟳ Sync all from Salesforce'}</button>
+                    <button onClick={()=>fetchAllObCategories()} disabled={obLoading.size>0} style={{...btnGhost,border:`1px solid ${C.purple}`,color:C.purpleL,opacity:obLoading.size>0?0.6:1}}>{obLoading.size>0?'Refreshing…':'⟳ Refresh all'}</button>
                   </div>
-                  {!LONESCALE_LIVE_FETCH_ENABLED&&<div style={{fontSize:10,color:C.amber,background:'rgba(245,166,35,0.1)',border:`1px solid rgba(245,166,35,0.3)`,borderRadius:7,padding:'6px 10px',marginBottom:12}}>Showing sample data — live Salesforce report sync isn’t connected yet (see <code style={{color:C.text2}}>lib/lonescale.ts</code> → <code style={{color:C.text2}}>fetchLonescaleReport</code>). Your status / priority / notes are saved and will carry over once it’s live.</div>}
+                  {!LONESCALE_LIVE_FETCH_ENABLED&&<div style={{fontSize:10,color:C.amber,background:'rgba(245,166,35,0.1)',border:`1px solid rgba(245,166,35,0.3)`,borderRadius:7,padding:'6px 10px',marginBottom:12}}>Showing sample data — no live ingestion source is connected yet. Register one in <code style={{color:C.text2}}>lib/signals.ts</code> (Salesforce / CSV / Apollo / …). Your status / priority / notes are saved and carry over once a live source is added.</div>}
                   {obError&&<div style={{fontSize:10,color:C.red,background:'rgba(255,92,92,0.1)',border:`1px solid rgba(255,92,92,0.3)`,borderRadius:7,padding:'6px 10px',marginBottom:12}}>Salesforce sync error: {obError}</div>}
 
                   {/* Progress analytics */}
@@ -3600,7 +3618,7 @@ export default function Dashboard() {
                   <span style={{fontSize:11,color:C.text3}}>{cc.total} records · {cc.done} done · refreshed {fmtWhen(obFetchedAt[cat])}</span>
                   <div style={{marginLeft:'auto',display:'flex',gap:6}}>
                     <a href={LONESCALE_REPORTS[cat].reportUrl} target="_blank" rel="noreferrer" style={btnLink}>Open Report ↗</a>
-                    <button onClick={()=>fetchObCategory(cat)} disabled={loading} style={{...btnGhost,border:`1px solid ${C.purple}`,color:C.purpleL,opacity:loading?0.6:1}}>{loading?'Syncing…':'⟳ Sync from Salesforce'}</button>
+                    <button onClick={()=>fetchObCategory(cat)} disabled={loading} style={{...btnGhost,border:`1px solid ${C.purple}`,color:C.purpleL,opacity:loading?0.6:1}}>{loading?'Refreshing…':'⟳ Refresh'}</button>
                   </div>
                 </div>
                 {obError&&<div style={{fontSize:10,color:C.red,background:'rgba(255,92,92,0.1)',border:`1px solid rgba(255,92,92,0.3)`,borderRadius:7,padding:'6px 10px',marginBottom:10}}>Salesforce sync error: {obError}</div>}
@@ -3620,7 +3638,7 @@ export default function Dashboard() {
                 </div>
 
                 {listRows.length===0
-                  ? <div style={{...card,textAlign:'center',color:C.text3,fontSize:13,padding:'40px 16px'}}>{loading?'Syncing from Salesforce…':(merged(cat).length===0?(LONESCALE_LIVE_FETCH_ENABLED?'No records in this Salesforce report. Try “Sync from Salesforce”.':'Salesforce sync isn’t connected yet — wire fetchLonescaleReport() in lib/lonescale.ts. Showing no rows.'):'No records match these filters.')}</div>
+                  ? <div style={{...card,textAlign:'center',color:C.text3,fontSize:13,padding:'40px 16px'}}>{loading?'Refreshing…':(merged(cat).length===0?(LONESCALE_LIVE_FETCH_ENABLED?'No records in this report. Try “Refresh”.':'No live ingestion source connected yet — register one in lib/signals.ts. Press “Refresh” to load sample data.'):'No records match these filters.')}</div>
                   : <div style={{border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden',overflowX:'auto'}}>
                       <table style={{width:'100%',borderCollapse:'collapse',minWidth:1120}}>
                         <thead><tr style={{background:C.surface2,borderBottom:`1px solid ${C.border}`}}>{['Account','Contact / Lead','Title','Signal','Detail','Date','Owner','Last activity','Priority','Status','Bucket','Next step','SF'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>
