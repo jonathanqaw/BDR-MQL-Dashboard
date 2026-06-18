@@ -109,22 +109,27 @@ function mapAccount(instanceUrl: string, r: any): LonescaleRecord {
   }
 }
 
-// Run one category against Salesforce and return mapped records.
-// Throws if not configured or on API error (caller falls back to mock).
-export async function fetchSalesforceCategory(category: LonescaleCategory): Promise<LonescaleRecord[]> {
+// Run one category against Salesforce and return mapped records, ordered by
+// signal date DESC. opts.limit/opts.offset support the deep-scan "Add More"
+// flow (paging deeper than the first page to find net-new records).
+// Throws if not configured or on API error.
+export async function fetchSalesforceCategory(category: LonescaleCategory, opts?: { limit?: number; offset?: number }): Promise<LonescaleRecord[]> {
   const instanceUrl = process.env.SF_INSTANCE_URL
   const token = process.env.SF_ACCESS_TOKEN
   if (!instanceUrl || !token) throw new Error('Salesforce not configured (SF_INSTANCE_URL / SF_ACCESS_TOKEN)')
+  const limit = opts?.limit ?? LIMIT
+  const offset = opts?.offset ?? 0
+  const page = `LIMIT ${limit}${offset ? ` OFFSET ${offset}` : ''}` // SOQL OFFSET max 2000
 
   if (category === 'job_postings') {
-    const soql = `SELECT ${ACCOUNT_SELECT} FROM Account WHERE ${JOB_POSTINGS_WHERE} ORDER BY LoneScale__LS_Company_Date_Last_Intent__c DESC NULLS LAST LIMIT ${LIMIT}`
+    const soql = `SELECT ${ACCOUNT_SELECT} FROM Account WHERE ${JOB_POSTINGS_WHERE} ORDER BY LoneScale__LS_Company_Date_Last_Intent__c DESC NULLS LAST ${page}`
     const rows = await runQuery(instanceUrl, token, soql)
     return rows.map(r => mapAccount(instanceUrl, r))
   }
 
   const where = CONTACT_WHERE[category]
   if (!where) return []
-  const soql = `SELECT ${CONTACT_SELECT} FROM Contact WHERE ${where} ORDER BY LoneScale__lonescale_last_update__c DESC NULLS LAST LIMIT ${LIMIT}`
+  const soql = `SELECT ${CONTACT_SELECT} FROM Contact WHERE ${where} ORDER BY LoneScale__lonescale_last_update__c DESC NULLS LAST ${page}`
   const rows = await runQuery(instanceUrl, token, soql)
   return rows.map(r => mapContact(category, instanceUrl, r))
 }

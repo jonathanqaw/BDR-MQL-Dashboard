@@ -1736,6 +1736,10 @@ export default function Dashboard() {
   const [obListBucket,setObListBucket]=useState<'all'|SignalBucket>('all')
   const [obListSort,setObListSort]=useState<'priority'|'date'|'account'|'status'>('priority')
   const [obAutoSynced,setObAutoSynced]=useState(false) // one-time auto sync per session
+  const [obAddPickerCat,setObAddPickerCat]=useState<SignalCategory|null>(null) // which category's Add-More count picker is open
+  const [obActivity,setObActivity]=useState<{at:string;category:string;source:string;added:number;skipped:number;message:string}[]>([])
+  const [obAddMsg,setObAddMsg]=useState<string|null>(null) // transient Add-More result message
+  const [obShowActivity,setObShowActivity]=useState(false)
   const [nameOverrides,setNameOverrides]=useState<Record<string,string>>({})
   const [deletedEmails,setDeletedEmails]=useState<Set<string>>(new Set())
   const [showHistory,setShowHistory]=useState(false)
@@ -2011,34 +2015,38 @@ export default function Dashboard() {
   // lib/signals.ts) and the store returns merged rows. The per-rep workflow
   // overlay is layered on by record id in the UI, so refreshing never disturbs
   // status / priority / bucket / notes / next step.
-  const applyStore=(store:{signals?:any[];meta?:Record<string,any>})=>{
+  const applyStore=(store:{signals?:any[];meta?:Record<string,any>;activity?:any[]})=>{
     const byCat:Record<SignalCategory,LonescaleRecord[]>={job_postings:[],job_changes:[],new_hires:[],new_eng_leaders:[]}
     ;(store.signals||[]).forEach((s:any)=>{ if(byCat[s.category as SignalCategory]) byCat[s.category as SignalCategory].push(s) })
     const fa:Record<string,string>={}
-    Object.entries(store.meta||{}).forEach(([k,v]:any)=>{ if(v&&v.lastIngestedAt) fa[k]=v.lastIngestedAt })
+    // "Last added" = most recent add; fall back to last full ingest.
+    Object.entries(store.meta||{}).forEach(([k,v]:any)=>{ const t=v&&(v.lastAddedAt||v.lastIngestedAt); if(t) fa[k]=t })
     setObRecords(byCat)
     setObFetchedAt(prev=>({...prev,...fa}))
+    setObActivity(Array.isArray(store.activity)?store.activity:[])
     saveObCache(byCat,fa)
+  }
+  // Add More: append the freshest net-new records for one category (deduped,
+  // never replaces). Pulls from the live source server-side; if Salesforce
+  // isn't configured in-app yet, the API returns needsExternalPush and we
+  // explain the Claude/Zapier push path.
+  const addMoreObCategory=async(category:SignalCategory, limit:number)=>{
+    setObAddPickerCat(null); setObAddMsg(null); setObError(null)
+    setObLoading(prev=>new Set(prev).add(category))
+    try{
+      const res=await fetch('/api/outbound-signals',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'add-more',category,limit,source:'salesforce'})})
+      const data=await res.json()
+      if(data.error) throw new Error(data.error)
+      applyStore(data)
+      if(data.needsExternalPush) setObAddMsg(`⚠ ${data.message}`)
+      else setObAddMsg(`${LONESCALE_REPORTS[category].label}: added ${data.added}${data.skipped?` · skipped ${data.skipped} duplicate${data.skipped===1?'':'s'}`:''}${data.added===0?' · no new records found':''}`)
+    }catch(e){ setObError(e instanceof Error?e.message:'Add More failed') }
+    finally{ setObLoading(prev=>{ const n=new Set(prev); n.delete(category); return n }) }
   }
   const loadObStore=async():Promise<number>=>{
     try{ const res=await fetch('/api/outbound-signals'); const data=await res.json(); if(data&&!data.error) applyStore(data); return (data?.signals||[]).length }
     catch(e){ setObError(e instanceof Error?e.message:'Failed to load signals'); return -1 }
   }
-  const refreshObStore=async(category?:SignalCategory):Promise<number>=>{
-    const cats=category?[category]:[...LONESCALE_CATEGORY_ORDER]
-    setObLoading(prev=>{ const n=new Set(prev); cats.forEach(c=>n.add(c)); return n }); setObError(null)
-    try{
-      const res=await fetch('/api/outbound-signals',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'refresh',...(category?{category}:{})})})
-      const data=await res.json()
-      if(data.error) throw new Error(data.error)
-      applyStore(data)
-      return (data.signals||[]).length
-    }catch(e){ setObError(e instanceof Error?e.message:'Refresh failed'); return -1 }
-    finally{ setObLoading(prev=>{ const n=new Set(prev); cats.forEach(c=>n.delete(c)); return n }) }
-  }
-  // Thin aliases keep the existing button call sites unchanged.
-  const fetchObCategory=(category:SignalCategory)=>refreshObStore(category)
-  const fetchAllObCategories=()=>refreshObStore()
   // First time the Outbound tab opens this session: read the store. We do NOT
   // auto-ingest — data is populated by a real source (Salesforce push/refresh).
   // In dev with an empty store, use the "Refresh" button to seed sample data.
@@ -3426,6 +3434,21 @@ export default function Dashboard() {
             const btnGhost:React.CSSProperties={fontSize:11,fontWeight:600,padding:'5px 10px',borderRadius:6,border:`1px solid ${C.border2}`,background:'transparent',color:C.text2,cursor:'pointer'}
             const btnLink:React.CSSProperties={...btnGhost,border:`1px solid ${C.purple}`,color:C.purpleL,textDecoration:'none'}
             const chip=(active:boolean,color:string):React.CSSProperties=>({fontSize:10,fontWeight:active?700:600,padding:'3px 9px',borderRadius:999,cursor:'pointer',border:`1px solid ${active?color:C.border2}`,background:active?'rgba(255,255,255,0.06)':'transparent',color:active?color:C.text3})
+            const qBtn=(emph:boolean):React.CSSProperties=>({fontSize:10,fontWeight:emph?800:600,padding:'3px 8px',borderRadius:5,cursor:'pointer',border:`1px solid ${emph?C.green:C.border2}`,background:emph?'rgba(0,229,160,0.12)':'transparent',color:emph?C.green:C.text2})
+            // Per-category "Add More" control: a button that expands to a 10/25/50/100
+            // count picker (25 emphasized as the default). Clicking a number appends
+            // that many net-new records for the category.
+            const addMoreControl=(cat:SignalCategory)=>{
+              const busy=obLoading.has(cat)
+              if(obAddPickerCat===cat) return (
+                <span style={{display:'inline-flex',gap:4,alignItems:'center'}} onClick={e=>e.stopPropagation()}>
+                  <span style={{fontSize:9,color:C.text3}}>add</span>
+                  {[10,25,50,100].map(n=><button key={n} onClick={e=>{e.stopPropagation();addMoreObCategory(cat,n)}} style={qBtn(n===25)}>{n}</button>)}
+                  <button onClick={e=>{e.stopPropagation();setObAddPickerCat(null)}} style={{...qBtn(false),border:'none'}}>✕</button>
+                </span>
+              )
+              return <button onClick={e=>{e.stopPropagation();setObAddMsg(null);setObAddPickerCat(cat)}} disabled={busy} style={{fontSize:10,fontWeight:700,padding:'3px 9px',borderRadius:5,border:`1px solid ${C.green}`,background:'rgba(0,229,160,0.12)',color:C.green,cursor:'pointer',opacity:busy?0.6:1}}>{busy?'Adding…':'+ Add More'}</button>
+            }
 
             const merged=(cat:SignalCategory):WorkbenchRow[]=>(obRecords[cat]||[]).map(r=>({...r,...DEFAULT_OVERLAY,...(obOverlay[r.id]||{})}))
             const allRows:WorkbenchRow[]=LONESCALE_CATEGORY_ORDER.flatMap(merged)
@@ -3530,11 +3553,20 @@ export default function Dashboard() {
               return (
                 <div style={{marginTop:18,marginBottom:24}}>
                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',gap:10,flexWrap:'wrap',marginBottom:4}}>
-                    <div><span style={{fontSize:14,fontWeight:800,color:C.text,letterSpacing:'-0.01em'}}>Outbound Workbench</span> <span style={{fontSize:11,color:C.text3}}>Lonescale intent signals from Salesforce · {c.total} records</span></div>
-                    <button onClick={()=>fetchAllObCategories()} disabled={obLoading.size>0} style={{...btnGhost,border:`1px solid ${C.purple}`,color:C.purpleL,opacity:obLoading.size>0?0.6:1}}>{obLoading.size>0?'Refreshing…':'⟳ Refresh all'}</button>
+                    <div><span style={{fontSize:14,fontWeight:800,color:C.text,letterSpacing:'-0.01em'}}>Outbound Workbench</span> <span style={{fontSize:11,color:C.text3}}>Lonescale prospecting queue · {c.total} records · add more per category as you work them</span></div>
+                    {obActivity.length>0&&<button onClick={()=>setObShowActivity(v=>!v)} style={{...btnGhost,color:C.text3}}>{obShowActivity?'Hide activity':'Activity log'}</button>}
                   </div>
-                  {!LONESCALE_LIVE_FETCH_ENABLED&&<div style={{fontSize:10,color:C.amber,background:'rgba(245,166,35,0.1)',border:`1px solid rgba(245,166,35,0.3)`,borderRadius:7,padding:'6px 10px',marginBottom:12}}>Showing sample data — no live ingestion source is connected yet. Register one in <code style={{color:C.text2}}>lib/signals.ts</code> (Salesforce / CSV / Apollo / …). Your status / priority / notes are saved and carry over once a live source is added.</div>}
-                  {obError&&<div style={{fontSize:10,color:C.red,background:'rgba(255,92,92,0.1)',border:`1px solid rgba(255,92,92,0.3)`,borderRadius:7,padding:'6px 10px',marginBottom:12}}>Salesforce sync error: {obError}</div>}
+                  {obAddMsg&&<div style={{fontSize:11,color:obAddMsg.startsWith('⚠')?C.amber:C.green,background:obAddMsg.startsWith('⚠')?'rgba(245,166,35,0.1)':'rgba(0,229,160,0.1)',border:`1px solid ${obAddMsg.startsWith('⚠')?'rgba(245,166,35,0.3)':'rgba(0,229,160,0.3)'}`,borderRadius:7,padding:'6px 10px',margin:'8px 0'}}>{obAddMsg}</div>}
+                  {!LONESCALE_LIVE_FETCH_ENABLED&&<div style={{fontSize:10,color:C.amber,background:'rgba(245,166,35,0.1)',border:`1px solid rgba(245,166,35,0.3)`,borderRadius:7,padding:'6px 10px',marginBottom:12}}>“Add More” pulls fresh Salesforce records and appends only net-new ones (your status / priority / notes are preserved). In-app Add More activates once Salesforce credentials are set in Vercel; until then new records are added via the authenticated Claude/Zapier push.</div>}
+                  {obError&&<div style={{fontSize:10,color:C.red,background:'rgba(255,92,92,0.1)',border:`1px solid rgba(255,92,92,0.3)`,borderRadius:7,padding:'6px 10px',marginBottom:12}}>Error: {obError}</div>}
+                  {obShowActivity&&<div style={{...card,marginBottom:12,padding:'10px 12px'}}>
+                    <div style={{fontSize:11,fontWeight:700,color:C.text3,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:6}}>Activity log</div>
+                    {obActivity.length===0?<div style={{fontSize:11,color:C.text3}}>No activity yet.</div>:obActivity.slice(0,12).map((a,i)=>(
+                      <div key={i} style={{display:'flex',justifyContent:'space-between',gap:10,padding:'3px 0',fontSize:11,color:C.text2,borderBottom:i<Math.min(11,obActivity.length-1)?`1px solid ${C.border}`:'none'}}>
+                        <span>{a.message}</span><span style={{color:C.text3,whiteSpace:'nowrap'}}>{fmtWhen(a.at)}</span>
+                      </div>
+                    ))}
+                  </div>}
 
                   {/* Progress analytics */}
                   <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(240px,1fr))',gap:12,marginBottom:18}}>
@@ -3586,11 +3618,11 @@ export default function Dashboard() {
                             <span style={{fontSize:10,fontWeight:600,padding:'2px 7px',borderRadius:999,background:'rgba(0,229,160,0.15)',color:C.green}}>{cc.contacted} contacted</span>
                             <span style={{fontSize:10,fontWeight:600,padding:'2px 7px',borderRadius:999,background:'rgba(255,255,255,0.06)',color:C.text3}}>{cc.done} done</span>
                           </div>
-                          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8}}>
-                            <span style={{fontSize:10,color:C.text3}}>Refreshed {fmtWhen(obFetchedAt[cat])}</span>
-                            <div style={{display:'flex',gap:6}} onClick={e=>e.stopPropagation()}>
+                          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+                            <span style={{fontSize:10,color:C.text3}}>{obFetchedAt[cat]?`Last added ${fmtWhen(obFetchedAt[cat])}`:'Not yet added'}</span>
+                            <div style={{display:'flex',gap:6,alignItems:'center'}} onClick={e=>e.stopPropagation()}>
                               <a href={LONESCALE_REPORTS[cat].reportUrl} target="_blank" rel="noreferrer" style={{fontSize:10,fontWeight:600,color:C.purpleL,textDecoration:'none'}}>Open Report ↗</a>
-                              <button onClick={()=>fetchObCategory(cat)} disabled={loading} style={{fontSize:10,fontWeight:600,padding:'2px 7px',borderRadius:5,border:`1px solid ${C.border2}`,background:'transparent',color:C.text2,cursor:'pointer',opacity:loading?0.6:1}}>{loading?'…':'⟳'}</button>
+                              {addMoreControl(cat)}
                             </div>
                           </div>
                         </div>
@@ -3616,13 +3648,14 @@ export default function Dashboard() {
                 <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',marginBottom:10}}>
                   <button onClick={()=>setObCategory(null)} style={btnGhost}>← All categories</button>
                   <span style={{fontSize:15,fontWeight:800,color:C.text,letterSpacing:'-0.01em'}}>{LONESCALE_REPORTS[cat].label}</span>
-                  <span style={{fontSize:11,color:C.text3}}>{cc.total} records · {cc.done} done · refreshed {fmtWhen(obFetchedAt[cat])}</span>
-                  <div style={{marginLeft:'auto',display:'flex',gap:6}}>
+                  <span style={{fontSize:11,color:C.text3}}>{cc.total} records · {cc.done} done{obFetchedAt[cat]?` · last added ${fmtWhen(obFetchedAt[cat])}`:''}</span>
+                  <div style={{marginLeft:'auto',display:'flex',gap:6,alignItems:'center'}}>
                     <a href={LONESCALE_REPORTS[cat].reportUrl} target="_blank" rel="noreferrer" style={btnLink}>Open Report ↗</a>
-                    <button onClick={()=>fetchObCategory(cat)} disabled={loading} style={{...btnGhost,border:`1px solid ${C.purple}`,color:C.purpleL,opacity:loading?0.6:1}}>{loading?'Refreshing…':'⟳ Refresh'}</button>
+                    {addMoreControl(cat)}
                   </div>
                 </div>
-                {obError&&<div style={{fontSize:10,color:C.red,background:'rgba(255,92,92,0.1)',border:`1px solid rgba(255,92,92,0.3)`,borderRadius:7,padding:'6px 10px',marginBottom:10}}>Salesforce sync error: {obError}</div>}
+                {obAddMsg&&<div style={{fontSize:11,color:obAddMsg.startsWith('⚠')?C.amber:C.green,background:obAddMsg.startsWith('⚠')?'rgba(245,166,35,0.1)':'rgba(0,229,160,0.1)',border:`1px solid ${obAddMsg.startsWith('⚠')?'rgba(245,166,35,0.3)':'rgba(0,229,160,0.3)'}`,borderRadius:7,padding:'6px 10px',marginBottom:10}}>{obAddMsg}</div>}
+                {obError&&<div style={{fontSize:10,color:C.red,background:'rgba(255,92,92,0.1)',border:`1px solid rgba(255,92,92,0.3)`,borderRadius:7,padding:'6px 10px',marginBottom:10}}>Error: {obError}</div>}
 
                 {/* Filters */}
                 <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center',marginBottom:10}}>
@@ -3639,7 +3672,7 @@ export default function Dashboard() {
                 </div>
 
                 {listRows.length===0
-                  ? <div style={{...card,textAlign:'center',color:C.text3,fontSize:13,padding:'40px 16px'}}>{loading?'Refreshing…':(merged(cat).length===0?(LONESCALE_LIVE_FETCH_ENABLED?'No records in this report. Try “Refresh”.':'No live ingestion source connected yet — register one in lib/signals.ts. Press “Refresh” to load sample data.'):'No records match these filters.')}</div>
+                  ? <div style={{...card,textAlign:'center',color:C.text3,fontSize:13,padding:'40px 16px'}}>{loading?'Adding…':(merged(cat).length===0?'No records in this category yet — use “+ Add More” to pull the freshest Salesforce signals.':'No records match these filters.')}</div>
                   : <div style={{border:`1px solid ${C.border}`,borderRadius:10,overflow:'hidden',overflowX:'auto'}}>
                       <table style={{width:'100%',borderCollapse:'collapse',minWidth:1120}}>
                         <thead><tr style={{background:C.surface2,borderBottom:`1px solid ${C.border}`}}>{['Account','Contact / Lead','Title','Signal','Detail','Date','Owner','Last activity','Priority','Status','Bucket','Next step','SF'].map(h=><th key={h} style={th}>{h}</th>)}</tr></thead>

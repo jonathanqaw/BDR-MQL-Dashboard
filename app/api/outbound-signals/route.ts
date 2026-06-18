@@ -1,13 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { put, get } from '@vercel/blob'
 import {
-  ingestCategory, upsertCategory, upsertPushed, listSources, defaultSourceId,
+  ingestCategory, upsertCategory, upsertPushed, appendSignals, addMoreFromSource, logActivity,
+  isSourceConfigured, listSources, defaultSourceId,
   SIGNAL_CATEGORY_ORDER, EMPTY_STORE, type SignalStore, type SignalCategory, type OutboundSignal,
 } from '@/lib/signals'
 
 export const dynamic = 'force-dynamic'
 
 const KEY = 'outbound-signals.json'
+
+// Accept camelCase category aliases (per the documented add-more request shape)
+// alongside the internal snake_case keys.
+function normalizeCategory(c: any): SignalCategory | null {
+  const map: Record<string, SignalCategory> = {
+    jobPostings: 'job_postings', jobChanges: 'job_changes', newHires: 'new_hires',
+    newEngLeaders: 'new_eng_leaders', newEngineeringLeaders: 'new_eng_leaders',
+    job_postings: 'job_postings', job_changes: 'job_changes', new_hires: 'new_hires', new_eng_leaders: 'new_eng_leaders',
+  }
+  return (c && map[c]) || null
+}
 
 // Same-instance fallback when Vercel Blob isn't configured (local dev) or is
 // briefly unavailable. In production Blob is the source of truth and shared
@@ -98,12 +110,46 @@ export async function POST(req: NextRequest) {
       if (authErr) return NextResponse.json({ error: authErr.error }, { status: authErr.status })
       const sourceId: string = body.source || 'external'
       const rows: OutboundSignal[] = Array.isArray(body.signals) ? body.signals : []
-      // replace:true resets the store to exactly the pushed rows (clears mock /
-      // stale data for a clean full sync); otherwise upsert per category+source.
+      // mode:'append' adds net-new rows and skips dupes (the external "Add More"
+      // push) — never replaces. replace:true wipes the whole store first (clean
+      // full sync). Default upserts per category+source.
+      if (body.mode === 'append') {
+        const { store: ns, added, skipped } = appendSignals(store, sourceId, rows)
+        store = logActivity(ns, { at: new Date().toISOString(), category: rows[0]?.category || '(mixed)', source: sourceId, added, skipped, message: added ? `Pushed ${added} (append)` : 'No new records' })
+        const persisted = await writeStore(store)
+        return NextResponse.json({ ...store, sources: listSources(), added, skipped, persisted })
+      }
       const base = body.replace ? { ...EMPTY_STORE } : store
       store = upsertPushed(base, sourceId, rows)
       const persisted = await writeStore(store)
       return NextResponse.json({ ...store, sources: listSources(), persisted })
+    }
+
+    // add-more: append the freshest net-new records for ONE category from a
+    // server-configured source (deep-scans past dupes). This pulls only from the
+    // trusted source and appends deduped data, so it does not require the ingest
+    // token. If the source isn't configured in-app (e.g. Salesforce creds not in
+    // Vercel yet), it returns needsExternalPush so the UI can explain the
+    // Claude/Zapier push path. Capped at 100/request.
+    if (action === 'add-more') {
+      const category = normalizeCategory(body.category)
+      if (!category) return NextResponse.json({ error: 'valid category required', categories: SIGNAL_CATEGORY_ORDER }, { status: 400 })
+      const sourceId: string = body.source || defaultSourceId()
+      const limit = Math.max(1, Math.min(100, Number(body.limit) || 25))
+      if (!isSourceConfigured(sourceId)) {
+        const existingCount = store.signals.filter(s => s.category === category).length
+        return NextResponse.json({
+          ...store, sources: listSources(), ok: false, needsExternalPush: true, existingCount,
+          message: `In-app Add More needs the “${sourceId}” source configured in Vercel (Salesforce credentials). Until then, new records are added via the authenticated Claude/Zapier push.`,
+        })
+      }
+      const { store: ns, added, skipped, scanned } = await addMoreFromSource(store, sourceId, category, limit)
+      store = logActivity(ns, {
+        at: new Date().toISOString(), category, source: sourceId, added, skipped,
+        message: added > 0 ? `Added ${added} ${category}${skipped ? ` · skipped ${skipped} duplicate${skipped === 1 ? '' : 's'}` : ''}` : 'No new records found',
+      })
+      const persisted = await writeStore(store)
+      return NextResponse.json({ ...store, sources: listSources(), ok: true, added, skipped, scanned, requested: limit, persisted })
     }
 
     return NextResponse.json({ error: `unknown action '${action}'` }, { status: 400 })
