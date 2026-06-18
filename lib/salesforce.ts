@@ -37,7 +37,10 @@ const SIGNAL_TYPE: Record<LonescaleCategory, string> = {
 // Contact-level categories: object=Contact, with a per-category WHERE clause.
 const CONTACT_WHERE: Partial<Record<LonescaleCategory, string>> = {
   job_changes:     `LoneScale__LS_Last_Intent__c = 'Job Change'`,
-  new_hires:       `LoneScale__LS_Last_Intent__c = 'New Hire'`,
+  // New Hires = new-hire intent EXCLUDING the eng-leadership workflow, so it's
+  // disjoint from New Eng Leaders (every eng-leadership contact also carries
+  // intent 'New Hire', which previously made the two categories identical).
+  new_hires:       `LoneScale__LS_Last_Intent__c = 'New Hire' AND (LoneScale__lonescale_workflow_name__c = null OR (NOT LoneScale__lonescale_workflow_name__c LIKE '%Eng Leadership%'))`,
   new_eng_leaders: `LoneScale__lonescale_workflow_name__c LIKE '%Eng Leadership%'`,
 }
 const CONTACT_SELECT = [
